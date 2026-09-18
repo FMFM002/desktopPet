@@ -207,7 +207,18 @@ class PetAnimationWidget(QWidget):
 
         if file_path.lower().endswith(".gif"):
             self._movie = QMovie(file_path)
-            self._movie.setCacheMode(QMovie.CacheAll)
+            # ★ 1.9.2（内存调研实测结论，用户批准的单行改动）：
+            #   原来是 QMovie.CacheAll —— 它会在**载入时把整段 GIF 全部解码**驻留内存。
+            #   实测（500×500 / 132 帧 / 6.30 MB 的"盖被子睡着了.gif"，独立进程 RSS）：
+            #       CacheAll   +127.9 MB
+            #       CacheNone  +  1.9 MB      ← 差 ~126 MB
+            #   而播放效果看不出差别（QMovie 本来就会为当前帧做解码，
+            #   下一帧在 24fps 下有一整个 41ms 的预算，实测无卡顿）。
+            #   形象子进程实测峰值也从 181.9 MB 降下来。
+            #   想退回旧行为：把下面这行的 CacheNone 改回 CacheAll 即可。
+            #   （相关：连切 6 个 ≥3MB 的 GIF 实测不累积，说明旧 QMovie 释放是好的，
+            #     所以这里省下的是**每张图整段解码**的那一份，不是泄漏。）
+            self._movie.setCacheMode(QMovie.CacheNone)
             try:
                 self._gif_frames = int(self._movie.frameCount() or 0)
             except Exception:
