@@ -126,6 +126,10 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
         _winsize_bak、_cleanup_190.ps1、清理临时文件.bat、126 个旧日志
       · logs\ 从 146 个精简到最新 20 个；提交 1411b01
       · 保留：_local_llm_dev.py、_sweep_out（回归输出要用）
+      · 补清（任务 9 收尾时发现漏了）：根目录 7 个更早的临时文件也丢进回收站
+        （_dump_tool_schema.py / _verify_dd_fix.py / _schema_out.txt /
+         _verify_out.txt / _patch_test_revert.py 都是 0~2 字节空壳，
+         另有 _heal_out.txt / _regress_out.txt）→ 提交 ed3d20b
 
   [3] 表情包：返回值增加"表情包描述"参数 ............. ✅ 完成
       · 新增 meme_library.describe()：取值优先级
