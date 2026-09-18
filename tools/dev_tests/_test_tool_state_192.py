@@ -217,6 +217,76 @@ for _tool, _guarded in (("endfield_tool", {"_login_state", "_login_lock"}),
               and ("_SESSION" in _src or "_session()" in _src),
               f"{_v} 的赋值方式可疑")
 
+# ══════════════════════════════════════════════════════════════
+head("G. ★★ RESIDENT 工具必须绑「正式模块」，不能绑「扫描副本」")
+#
+# 这是解耦调研里**另一个**机械复现出来的真 bug（比 D1 更直接可见）：
+# src/core/tool_manager.py 的 _load_tool_from_py 用
+#   spec_from_file_location(f"_scan_{stem}") + exec_module(module)
+# 造了一份**扫描副本**，而且**从未注册进 sys.modules**。
+# 对 RESIDENT 工具，它把执行入口绑到这份副本上（tool._func = execute_func）。
+# 于是同一个工具在进程里有**两份模块对象、两份模块级单例**：
+#   · ToolManager.execute() 走 tool._func → 扫描副本的 globals
+#   · main.py / main_window.py 的 `from tools.long_term_memory_tool import …`
+#     → 正式模块
+# 而设置界面里「禁用长期记忆」(`_sync_ltm_disabled`) 改的是**正式模块**的单例，
+# 执行路径读到的仍是 False → **开关无效**。
+# 日志旁证：两个单例各起 2 个 worker，
+#          "[LongTermMemoryTool v2.0] 初始化完成 (workers=2)" 打了两遍。
+import importlib                                               # noqa: E402
+import src.core.tool_manager as _tm_mod                        # noqa: E402
+from src.core.tool_manager import ToolLoadPolicy as _TLP       # noqa: E402
+
+_tm2 = _tm_mod.get_tool_manager()
+_res = [t for t in _tm2._tools.values()
+        if t.load_policy == _TLP.RESIDENT]
+check("★确实存在 RESIDENT 工具（否则本节无对象）", len(_res) >= 1,
+      str([t.name for t in _res]))
+
+for _t in _res:
+    _official_name = f"tools.{Path(_t.module_path).stem}"
+    try:
+        _off = importlib.import_module(_official_name)
+    except Exception as e:
+        check(f"★{_t.name}: 正式模块 {_official_name} 可 import", False, str(e))
+        continue
+    check(f"★★{_t.name}: tool._module 就是正式模块（不是扫描副本）",
+          _t._module is _off,
+          f"_module={getattr(_t._module, '__name__', None)} vs {_official_name}")
+    check(f"★★{_t.name}: tool._func 的 globals 属于正式模块",
+          getattr(_t._func, "__globals__", None) is _off.__dict__,
+          "执行路径用的是扫描副本的 globals → 会出现两份单例")
+    check(f"★{_t.name}: 扫描副本没被塞进 sys.modules 顶层别名",
+          "_scan_" + Path(_t.module_path).stem not in sys.modules
+          or sys.modules.get("_scan_" + Path(_t.module_path).stem) is _t._module)
+
+# 功能层面的证明：按设置界面的写法改正式模块的单例，执行路径必须认
+_ltm_off = importlib.import_module("tools.long_term_memory_tool")
+_E = _ltm_off.get_long_term_memory_tool()
+_was = _E.is_disabled()
+try:
+    _E.set_disabled(True)
+    _scan_singleton = _tm2._tools["long_term_memory"]._func.__globals__.get(
+        "_tool_instance")
+    check("★★★「禁用长期记忆」能被执行路径看到（D 级真 bug 已修）",
+          _scan_singleton is _E and _E.is_disabled() is True,
+          f"执行路径单例 is 正式单例={_scan_singleton is _E}, "
+          f"disabled={getattr(_scan_singleton, 'is_disabled', lambda: '?')()}")
+    check("★★执行路径读到的是同一个单例对象（不是第二份）",
+          _scan_singleton is _E)
+finally:
+    _E.set_disabled(_was)
+
+# 源码层面的钉子：防止以后又把 _func 绑回扫描副本
+_tm_src = (BASE / "src" / "core" / "tool_manager.py").read_text(encoding="utf-8")
+check("★源码注释里留了这个坑的复现记录",
+      "_scan_long_term_memory_tool" in _tm_src and "禁用长期记忆" in _tm_src)
+check("★RESIDENT 分支走 import_module 拿正式模块",
+      "importlib.import_module(f\"tools.{py_path.stem}\")" in _tm_src)
+check("★仍然保留扫描副本作为兜底（import 失败时不至于没工具）",
+      "tool._func = execute_func" in _tm_src
+      and "tool._module = module" in _tm_src)
+
 check("★tools/__init__.py 的注释里留了复现记录（id 对照）",
       "2144863097088" in (BASE / "tools" / "__init__.py").read_text(encoding="utf-8"))
 check("★tools/__init__.py 注释里点名了遗留项 D1",

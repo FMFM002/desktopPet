@@ -39,3 +39,6 @@ JMComic工具: help
 执行工具: jmcomic(['action'])
 工具 [jmcomic] 加载完成 (策略=lazy)
 JMComic工具: help
+[LongTermMemoryTool v2.0] 初始化完成 (workers=2)
+[LTM] 已禁用
+[LTM] 已启用

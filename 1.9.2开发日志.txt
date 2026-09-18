@@ -224,7 +224,72 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
           http.server 不支持 Range，用它根本测不出分段），还能切换
           "忽略 Range"/"中途断流"/"前 N 次 500" 三种故障来测退化/续传/重试。
 
-  [9] 解耦调研 + 内存优化调研 ........................ ⬜ 进行中
+  [9] 解耦调研 + 内存优化调研 ........................ ✅ 完成
+      · 交付物：`解耦与内存优化调研_1.9.2.md`（项目根目录）
+      · ★ 最大收获不是一份报告，而是**查出了遗留项 D1 的真凶并修好**：
+        ToolManager 对 LAZY 工具空闲 30 秒卸载（IDLE_UNLOAD_TIMEOUT=30.0），
+        卸载时把 `_prts_tool_<name>` 从 sys.modules 删掉，下次调用重新 import
+        出**全新模块**→ 模块级变量全部重建。而扫码登录是长流程
+        （后台轮询线程 deadline 几分钟），用户慢慢扫码 >30 秒就出事。
+        机械复现（id 对照）：
+          加载后   _login_state id=2144863097088 {'running': True, ...}
+          卸载重载后 id=2144863095680 {}        ← 换了对象，状态全丢
+        表现 = "明明扫了码却还说我未登录"；扫得快（<30s）就正常 →
+        正好对上你说的"登录状态机不稳定"。日志旁证：
+        logs/prts_20260918_175109.log:1470 卸载发生在最后一次调用后 33 秒。
+        修法：tools/__init__.py 新增 LOGIN_SESSIONS + get_session(name)，
+        状态与锁放包级登记表（与已有 LOGIN_CALLBACKS 同套路，tools 包不会被卸载）。
+        jmcomic 同类问题（_download_tasks/_download_lock）一并修。
+        新套件 _test_tool_state_192.py：31 PASS
+      · ★ 而且查出**第二个真 bug**（比 D1 更直接可见，已修）：
+        `tool_manager._load_tool_from_py` 用
+        `spec_from_file_location(f"_scan_{stem}")` + `exec_module` 造了一份
+        **扫描副本**，且**从未注册进 sys.modules**；对 RESIDENT 工具它把
+        执行入口绑在这份副本上。于是同一个工具有**两份模块对象、两份单例**：
+          · ToolManager.execute() 走 tool._func → 扫描副本
+          · main.py / main_window.py 的 `from tools.long_term_memory_tool …`
+            → 正式模块
+        而设置界面的「禁用长期记忆」(_sync_ltm_disabled) 改的是正式模块的单例
+        → **执行路径读到的仍是 False，开关无效**。
+        独立复现：扫描副本 __name__=_scan_long_term_memory_tool（不在
+        sys.modules）；两份 get_long_term_memory_tool() is 同一实例=False；
+        改正式单例 disabled=True 后「正式=True / 执行路径=False」；
+        日志里 "[LongTermMemoryTool v2.0] 初始化完成 (workers=2)" 打了两遍
+        （多出 2 条常驻线程）。
+        修法：RESIDENT 分支改 `importlib.import_module(f"tools.{stem}")`
+        绑正式模块（import 失败才退回扫描副本）。修完日志只打一遍。
+      · ★ 还发现（未修，写进报告）：`src/ui/main_window.py` 直接
+        `from tools.jmcomic_tool import …` 会把 `tools.<文件名>` 永久留在
+        sys.modules，而 `_unload_module` 只删 `_prts_tool_<name>`
+        → 注释里说的"空闲 30 秒卸载释放内存"对这些工具**从未生效**。
+      · 解耦结论（都是实测，不是印象）：
+        · **没有任何"导入期"循环依赖** —— 唯一的 5 模块环全靠函数内懒导入化解，
+          判定为可接受、不建议动
+        · `src/core → src/ui` 0 条、`tools → src/ui`（生产代码）0 条，这两条边界干净
+        · 分层破口：`src/ui/main_window.py` 直接 import 了 5 个 tools/*（2534 行/3 类）
+        · `src/core` 反向依赖 LAZY 工具 `long_term_memory_tool`（2 处）
+        · 扇入枢纽：`src.utils.config` 28、`src.core.database` 22（只增不改）
+        · 规模：166 文件 / 50050 行；最大的三个 UI 文件合计 7351 行
+      · 内存结论（两个子代理分头实测 RSS 差值 + 目录实测，数字都写进报告）：
+        · ★ 收益最大单条：**easyocr 首次 OCR 后永久常驻 ≈776 MB**，
+          没有任何卸载路径（实测 import torch +510.6 MB、easyocr +135.8 MB、
+          Reader() +174.2 MB → 18.2→794.0 MB）。改回 tesseract 或做子进程隔离
+        · ★ 便宜单条：形象 GIF 用了 `QMovie.CacheAll`，
+          实测同一张图 CacheAll **+127.9 MB** vs CacheNone **+1.9 MB**
+          → 去掉一行省 ~126 MB
+        · `data/` ≈1.29 GB，其中 **`data/downloads` 509 MB / 840 文件无清理策略**
+        · `src/genie_tts/assets` 1.81 GiB（占 src 的 99.6%）；
+          import 成本最大的是 `src.ui.main_window` +154.3 MB
+        · 无上限增长点 6 处（`ocr_engine._ocr_cache`、`chat_widget._clip_images`
+          实测 6.5 MB/张、`tool_log_widget` 的 QTextEdit `maximumBlockCount=0`
+          且 clear_logs() 零调用点 = 唯一随寿命单调增长的 UI 结构…）
+        · ★ 高风险：`import src.genie_tts...` 会**弹 HuggingFace 交互式下载提问**
+          （非交互环境 EOFError / 可能挂住线程）→ 只报未改，需真机过 TTS
+        · ComfyUI 画完 commit 14.11 GB 不释放（已有 guard 拦截），
+          建议补"画完主动 /free"
+      · 共 19 条建议按收益排序写进报告；**本轮没做任何大重构**（这条批注是
+        "调研"不是"重构"，拆 main_window 回归面太大），报告第 6 节如实交代，
+        并列了 7 项**明确未测量**的数据（不编数字）
 
   ── 已完成任务的提交记录 ──
     883d659  任务1 建立 git 版本控制
@@ -232,13 +297,21 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
     5c5d2bf  任务5+6 查IP给全字段 / get_time 合并 get_date
     8704cd6  任务3+7 表情包描述 / 启动应用写长期记忆
     cc16769  任务4+8 思考子窗口 / download 按 Motrix 升级
+    0eabd54  任务9(一) 查出并修复遗留项 D1 真凶（LAZY 工具长流程状态）
+    623220e  chore 清掉误提交的临时分析脚本
+    c73cd77  任务9(二) 修好第二个真 bug（RESIDENT 绑扫描副本致开关失效）
+    （另：.env.example 修正 —— 里面还写着已被你拍板回退的
+      PRTS_PET_COLORKEY，已改成说明"这个键已删、别再抄"）
 
   ── 回归现状（每完成一批都跑全量）──
-    35 个套件，全绿。1.9.2 新增 4 个套件：
+    37 个套件，全绿。1.9.2 新增 5 个套件：
       _test_app_launch_192    61 PASS
       _test_meme_desc_192     38 PASS
       _test_think_panel_192   67 PASS
       _test_download_192      92 PASS
+      _test_tool_state_192    40 PASS
+    （_test_a190 从 456 涨到 459：修掉 3 条因 1.9.2 改动而过期的断言，
+      并把一处写死的 action 计数改成读真实 schema）
 
 ==================================================================
 六、用户原始批注（★ 存档，逐字保留，勿改）
@@ -278,7 +351,16 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
        - 配色：现在是**浅底 + 紫**（配聊天窗口的浅色主题）；
          想要演示稿那种深色（#202225 底）就说一声，或自己设
          PRTS_THINK_PANEL_DARK=1 看效果，满意我再改成默认
-     · 还想要"思考面板默认折叠/可点标题栏收起"之类的话，也一起说
-  2. 剩下的任务 8、9 我接着做，不用你盯着。
-  3. 保存本日志前，先确认在编辑器里已重新打开（防旧缓存覆盖）。
+       - 还想要"思考面板默认折叠/可点标题栏收起"之类的话，也一起说
+  2. ★ 任务 9 查出两个真 bug 都修了，**请帮我确认这 2 件事**：
+     · **终末地登录**：现在慢慢扫码（故意拖过 30 秒再扫）应该也能正常
+       提示登录成功 —— 以前超 30 秒就会"扫了码还说未登录"。这条最值得试。
+     · **设置里把「长期记忆」禁用**（或启用），然后让我记点东西 →
+       应该真的按开关走（以前这个开关对执行路径无效）。
+  3. 任务 9 的报告在 `解耦与内存优化调研_1.9.2.md`，里面按收益排了 19 条建议。
+     其中两条**又便宜又省内存**，你说一声我就做（都在报告第 5 节）：
+     · 形象 GIF 去掉 `QMovie.CacheAll` → 实测省 ~126 MB（**改一行**）
+     · easyocr 首次 OCR 后永久常驻 ~776 MB → 换 tesseract 或做子进程隔离
+  4. 九个任务全部做完了。等你上线看真机效果，有问题我再迭代。
+  5. 保存本日志前，先确认在编辑器里已重新打开（防旧缓存覆盖）。
 ==================================================================

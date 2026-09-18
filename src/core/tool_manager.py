@@ -425,9 +425,48 @@ class ToolManager:
                 manager=self)
 
             # ★ 对于 RESIDENT 工具，立即预加载
+            #
+            # ★★ 1.9.2 修复（解耦调研机械复现出来的真 bug）：
+            #   这里以前绑的是上面那份 `module` —— 它是
+            #   `spec_from_file_location(f"_scan_{stem}")` 造出来的**扫描副本**，
+            #   而且**从未注册进 sys.modules**。于是同一个工具在进程里存在**两份
+            #   模块对象、两份模块级单例**：
+            #       · `ToolManager.execute()` 走 `tool._func` → 扫描副本的 globals
+            #       · `main.py` / `main_window.py` 的
+            #         `from tools.long_term_memory_tool import …` → 正式模块
+            #   而 `_sync_ltm_disabled()`（设置界面里那个「禁用长期记忆」开关）
+            #   改的是**正式模块**的单例 → 执行路径读到的仍是 False。
+            #   实测（复现脚本）：
+            #       扫描副本 __name__ = _scan_long_term_memory_tool（不在 sys.modules）
+            #       两份 get_long_term_memory_tool() is 同一实例 = False
+            #       改正式单例 disabled=True 后：正式=True，执行路径=False
+            #       → 「禁用长期记忆」对执行路径无效
+            #   （日志旁证：两个单例各起 2 个 worker，"[LongTermMemoryTool v2.0]
+            #     初始化完成 (workers=2)" 打了两遍。）
+            #
+            #   修法：RESIDENT 工具改绑**正式模块**（按 `tools.<文件名>` 正常 import）。
+            #   这样 `tool._func` 与设置界面操作的是同一个模块对象。
+            #   LAZY 工具不受影响 —— 它们本来就走 `_load_module()`，
+            #   那份是注册进 sys.modules 的 `_prts_tool_<name>`，没有这个问题。
             if tool.load_policy == ToolLoadPolicy.RESIDENT:
-                tool._func = execute_func
-                tool._module = module
+                _official = None
+                try:
+                    _official = importlib.import_module(f"tools.{py_path.stem}")
+                except Exception as e:
+                    _log.debug(f"RESIDENT 工具 [{name}] 正式模块 import 失败"
+                               f"（退回扫描副本）: {e}")
+                if _official is not None and callable(
+                        getattr(_official, "execute", None)):
+                    tool._func = _official.execute
+                    tool._module = _official
+                    if _official is not module:
+                        _log.debug(
+                            f"RESIDENT 工具 [{name}] 已绑定正式模块 "
+                            f"tools.{py_path.stem}（不用扫描副本 —— 否则会有"
+                            f"两份单例，禁用开关失效）")
+                else:
+                    tool._func = execute_func
+                    tool._module = module
                 tool._last_used = time.time()
 
             return tool

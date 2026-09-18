@@ -594,7 +594,9 @@ check("文件名清洗：去掉路径分隔符，无法目录穿越",
       and Path(bad).name == bad, f"→ {bad!r}")
 check("从 URL 推断文件名（含 URL 编码的空格与扩展名）",
       _guess_name("https://a.com/b/c%20d.jpg?x=1") == "c d.jpg")
-check("同名不覆盖：已存在时自动加序号", _unique(ROOT / "README.md").name == "README-1.md")
+check("同名不覆盖：已存在时自动加序号（★ 1.9.2 起用 Motrix 的 ` (n)` 格式）",
+      _unique(ROOT / "README.md").name == "README (1).md",
+      _unique(ROOT / "README.md").name)
 check("非 http/https 直接拒绝", download_url("ftp://x/y")["success"] is False)
 check("空 url 直接拒绝", download_url("")["success"] is False)
 
@@ -648,14 +650,24 @@ check("同名再下载不覆盖（另存副本，两份都在）",
       r2.get("success") and r2["file_path"] != r["file_path"]
       and Path(r2["file_path"]).exists() and Path(r["file_path"]).exists())
 _dl2 = Path(r2["file_path"]) if r2.get("success") else None
-_orig_max = dl_mod.MAX_BYTES
-dl_mod.MAX_BYTES = 10
-r3 = download_url(f"{_base_url}/test.png", bucket="websearch")
-dl_mod.MAX_BYTES = _orig_max
+# ★ 1.9.2 任务8：download 工具升级后，上限不再是模块级 MAX_BYTES 常量，
+#   改成每次调用的 max_mb 参数（默认 512MB，最小夹到 1MB）。
+#   这里放一个真·2MB 的文件，才能真切测到"超限被拒"。
+(_SRV / "big.bin").write_bytes(b"\0" * (2 * 1024 * 1024))
+r3 = download_url(f"{_base_url}/big.bin", bucket="websearch", max_mb=1)
 check("超过大小上限时拒绝并给出原因",
-      r3.get("success") is False and "上限" in r3.get("error", ""))
-r4 = download_url(f"{_base_url}/not-exist.png", bucket="websearch")
-check("404 时明确报 HTTP 状态", r4.get("success") is False and "404" in r4.get("error", ""))
+      r3.get("success") is False and "上限" in r3.get("error", ""),
+      str(r3.get("error"))[:100])
+check("超限被拒时不给假文件路径", not r3.get("file_path"))
+check("默认上限是 512MB（不再写死 50MB）",
+      dl_mod.DEFAULT_MAX_MB == 512, str(dl_mod.DEFAULT_MAX_MB))
+r4 = download_url(f"{_base_url}/not-exist.png", bucket="websearch", retries=0)
+check("404 时明确报 HTTP 状态", r4.get("success") is False and "404" in r4.get("error", ""),
+      str(r4.get("error"))[:100])
+try:
+    (_SRV / "big.bin").unlink()
+except Exception:
+    pass
 
 check("web_search：取回图片链接且过滤非 http",
       _collect_images({"images": ["https://a/1.jpg", "https://a/2.jpg", "ftp://x/3.jpg"]})

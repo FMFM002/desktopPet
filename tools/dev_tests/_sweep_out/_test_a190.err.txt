@@ -20,9 +20,36 @@ This plugin does not support raise()
   角色 'deepseek': ['GIF']
   角色 '铃兰': ['GIF']
 桌宠组件就绪: 2 个角色
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B)
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test-1.png (145 B)
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B, 单流, 70.8 KB/s)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test (1).png (145 B, 单流, 11.6 KB/s)
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 51722)
+Traceback (most recent call last):
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\tools\dev_tests\_test_a190.py", line 627, in __init__
+    super().__init__(*a, directory=str(_SRV), **kw)
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 672, in __init__
+    super().__init__(*args, **kwargs)
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 436, in handle
+    self.handle_one_request()
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 424, in handle_one_request
+    method()
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 679, in do_GET
+    self.copyfile(f, self.wfile)
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 878, in copyfile
+    shutil.copyfileobj(source, outputfile)
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\shutil.py", line 204, in copyfileobj
+    fdst_write(buf)
+  File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+ConnectionAbortedError: [WinError 10053] 你的主机中的软件中止了一个已建立的连接。
+----------------------------------------
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B, 单流, 336.4 KB/s)
 [形象] 说话 沿用 LLM 选定动作: 启动.gif
 [形象] 执行 沿用 LLM 选定动作: 启动.gif
 OCR 引擎「tesseract」不可用 → 自动改用「easyocr」（想用回 tesseract 请先安装它）
@@ -46,13 +73,13 @@ STT 用不了，data/whisper 里还缺：（未知原因，见上一条日志）
 [Pixiv] 返回结构与内置模型不符（SearchIllustrations: illusts, next_url, search_span_limit），按原始 JSON 处理
 [粘贴] 从剪贴板发送图片 40x30（不落盘）
 [粘贴] 从剪贴板发送文件: README.md
-[表情包信箱] 待发送: 109.webp (tag=happy, 描述=V4正式发布，AI界迎接你们的王吧（登基称王）)
-[表情包工具] 已选: 109.webp (tag=happy, 理由=测试) 描述=V4正式发布，AI界迎接你们的王吧（登基称王） → 待回复结束后发送
+[表情包信箱] 待发送: 024.webp (tag=happy, 描述=抢不到plan不会买一台B300吗（凡尔赛炫富）)
+[表情包工具] 已选: 024.webp (tag=happy, 理由=测试) 描述=抢不到plan不会买一台B300吗（凡尔赛炫富） → 待回复结束后发送
 [表情包信箱] 待发送: 009.webp (tag=-, 描述=我是吃白饭的大肥鱼！（元气搞怪）)
 [表情包工具] 已选: 009.webp (tag=-) 描述=我是吃白饭的大肥鱼！（元气搞怪） → 待回复结束后发送
 [表情包工具] 被空参调用 meme({}) → 拒绝，要求模型自己选 tag
-[表情包信箱] 待发送: 069.webp (tag=happy, 描述=明天（俏皮）)
-[表情包工具] 已选: 069.webp (tag=happy) 描述=明天（俏皮） → 待回复结束后发送
+[表情包信箱] 待发送: 104.webp (tag=happy, 描述=鲸鱼埋头口交溜吸溜)
+[表情包工具] 已选: 104.webp (tag=happy) 描述=鲸鱼埋头口交溜吸溜 → 待回复结束后发送
 主动说话: 注入会话（系统触发，短触发语）
 执行工具: weather_query(['action', 'city'])
 工具 weather_query 的 action「query」已被设置禁用，拒绝执行

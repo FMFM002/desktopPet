@@ -73,15 +73,17 @@
 == A1 下载工具 / web_search 取图 / B站封面 ==
   PASS  文件名清洗：去掉路径分隔符，无法目录穿越   → '____etc_passwd'
   PASS  从 URL 推断文件名（含 URL 编码的空格与扩展名）
-  PASS  同名不覆盖：已存在时自动加序号
+  PASS  同名不覆盖：已存在时自动加序号（★ 1.9.2 起用 Motrix 的 ` (n)` 格式）   README (1).md
   PASS  非 http/https 直接拒绝
   PASS  空 url 直接拒绝
   PASS  真实下载：成功 + 落在 data/downloads/websearch/   D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png
   PASS  真实下载：字节数与源一致
   PASS  真实下载：识别为图片
   PASS  同名再下载不覆盖（另存副本，两份都在）
-  PASS  超过大小上限时拒绝并给出原因
-  PASS  404 时明确报 HTTP 状态
+  PASS  超过大小上限时拒绝并给出原因   文件 2.0 MB 超过上限 1.0 MB，已取消（可用 max_mb 调大）
+  PASS  超限被拒时不给假文件路径
+  PASS  默认上限是 512MB（不再写死 50MB）   512
+  PASS  404 时明确报 HTTP 状态   下载失败: HTTP 404
   PASS  web_search：取回图片链接且过滤非 http
   PASS  web_search：兼容 [{url:…}] 形式
   PASS  web_search：请求真的带上了 include_images
@@ -284,7 +286,7 @@
   PASS  ★待机计时器也走同一个入口（「范围内随机」那条来源）
 
 == ★主动说话（带性格 + 进程上下文 + 注入同一会话）==
-  PASS  ★进程上下文：最近启动 + 占内存最多 各 3 个（psutil，独立实现在本模块）   【用户当前在用什么】 - 最近启动的程序: python.exe(889MB)、powershell.exe(84MB)、node.exe(
+  PASS  ★进程上下文：最近启动 + 占内存最多 各 3 个（psutil，独立实现在本模块）   【用户当前在用什么】 - 最近启动的程序: python.exe(890MB)、powershell.exe(84MB)、node.exe(
   PASS  ★性格取自**当前角色**（不再是硬编码「铃兰」）   你的名字是「deepseek」，下面是你的性格设定（照着说话）：
 你是 deep seek，蓝色大肥
   PASS  ★主动说话改成注入会话（on_idle_trigger），老的单次调用保留为兜底
@@ -362,7 +364,7 @@
   PASS  ★【行为控制】也进了提示词（表情包倾向 + 优先情绪）
 
 == ★表情包改成 tool（你说的方案：调用一次 → 待发送 → 回复后发）==
-  PASS  ★meme 工具能挑一张并进入待发送状态   {'success': True, 'action': 'meme', 'meme': '109.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS
+  PASS  ★meme 工具能挑一张并进入待发送状态   {'success': True, 'action': 'meme', 'meme': '024.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS
   PASS  ★一轮只生效一次（重复调用被拒，不会来回换）
   PASS  ★take_pending 取走后就空了（主窗口回复结束后取）
   PASS  ★可以按文件名直接指定
@@ -376,7 +378,7 @@
   PASS  ★空参调用 `meme({})` 被拒（不再随机兜底 → 图和回复脱钩）   {'success': False, 'error': 'tag 是必填的，不能空着调用。请根据你这次回复想表达的情绪选一个标签后再调用一次。可选：happy/daily/angry/confused/sad/shy/b
   PASS  ★拒绝时会列出真实存在的标签（模型才知道重挑什么）
   PASS  ★自己编的标签被拒（不退化成全库随机）   {'success': False, 'error': '没有「绝不存在的标签xyz」这个标签的表情包，别自己造标签。请换成这些里的一个再调用：happy/daily/angry/confused/sad/shy/bak
-  PASS  ★标签大小写不敏感 / 能模糊匹配到真实标签   {'success': True, 'action': 'meme', 'meme': '069.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\dat
+  PASS  ★标签大小写不敏感 / 能模糊匹配到真实标签   {'success': True, 'action': 'meme', 'meme': '104.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\dat
   PASS  ★available_tags 读的是真实索引（不是硬编码）   ['happy', 'daily', 'angry', 'confused', 'sad', 'shy', 'baka', 'color']
   PASS  ★工具被 ToolManager 扫到（14 个工具，含 meme）
   PASS  ★主窗口：回复结束后优先发 meme 工具选的，老协议留作兜底
@@ -579,6 +581,6 @@
   PASS  ★只打一句 ALL PASS 的套件不会被报成 PASS=0
 
 ============================================================
-★ 1.9.0 A 档回归：457 PASS / 0 FAIL
+★ 1.9.0 A 档回归：459 PASS / 0 FAIL
 ============================================================
   NOTE 退出时无残留线程
