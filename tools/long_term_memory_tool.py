@@ -159,11 +159,24 @@ class LongTermMemoryTool:
         """
         执行长期记忆写入流程。
         返回：操作结果描述。
-        - 禁用时返回静默结果，不报错
+        - 禁用时返回明确拒绝（★ 1.9.2 改了措辞，见下）
         """
         if self._disabled:
             _log.debug("[LTM] 跳过（已禁用）")
-            return "[长期记忆] 功能已禁用。"
+            # ★ 1.9.2 真机踩坑（用户 21:53 报的）：
+            #   旧措辞只有"[长期记忆] 功能已禁用。"这一句 —— 模型读到之后**没有
+            #   就此打住**，而是自己想办法"绕过"：去 data/桌宠私有data 翻
+            #   read_mem.py、用 file_ops 写 mem_inspect.py、用 shell_exec 跑
+            #   python 脚本读 sqlite、还在代码库里搜 "long_term"……
+            #   连跑满 20 轮（MAX_ROUNDS）把这一轮对话彻底烧掉。
+            #   对照 src/core/tool_manager.py:576-581 里 action 级禁用的措辞 ——
+            #   那里早就写了"不要尝试绕过或改用其他方法 + 直接告诉用户"，
+            #   效果就好得多。这里补齐同样的话。
+            return ("[长期记忆] 功能已被用户在设置里禁用，本次不记录任何记忆。"
+                    "不要尝试绕过或改用其他方法（不要用 shell_exec / file_ops / "
+                    "写脚本来代替记忆功能），也不要为此反复尝试。"
+                    "直接继续正常对话即可；如果用户确实需要记忆功能，"
+                    "告诉他可以在「设置 → 工具设置 → long_term_memory」里重新开启。")
 
         if not text or len(text.strip()) < 10:
             return "文本过短，未提取长期记忆。"

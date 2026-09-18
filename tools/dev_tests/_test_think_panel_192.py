@@ -347,6 +347,167 @@ check("★随滚动条 valueChanged 重定位", "valueChanged.connect" in _cw
       and "_reposition_think_panel" in _cw)
 
 cw.close()
+
+# ══════════════════════════════════════════════════════════════
+head("G. ★★★ 卡死回归：流式增量必须合并渲染、行数必须有界")
+#
+# 事故（logs/crash_main_29488.log，用户 21:55 报"终止话题直接卡死，
+# 聊天窗口无响应，形象无响应，小托盘无响应"）：
+#   禁用长期记忆后模型自己想办法"绕过"，连跑满 20 轮，每轮流式吐很长的思考；
+#   而本组件**每个碎片**都 setText(全文) + QLabel.heightForWidth(全文)，
+#   文本越长越慢、碎片越多越慢 → O(n²) 把 UI 线程占满 →
+#   主进程不读形象子进程的管道 → 形象也卡死（crash_pet_4444.log 里
+#   pet_process.py:107 conn.send 阻塞就是证据）。
+#
+# 本节把三条加固钉死：① 有界行数 ② 流式合并渲染 ③ 封顶后高度走快路径。
+import time as _time                                          # noqa: E402
+from src.ui.think_panel import (KEEP_LINES, THROTTLE_MS,      # noqa: E402
+                               MAX_LINES)
+
+_p = ThinkPanel()
+_p.setFixedWidth(360)
+_p.show()
+app.processEvents()
+
+# ── ① 有界行数 ──
+_p.clear()
+for i in range(KEEP_LINES + 500):
+    _p.append(f"行{i}", "think")
+check(f"★★行数被 KEEP_LINES({KEEP_LINES}) 截住，不会无限增长",
+      len(_p.lines()) == KEEP_LINES, str(len(_p.lines())))
+check("★★丢弃计数可观测（_dropped）", _p._dropped == 500, str(_p._dropped))
+check("★截住的是**最旧**的行（保留最近的）",
+      _p.lines()[-1][1] == f"行{KEEP_LINES + 499}", _p.lines()[-1][1])
+check("★面板正文长度有上界（不再随流式文本无限膨胀）",
+      len(_p._body.text()) < 20000, str(len(_p._body.text())))
+
+# ── ② 流式合并渲染 ──
+_p.clear()
+_renders = {"n": 0}
+_orig_render = _p._render
+
+
+def _counting_render():
+    _renders["n"] += 1
+    return _orig_render()
+
+
+_p._render = _counting_render
+
+N = 3000
+_t0 = _time.perf_counter()
+for i in range(N):
+    _p.append_thinking(f"碎片{i} " if i % 20 else f"碎片{i}\n")
+_elapsed_ms = (_time.perf_counter() - _t0) * 1000.0
+_renders_during = _renders["n"]
+
+check("★★★3000 个碎片期间渲染次数极少（合并成 <20 次，不是 3000 次）",
+      _renders_during < 20, f"渲染了 {_renders_during} 次")
+check("★★★3000 个碎片耗时 < 500ms（纯记账，不做布局）",
+      _elapsed_ms < 500, f"用了 {_elapsed_ms:.1f}ms")
+check("★节拍器已启动（等待后会真的渲染一次）",
+      _p._flush_timer.isActive() or _p._dirty)
+print(f"        实测：{N} 个碎片 → 渲染 {_renders_during} 次 / {_elapsed_ms:.1f}ms"
+      f"（THROTTLE_MS={THROTTLE_MS}）")
+
+# 节拍器到点后确实渲染（不丢内容）
+_p._flush()
+check("★节拍器到点后内容上屏（没丢）",
+      "碎片2999" in _p._body.text(), _p._body.text()[-40:])
+check("★一次 flush 只渲染一次", _renders["n"] == _renders_during + 1,
+      str(_renders["n"]))
+
+_p._render = _orig_render
+
+# ── ③ 封顶后走快路径 ──
+_p.clear()
+_p.flush_now()
+check("★清空后 _capped 复位", _p._capped is False)
+for i in range(50):
+    _p.append(f"第{i}行", "think")
+_p.flush_now()
+check("★★内容超过 5 排后 _capped=True", _p._capped is True)
+_h = _p.desired_height()
+# 再加 200 行，高度必须完全不变、且不再做测量
+_calls = {"n": 0}
+_orig_ch = _p.content_height
+
+
+def _counting_ch():
+    _calls["n"] += 1
+    return _orig_ch()
+
+
+_p.content_height = _counting_ch
+for i in range(200):
+    _p.append(f"追加{i}", "think")
+_p.flush_now()
+check("★★★已封顶后再加 200 行，高度完全不变", _p.desired_height() == _h,
+      f"{_p.desired_height()} vs {_h}")
+check("★★★已封顶后 desired_height() 不再触发全文本测量（快路径生效）",
+      _calls["n"] == 0, f"还是量了 {_calls['n']} 次")
+_p.content_height = _orig_ch
+
+# ── ④ 变宽/清空要复位封顶结论 ──
+_p.resize(900, _p.height())
+app.processEvents()
+check("★变宽后 _capped 复位（可能掉回 5 排以内，必须重算）",
+      _p._capped is False or _p.desired_height() > 0)
+
+# ── ⑤ 宿主侧也不能每个碎片都同步锚点 ──
+_cw2 = ChatWidget()
+_cw2.resize(420, 640)
+_cw2.show()
+for _ in range(4):
+    app.processEvents()
+_cw2.think_write("起点", "think")
+_sync = {"n": 0}
+_orig_sync = _cw2._sync_think_anchor
+
+
+def _counting_sync():
+    _sync["n"] += 1
+    return _orig_sync()
+
+
+_cw2._sync_think_anchor = _counting_sync
+_cw2._think_panel._render_hook = _cw2._on_think_rendered
+for i in range(2000):
+    _cw2.think_delta(f"增量{i} ")
+check("★★★宿主侧 2000 个碎片也不逐个同步占位图（<20 次）",
+      _sync["n"] < 20, f"同步了 {_sync['n']} 次")
+check("★think_flush() 能把最后一拍补上", callable(_cw2.think_flush))
+_cw2.think_flush()
+for _ in range(3):
+    app.processEvents()
+_cw2._sync_think_anchor = _orig_sync
+_cw2.close()
+
+# ══════════════════════════════════════════════════════════════
+head("H. 源码层面钉住性能加固（防止被改回去）")
+_src2 = (BASE / "src" / "ui" / "think_panel.py").read_text(encoding="utf-8")
+check("★有 KEEP_LINES 常量且有说明", "KEEP_LINES = " in _src2
+      and "O(n²)" in _src2)
+check("★有 THROTTLE_MS 常量", "THROTTLE_MS = " in _src2)
+check("★append_thinking 走 _schedule_render（不是直接 _render）",
+      "def append_thinking" in _src2
+      and "_schedule_render()" in _src2.split("def append_thinking")[1]
+      .split("def ")[0])
+check("★有封顶快路径 _capped", "_capped" in _src2
+      and "def _reset_cap" in _src2)
+check("★有 _trim() 截断", "def _trim" in _src2 and "del self._lines[:" in _src2)
+check("★有渲染完成钩子（宿主据此同步，而不是每个碎片一次）",
+      "def set_render_hook" in _src2 and "_render_hook" in _src2)
+_cw3 = (BASE / "src" / "ui" / "chat_widget.py").read_text(encoding="utf-8")
+check("★chat_widget.think_delta 里没有逐碎片的锚点同步",
+      "_sync_think_anchor()" not in
+      _cw3.split("def think_delta")[1].split("def ")[0])
+check("★注释里记了这次事故（crash_main_29488.log）",
+      "crash_main_29488" in _src2 or "crash_main_29488" in _cw3)
+
+_mw2 = (BASE / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
+check("★思考结束时收尾渲染一次（think_flush）", "think_flush()" in _mw2)
+
 print("\n" + "=" * 60)
 print(f"★ 1.9.2 任务4 思考/系统信息子窗口：{PASS} PASS / {FAIL} FAIL")
 for f in FAILS:

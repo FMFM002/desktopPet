@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PySide6.QtCore import Qt, QEvent, QSize
+from PySide6.QtCore import Qt, QEvent, QSize, QTimer
 from PySide6.QtGui import QFont, QFontMetrics, QPainter, QColor, QPen
 from PySide6.QtWidgets import (QFrame, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QScrollArea, QSizePolicy, QApplication)
@@ -52,6 +52,22 @@ HEADER_H = 24              # 标题栏高度
 #   高度曲线变成 1.2/1.85/2.5…（实测）。想要更透气就把字号调大一点，
 #   不要去改行高系数。
 FONT_PT = 9.0              # 正文字号（比演示稿的 .74rem 稍大，中文更易读）
+
+# ── ★★ 1.9.2 性能相关（真机卡死事故后的加固）────────────────
+#
+# 事故经过（logs/crash_main_29488.log，用户 21:55 报的"终止话题直接卡死"）：
+#   禁用长期记忆后模型自己去"绕过"（连跑满 20 轮 MAX_ROUNDS），
+#   每轮都在流式吐很长的思考文本；而本组件**每个碎片**都要：
+#       setText(全文) → QLabel.heightForWidth(全文) → 重排
+#   文本越长越慢，碎片越多越慢 → **O(n²)**，UI 线程彻底占满 →
+#   聊天窗/形象/托盘全部无响应（形象子进程还会阻塞在 conn.send 上，
+#   因为主进程没空读管道）。用户只能 Ctrl+C。
+#
+# 三条加固，缺一不可：
+KEEP_LINES = 300           # ① 只保留最近 N 行（面板只看得见 5 行，留 300 够滚了）
+                           #    → 让 setText 的代价**有上界**，不再随流式文本无限增长
+                           #    （顺带解决内存调研里"无上限增长"那条）
+THROTTLE_MS = 80           # ② 流式增量**合并渲染**，最多 ~12 次/秒（原来每个碎片一次）
 
 # ── 配色 ────────────────────────────────────────────────────
 # 演示稿是**深色**（#202225 底 + #9b59b6 紫），但聊天窗口现在是浅色主题
@@ -86,7 +102,14 @@ class ThinkPanel(QFrame):
         super().__init__(parent)
         self._lines: list = []          # [(kind, text)] kind: think | system
         self._line_h = 16
+        self._capped = False            # ★ 1.9.2：是否已确认超过 5 排（决定能否走快路径）
+        self._dirty = False             # ★ 1.9.2：有未渲染的改动（流式合并用）
+        self._dropped = 0               # ★ 1.9.2：被 KEEP_LINES 丢弃的旧行数（可观测）
         self._build()
+        # ★ 1.9.2：流式增量合并渲染的节拍器（见文件头 THROTTLE_MS 那段事故说明）
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush)
         # ★ 滚轮隔离：装在自己的 viewport 与正文 Label 上
         for w in (self, self._scroll.viewport(), self._body):
             w.installEventFilter(self)
@@ -239,11 +262,24 @@ class ThinkPanel(QFrame):
         return int(h)
 
     def desired_height(self) -> int:
-        """面板总高 = 标题栏 + 夹在 [1 排, 5 排] 之间的正文高度。"""
+        """面板总高 = 标题栏 + 夹在 [1 排, 5 排] 之间的正文高度。
+
+        ★ 快路径（1.9.2 卡死加固的第 ③ 条）：一旦确认内容已超过封顶高度，
+        高度就是常量，**不必再对全文做一次 heightForWidth**。
+        文本只会增长（流式）或整体清空，所以 `_capped` 一旦置位就一直有效；
+        只有在"变宽可能让行数掉回 5 排以内"时才复位（见 _reset_cap）。
+        """
+        if self._capped:
+            return HEADER_H + self.max_content_height()
         body = self.content_height()
-        body = max(self.min_content_height(),
-                   min(body, self.max_content_height()))
-        return HEADER_H + body
+        if body >= self.max_content_height():
+            self._capped = True
+            return HEADER_H + self.max_content_height()
+        return HEADER_H + max(self.min_content_height(), body)
+
+    def _reset_cap(self):
+        """内容被清空/替换或面板变宽 → 之前"已封顶"的结论作废，重算一次。"""
+        self._capped = False
 
     def visible_lines(self) -> float:
         """当前面板实际能显示几排字（测试与排查用）。"""
@@ -279,8 +315,41 @@ class ThinkPanel(QFrame):
         self._lines.clear()
         self._body.setText("")
         self._count.setText("")
+        self._capped = False
+        self._dirty = False
         self._relayout_height()
         self._scroll_to_bottom()
+
+    # ── ★ 1.9.2：有界行数 + 合并渲染（卡死加固 ①②）──────────
+    def _trim(self):
+        """只保留最近 KEEP_LINES 行。
+
+        面板最高只看得见 5 行，把上万行的思考全文一直留在 QLabel 里毫无意义：
+        每次 setText 都是 O(全文)，流式碎片一来就是 O(n²)。
+        """
+        n = len(self._lines)
+        if n > KEEP_LINES:
+            del self._lines[:n - KEEP_LINES]
+            self._dropped += n - KEEP_LINES
+
+    def _schedule_render(self):
+        """流式路径：标记脏 + 启动节拍器（已启动就不重复启动 = 天然合并）。"""
+        self._dirty = True
+        if not self._flush_timer.isActive():
+            self._flush_timer.start(THROTTLE_MS)
+
+    def _flush(self):
+        """节拍器到点：把这一小段时间攒下的增量一次性渲染。"""
+        if not self._dirty:
+            return
+        self._dirty = False
+        self._render()
+
+    def flush_now(self):
+        """立刻渲染（测试 / "这轮思考结束"收尾时用，保证同步语义）。"""
+        self._flush_timer.stop()
+        self._dirty = False
+        self._render()
 
     def append(self, text: str, kind: str = "think"):
         """加一行。kind: think（思考）| system（系统信息）。
@@ -291,10 +360,16 @@ class ThinkPanel(QFrame):
             return
         for ln in str(text).split("\n"):
             self._lines.append((kind, ln))
-        self._render()
+        self._trim()
+        self._render()          # 非流式路径：立即渲染（代价小，且保持同步语义）
 
     def append_thinking(self, delta: str):
-        """★ 流式思考增量：接到上一行后面（LLM 的 reasoning_content 就是碎片）。"""
+        """★ 流式思考增量：接到上一行后面（LLM 的 reasoning_content 就是碎片）。
+
+        ★ 1.9.2：这里**不再**直接 `_render()`。碎片可能每秒几十上百个，
+        每个都 setText(全文) + heightForWidth(全文) 会退化成 O(n²) 把 UI 线程占死
+        （真机 21:55 那次"终止话题卡死"就是这么来的）。改成记账 + 节拍器合并渲染。
+        """
         if not delta:
             return
         if self._lines and self._lines[-1][0] == "think":
@@ -304,15 +379,17 @@ class ThinkPanel(QFrame):
             for p in parts[1:]:
                 self._lines.append(("think", p))
         else:
-            self.append(delta, "think")
-            return
-        self._render()
+            self._lines.append(("think", str(delta)))
+        self._trim()
+        self._schedule_render()
 
     def append_system(self, text: str):
         self.append(text, "system")
 
     def set_lines(self, lines):
         self._lines = [(str(k), str(t)) for k, t in lines]
+        self._trim()
+        self._reset_cap()
         self._render()
 
     def _sync_body_size(self) -> int:
@@ -345,6 +422,19 @@ class ThinkPanel(QFrame):
         self._sync_body_size()
         self._relayout_height()
         self._scroll_to_bottom()
+        # ★ 1.9.2：渲染完成后回调一次 —— 让宿主（ChatWidget）在这里做占位图尺寸
+        #   同步与重定位。以前宿主是**每个流式碎片**都做一次，而那次同步会触发
+        #   QTextDocument 重排，同样是把 UI 线程拖死的元凶之一。
+        cb = getattr(self, "_render_hook", None)
+        if callable(cb):
+            try:
+                cb()
+            except Exception:
+                pass
+
+    def set_render_hook(self, cb):
+        """渲染完成后回调（宿主用来同步"占位图尺寸 + 面板位置"）。"""
+        self._render_hook = cb
 
     def _scroll_to_bottom(self):
         sb = self._scroll.verticalScrollBar()
@@ -369,6 +459,8 @@ class ThinkPanel(QFrame):
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
+        # ★ 变宽可能让行数掉回 5 排以内 → 之前"已封顶"的结论作废，重算一次
+        self._reset_cap()
         self._relayout_height()
 
     def sizeHint(self) -> QSize:

@@ -1425,6 +1425,8 @@ class ChatWidget(QWidget):
         from src.ui.think_panel import ThinkPanel
         self._think_panel = ThinkPanel(self._chat_display.viewport())
         self._think_panel.hide()
+        # ★ 1.9.2：渲染完成后统一做"占位图尺寸 + 位置"同步（不再是每个碎片一次）
+        self._think_panel.set_render_hook(self._on_think_rendered)
 
         # 占位图：1×1 全透明 PNG（内联 base64，不落盘）
         from PySide6.QtGui import QImage, QTextImageFormat
@@ -1450,6 +1452,20 @@ class ChatWidget(QWidget):
     def _panel_width(self) -> int:
         vp = self._chat_display.viewport().width()
         return max(120, vp - 8)
+
+    def _on_think_rendered(self):
+        """★ 1.9.2：面板渲染完成 → 同步占位图尺寸 + 重定位。
+
+        由 ThinkPanel 的节拍器每 ~80ms 调一次（以前是每个流式碎片一次，
+        而这里的 QTextCursor.setCharFormat 会触发整个 QTextDocument 重排）。
+        """
+        if self._think_panel is None:
+            return
+        try:
+            self._sync_think_anchor()
+            self._reposition_think_panel()
+        except Exception as e:
+            _log.debug(f"思考面板渲染后同步失败: {e}")
 
     def _sync_think_anchor(self):
         """把占位图的尺寸改成面板当前所需（文档重排 → 面板位置也就跟着对）。"""
@@ -1506,22 +1522,28 @@ class ChatWidget(QWidget):
             p.append_system(text)
         else:
             p.append(text, "think")
-        self._sync_think_anchor()
-        self._reposition_think_panel()
+        p.flush_now()                 # 非流式 → 立即渲染（_render 钩子会做同步）
         sb = self._chat_display.verticalScrollBar()
         sb.setValue(sb.maximum())
 
     def think_delta(self, delta: str):
-        """★ 流式思考增量（LLM 的 reasoning_content 碎片）。"""
+        """★ 流式思考增量（LLM 的 reasoning_content 碎片）。
+
+        ★ 1.9.2 卡死修复：这里**只记账**。渲染、占位图尺寸同步、重定位全部交给
+        ThinkPanel 的节拍器（~12 次/秒）。以前每个碎片都做一遍全文 setText +
+        heightForWidth + 文档重排，碎片一多就把 UI 线程占死（真机 21:55 那次
+        "终止话题卡死、形象/托盘全无响应"）。
+        """
         if not delta:
             return
         p = self._ensure_think_panel()
         p.show()
         p.append_thinking(delta)
-        self._sync_think_anchor()
-        self._reposition_think_panel()
-        sb = self._chat_display.verticalScrollBar()
-        sb.setValue(sb.maximum())
+
+    def think_flush(self):
+        """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。"""
+        if self._think_panel is not None:
+            self._think_panel.flush_now()
 
     def think_clear(self):
         """清空面板内容（新话题/新对话时用）；面板本身留着继续用。"""

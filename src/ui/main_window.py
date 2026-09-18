@@ -1113,8 +1113,16 @@ class MainWindow:
             _log.debug(f"[思考面板] 写入增量失败: {e}")
 
     def _on_thinking_done_safe(self):
-        """★ 1.5.0: 思考结束 → 形象线程立刻按思考内容切换 GIF"""
+        """★ 1.5.0: 思考结束 → 形象线程立刻按思考内容切换 GIF
+
+        ★ 1.9.2：顺便把思考面板**强制渲染一次**收尾 —— 流式期间是节拍器
+        合并渲染的（每 ~80ms 一次），最后可能有不到一拍的碎片还没上屏。
+        """
         self.pet_mgr.on_thinking_done()
+        try:
+            self.chat.think_flush()
+        except Exception as e:
+            _log.debug(f"[思考面板] 收尾渲染失败: {e}")
 
     def _on_protocol_safe(self, data: dict):
         """★ 1.9.0: 正文里的协议 JSON（`session.on_protocol`）→ 交给形象线程。
