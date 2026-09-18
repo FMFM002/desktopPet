@@ -1,0 +1,118 @@
+== ★1.9.1 形象窗口 Win32 自愈（全屏进出后消失）==
+
+-- 1. 思路核对结论（写死在注释里的结论要能被回归守住）--
+  PASS  ★保留 WM_DWMCOMPOSITIONCHANGED 常量（老系统仍有意义）
+  PASS  ★★注释里写明了它在 Win8+ 永远不发（免得后人以为是主方案）
+  PASS  ★★COMPOSITED 改为**默认关闭**（实测开着会坏），但保留可开关
+  PASS  ★注释里写明了 COMPOSITED 管的是子窗口绘制顺序
+  PASS  ★★注释里写明了 NOREDIRECTIONBITMAP 在 Qt Widgets 上不可行
+  PASS  ★常量值与 Winuser.h 一致
+  PASS  ★COMPOSITED 现在是**可开关**的（环境变量控制，用户要求试它）
+
+-- 2. 实际采纳的做法 --
+  PASS  ★窗口显示后会做 Win32 加固（不再只在托盘切换时才处理）
+  PASS  ★自愈定时器在主线程跑着（Win32 回调在别的线程，只能靠它回主线程）
+  PASS  ★快照含 visible（这就是把问题'测准'的关键）
+  PASS  ★快照含 iconic（这就是把问题'测准'的关键）
+  PASS  ★快照含 layered（这就是把问题'测准'的关键）
+  PASS  ★快照含 topmost（这就是把问题'测准'的关键）
+  PASS  ★快照含 noactivate（这就是把问题'测准'的关键）
+  PASS  ★快照含 foreground_title（这就是把问题'测准'的关键）
+  PASS  ★快照里带了矩形（拿得到时）/ 拿不到时也不缺字段
+  PASS  ★快照能一行写进日志
+
+-- 3. 健壮性：任何 Win32 调用都不许把异常冒到 Qt 事件循环 --
+  PASS  ★NOACTIVATE / COMPOSITED / reassert / snapshot 都不抛
+  PASS  ★hwnd 取不到时 snapshot 返回空壳而不是抛
+  PASS  ★hwnd 取不到时 reassert 返回 False 而不是抛
+  PASS  ★前台窗口监听能装（WM_DWMCOMPOSITIONCHANGED 的现代替代）
+  PASS  ★重复装是幂等的
+  PASS  ★能卸载（不留钩子泄漏）
+
+-- 4. 触发链路 --
+  PASS  ★接了 WM_DISPLAYCHANGE / WM_DPICHANGED（这两个在现代 Windows 真的会发）
+  PASS  ★接的是 DWMCOMPOSITIONCHANGED 但注释标明 Win8+ 收不到
+  PASS  ★nativeEvent 返回 (handled, result) 元组，且不消费消息
+  PASS  ★Win32 回调只置标志（不在非主线程碰 QWidget）
+  PASS  ★主线程取出标志并清掉
+  PASS  ★节流生效：紧接着再来一次不会重复自愈
+  PASS  ★heal_window 是统一自愈入口（Win32 修 + Qt 重画）
+  PASS  ★自愈后窗口仍然正常（没把形象搞没）
+
+-- 5. 真机诊断结论驱动的加强版自愈 --
+  PASS  ★★源码里写明了诊断结论：出问题时窗口状态**全是正常的**
+  PASS  ★★结论写明「只有 hide→show 重建分层表面才有效」（用户土办法验证过）
+  PASS  ★所以分两级：轻量（强制重绘）总做，重度（hide→show）只在必要时
+  PASS  ★内容快照能回答「画面侧」的问题（GIF 在播吗/帧空吗/标签有 pixmap 吗）
+  PASS  ★_force_repaint 存在（关键：光 setPixmap(同一张) 是空操作，Qt 不会重绘）
+  PASS  ★_recreate_surface 存在（hide→show 重建分层表面）
+  PASS  ★有「全屏检测」决定要不要走重度（免得每次 Alt+Tab 都闪）
+  PASS  ★★重度自愈（hide→show）之后窗口仍然可见（别把人搞没了）
+  PASS  ★前台回调会置 pending（并在全屏时置 strong）
+  PASS  ★★主线程取出后会**清掉 strong**（不然下一次普通切换也会闪一下）
+
+-- 6. 轮询检测「刚从全屏退出」（不依赖事件、不看窗口状态）--
+  PASS  ★★源码写明了现有兜底的漏洞（只看 isVisible/isMinimized，而那两项都是正常的）
+  PASS  ★★且写明「同一张 pixmap 再设一遍」是空操作（所以旧兜底救不回来）
+  PASS  ★新增 _was_fg_fullscreen 状态（只检测「进入全屏」是不够的，形象是在退出时消失的）
+  PASS  ★★pet_process 的看门狗改用 force_repaint（不再只调无效的 repaint_current）
+  PASS  ★force_repaint 是公开方法（看门狗要能调到）
+  PASS  ★force_repaint 真的会重画（内部走 clear→repaint→设回）
+  PASS  ★进入全屏时不触发（不然进的时候也闪一下）
+  PASS  ★持续全屏时不触发
+  PASS  ★★退出全屏那一刻触发**重度**自愈（就是用户报的那一下）
+  PASS  ★状态跟着更新（不会每轮都触发一次）
+
+-- 7. DWM cloaked 探针（对症检测，不靠猜）--
+  PASS  ★★win_window 提供了 is_cloaked（DWMWA_CLOAKED = 14）
+  PASS  ★拿不到时返回 None（不确定 → 调用方不许据此做破坏性动作）
+  PASS  ★is_cloaked 可调用且返回值类型合理（None / bool）
+  PASS  ★★DWM 报告 cloaked → 走**重度**重建（hide→show）
+  PASS  ★★健康时**什么都不做**（连重声明都不做 —— 上一版每 3 秒做一次，用户实测「会抽」，已去掉）
+
+-- 8. reassert 必须带 SWP_SHOWWINDOW --
+  PASS  ★★源码里写明了「对已存在的分层表面反复重画没用」这个真机结论
+  PASS  ★★reassert 真的带上了 SWP_SHOWWINDOW（第一版漏了，这可能就是没效果的直接原因）
+  PASS  ★周期自检入口 reassert_window 已接进看门狗
+  PASS  ★前台诊断会把「窗口矩形 vs 显示器矩形」的原始数字记下来（下次复现不用再猜为什么没认出来）
+
+-- 9. 修用户报的「抽」（我引入的副作用）--
+  PASS  ★★源码写明了「最大化窗口」被误判成全屏这件事（含用户日志里的真实矩形）
+  PASS  ★★全屏判据现在是 99% + 不越界（最大化窗口高度只覆盖 ~96.2%，会被排除）
+  PASS  ★★用用户日志里的真实数字验证：最大化窗口**不算**全屏（否则每次切窗口都会抽）
+  PASS  ★★真全屏（严丝合缝）才算全屏
+  PASS  ★★健康时 reassert_window **什么都不做**（上一版每 3 秒重声明一次 → 就是「抽」的来源）
+
+-- 10. WS_EX_COMPOSITED（用户点名要的方案）--
+  PASS  ★★USE_COMPOSITED **默认关**（实测：开了会让分层窗口彻底坏掉）
+  PASS  ★★实测证据被写进源码：UpdateLayeredWindowIndirect 报「参数错误」
+  PASS  ★★COMPOSITED 与 LAYERED 互斥这件事写明了（免得后人再打开）
+  PASS  ★★apply_composited 会**主动拒绝**分层窗口（防御性，不只是默认关）
+  PASS  ★环境变量 PRTS_PET_COMPOSITED 仍保留（只作 A/B 实验用，默认 0）
+  PASS  ★file_ops 里写的 `WS_EX_COMPOSITED` 常量值正确（0x02000000）
+  PASS  ★apply_composited 会被调用（在 Win32 加固时）
+
+-- 11. 护栏：Win32 常量必须都有定义 --
+  PASS  ★★用了的 Win32 常量全都定义过（SWP_NOZORDER 那次就是这么漏的）
+  PASS  ★确有 SWP_NOZORDER 定义（0x0004）
+  PASS  ★★_set_exstyle 里 SetWindowPos 那段真的会执行到（不再被 NameError 吞）
+
+-- 12. 色键透明（根治）--
+  PASS  ★★win_window 提供 apply_color_key
+  PASS  ★LWA_COLORKEY 常量正确（0x00000001）
+  PASS  ★★魔法色已定（magenta 255,0,255）
+  PASS  ★★形象窗口默认走色键（PRTS_PET_COLORKEY 默认开）
+  PASS  ★色键模式下**关掉** WA_TranslucentBackground（否则又回逐像素 alpha）
+  PASS  ★★有 _prepare_frame，且会把 alpha 二值化再合成魔法色
+  PASS  ★★全部 setPixmap 都走 _prepare_frame（漏一处就会露黑边/魔法色边）
+  PASS  ★★合成帧**只有全不透明**（alpha 集合 = [255]，没有半透明边）
+  PASS  ★★透明区被合成成魔法色（占比合理，说明色键能键掉它）
+  PASS  ★画出来的部分占比合理（不是整块魔法色）
+  PASS  ★★魔法色**没有**出现在原画的不透明像素里（不会误伤）
+
+-- 13. 日志顺序：先重定向 stderr 再 setup_logging --
+  PASS  ★★main.py 里 redirect_stderr_to_file 在 setup_logging **之前**
+  PASS  ★★pet_process.py 里也是同样顺序
+  PASS  ★源码里写明了这个坑（免得后人调回去）
+
+★ 形象窗口自愈回归：89 PASS / 0 FAIL

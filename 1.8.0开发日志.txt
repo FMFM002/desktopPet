@@ -1,0 +1,1295 @@
+================================================================
+版本最终报告 · PTRTS1.6.0_DSH
+最后更新：2026-09-15
+（本文件 = 开发日志 + 待办清单，二者已合并；你在下面用 ### 回复即可）
+================================================================
+
+────────────────────────────────────────────────────────────────
+零、当前状态速览
+────────────────────────────────────────────────────────────────
+· 已确认可用：侧栏(独立窗口) / 一个角色一个窗口 / 书签 / 图片预览 / 多模态直传 /
+  TTS / 内存优化 / 工具表格排版 / jmcomic / office / 图片左右分侧
+· 唯一未解决：knowledge_graph 的 HTML 不出图形（本轮已加强诊断，见 §4-A2）
+· 上游问题（非本地）：终末地扫码登录接口 500，整个 API 服务你反馈"好像炸了"
+· 自测：9 套脚本全部 PASS（见 §6）
+
+────────────────────────────────────────────────────────────────
+一、项目结构
+────────────────────────────────────────────────────────────────
+main.py（入口，最小初始化 + 崩溃钩子）
+  └─ src/ui/main_window.py（主窗口，5 个 Phase 微步加载）
+       ├─ chat_widget.py      聊天窗口（左右消息 + 侧栏独立窗口 + 图片/文件卡片）
+       ├─ settings_window.py  设置窗口（分类页 + 保存热加载）
+       ├─ tray_icon.py        托盘（跟随当前角色图标）
+       ├─ pet_proxy.py        形象代理（子进程 / 直接渲染 双模）
+       │    └─ pet_process.py + pet_animation.py（GIF 渲染）
+       └─ src/core/  session / llm_client / pet_manager / database / tool_manager ...
+data/桌宠形象/<角色>/   GIF/ + ico.ico + 头像.jpg + settings.json  ← 每角色一套
+data/桌宠私有data/      工具唯一可写目录（office / knowledge_graph / endfield 都在这里）
+tools/dev_tests/        自测脚本（不参与运行）
+logs/                   运行日志 + 崩溃日志
+UI几何模型.txt          窗口/布局类改动的"先对数字"文件
+
+────────────────────────────────────────────────────────────────
+二、核心机制
+────────────────────────────────────────────────────────────────
+1. 形象线程 PetManager：单线程队列串行处理 切角色/切行为/切 GIF；
+   接收 LLM 思考流（reasoning_content），思考结束按 {"gif":"名字"} 协议切 GIF。
+2. 启动默认 GIF「只播放一遍」：渲染端按帧号回绕判断播完 → gif_once_finished
+   → 形象线程立即衔接待机轮播（12 秒兜底定时器）。
+3. 一个角色一个窗口：topics 表按 character 归属，每角色一个 active 话题（连续上下文）。
+   「＋ 开启新话题」直接开；「📝 总结旧话题」总结→归档→开新话题并继承总结；
+   上下文满自动总结续接（不阻断输入，消息暂存后补发）。
+4. 侧栏 = 聊天窗口**左侧外面的独立窗口**（聊天窗口尺寸/内容完全不受影响）；
+   书签 = 一段对话一条总结，左键跳转（按隐形标记 ⟦T<id>⟧ 搜索），右键删除（db + 界面）。
+5. 图片：用户上传走右侧；桌宠（LLM/tool send）走左侧 + 桌宠头像；
+   相对路径必须 resolve 成绝对路径才能 as_uri()。
+6. 工具沙箱：用户电脑全盘只读，只有 data/桌宠私有data 可写。
+7. 角色设置全部存 data/桌宠形象/<角色>/settings.json
+   （persona_prompt / scale / reply_style / emoji_level / behavior_gifs /
+    startup_gif / idle_gifs / idle_switch_rule / model / avatar / icon）。
+8. TTS 内存策略：GENIE 模型默认**不启动预加载**，空闲 15 分钟自动释放（省 ~4.5GB）。
+
+────────────────────────────────────────────────────────────────
+三、已完成（归档）
+────────────────────────────────────────────────────────────────
+[1.5.0 阶段]
+· 崩溃可诊断化：logs/crash_*.log + prts_*.log（主/子进程都装钩子）。
+· 形象目录迁移 data/<角色>/ → data/桌宠形象/<角色>/，路径全量修正。
+· deepseek/settings.json 非法 JSON 修正；铃兰 settings.txt → settings.json。
+· 设置页角色选择改为扫描目录的「头像+名称」卡片（菲比只是 TTS 声线）。
+· 托盘消失 → 聊天窗口「≡」菜单兜底 + 托盘图标跟随角色。
+· 图片预览 QQ 风格 + 系统查看器看原图；右键复制原图路径。
+· 头像体系：用户上传头像持久化到 data/avatars，未上传默认铃兰头像。
+· 每角色独立设置保存与恢复；启动沿用上次角色。
+· office / 知识图谱输出目录迁到 data/桌宠私有data。
+· 输入框提示精简；设置页「使用方法」新增。
+· data 整理：TTS 模型迁到 src/genie_tts/assets/genie。
+[1.6.0 阶段]
+· LLM 发图不显示 → 根因：send_file 返回相对路径，as_uri() 抛错；已 resolve 修复。
+· LLM 发图方向 → 新增 from_bot，桌宠发的图在左侧带头像。
+· 启动 GIF 卡第一帧 → 帧统计判定错误（首帧 frame_num=1）；改为帧号回绕判据。
+· 侧栏方向/遮挡/启动独立冒出 → 定为窗外独立窗口 + 启动强制显示 + 就绪门控。
+· 切角色性格串味 → 每角色独立窗口解决。
+· 一个角色一个窗口大更新：DB 迁移 + 会话窗口切换 + 开启/总结/自动总结续接。
+· 侧栏书签：一段对话一条总结；左键跳转、右键删除。
+· 分割线改为一排 #（带隐形跳转标记）。
+· 思考模式 400（reasoning_content 必须回传）→ 新增发送前消息体检 _prepare_messages。
+· 边界轮补传 reasoning_content。
+· 总结为空时明确提示并用话题标题兜底；总结完成自动刷新侧栏。
+· 设置→工具管理改为表格排版：开启 / 加载策略 / 工具名 / 介绍 四列左对齐。
+· 修复「直接渲染」模式下跨线程调用 Qt 导致的启动卡死（改队列投递主线程）。
+· ★ 内存爆满 → 主因 GENIE TTS 模型常驻 4.5GB；已默认不预加载 + 空闲释放。
+· ★ jmcomic 假故障 → 工具名把真库顶掉（sys.modules[工具名]）；已改为命名空间注册。
+· jmcomic 新增 limit（默认 10，仅用户明确要求 X 条时才变）。
+· file_ops 沙箱拒绝文案可读化（跨盘符不再抛 pyfilesystem 原始异常）。
+· endfield 工具重写：登录(扫码/网页授权) + 角色 + 签到 + 公告。
+· knowledge_graph：备用 CDN + 内置 Canvas 离线兜底 + 页面 JS 错误提示条。
+· 清空 1.5.0 遗留对话 #11/#12（252 条）。
+
+────────────────────────────────────────────────────────────────
+四、待办
+────────────────────────────────────────────────────────────────
+【A. 等你验证】
+[ ] A1. 终末地登录 —— 你反馈：**网站好像炸了，暂时用不了 API 服务**
+        → 结论：上游问题，代码侧已就绪（扫码优先，挂了自动降级为网页授权链接）
+        → 等上游恢复后重试；要 CRED 登录我也可以加
+[x] A2. jmcomic 搜索（返回 10 条）—— 你反馈：成功
+[ ] A3. 知识图谱图形 —— 你反馈：**还是失败**（本轮已加强诊断，见下）
+        → 现在的 HTML 会在页面顶部用红条显示 JS 报错；失败时图上会写"离线渲染"
+        → 请你重做一次，告诉我看到哪种：
+           ① 顶部红色报错条（把文字发我）
+           ② 图上有"离线渲染（d3 未加载）"
+           ③ 空白/只有统计数字，且没有任何提示
+        → 已知修复：上一版我新加的"错误提示条"里有个换行转义 bug，会生成非法 JS，
+          导致整页脚本全废（已修）。这很可能就是你"还是失败"的原因。
+[x] A4. 侧栏默认显示 + ◀/▶ —— 你反馈：功能正常
+[x] A5. 内存（只剩 2 个 python 进程）—— 你反馈：正常
+
+【B. 我要继续做的】
+[ ] B1. 等 A1：上游恢复后验证扫码；或按你意愿加 CRED 登录
+[ ] B2. 终末地公告正文 <50 字时自动联网补充背景（标记已有，待接进提示词）
+[ ] B3. 终末地多角色账号：目前只取默认角色，需要时加「切换角色」
+[ ] B4. 等 A3 的反馈，继续修知识图谱渲染
+
+【C. 已知上游限制（非本地 bug）】
+[·] C1. 终末地扫码登录接口 500；整个 API 服务你反馈暂时不可用
+[·] C2. 终末地 char_list / signin 必须登录后才有（需要 X-Framework-Token）
+[·] C3. web_search 依赖 Tavily，超时/限额会失败（已有重试与提示）
+
+【D. 明确暂缓 / 不再做】
+[·] D1. TTS：你说测试正常，保持现状
+[·] D2. 铃兰单 GIF：作为单 GIF 测试对象，不补充
+[·] D3. 设置页「使用方法」滚动条：你说成功，不再提醒
+[·] D4. GIF 切换旋转过渡：你已确认放弃
+
+────────────────────────────────────────────────────────────────
+五、交流约定
+────────────────────────────────────────────────────────────────
+· 窗口/布局类改动：先写《UI几何模型.txt》标好像素，你点头我才动代码
+· 动主文件前先存 .bak
+· 你直接在本文件用 ### 回复
+
+────────────────────────────────────────────────────────────────
+六、自测脚本（tools/dev_tests/，当前全部 PASS）
+────────────────────────────────────────────────────────────────
+_test_endfield.py          终末地 登录/公告/未登录提示/退出
+_test_plugins.py           office / file_ops / system / weather / search / KG / shell
+_test_message_sanitize.py  思考模式消息体检（reasoning_content 400 修复）
+_test_tts_memory.py        GENIE 空闲释放逻辑
+_test_ui_160.py            侧栏/书签/图片/# 分割线/形象状态机
+_test_topic_bookmarks.py   侧栏书签 + 开新话题保留旧内容
+_test_session_windows.py   角色窗口 + 话题总结链路
+_test_startup_chain.py     启动 GIF 播完 → 待机 端到端
+_test_tools_layout.py      工具管理表格排版
+_test_multimodal.py        多模态图片直传
+_diag_gif_frames.py        GIF 逐帧诊断（GIF 不动时先跑它）
+==================================================================
+PTRTS1.7.0_DSH
+1，检查监控数据流
+2，检查数据清洗流程
+3，检查长期记忆系统
+4，删除无用文件
+5，落实监控与长期记忆
+
+────────────────────────────────────────────────────────────────
+1.7.0 工作报告（本轮已完成，主文件已按约定存 .bak）
+────────────────────────────────────────────────────────────────
+【检查结论：数据流有 3 处断链/污染】
+① monitoring_events → 长期记忆 断链：DB 里 get_unprocessed_events /
+   mark_memory_processed 两个接口从未被调用，监控事件永远到不了长期记忆。
+② chat_records → 长期记忆 断链：chat.get_unprocessed / mark_processed
+   同样无人调用；聊天记忆只有 LLM 主动调工具才进库，被动链路不存在。
+③ 两条污染环：
+   a) 旧 LLM1 定时总结(_flush_batch_summarize)把总结经 add_memories_batch
+      写回 raw_events（cleaned=0）→ 被 Pipeline 当原始数据再清洗 → 总结→再总结；
+   b) 增强输入监控（剪贴板/窗口/进程）根本不落库，Pipeline 拿不到这批数据，
+      只有旧 LLM1 路径在消费它。
+④ 屏幕视觉总结(_process_screen_image)也写回 raw_events，同③a 污染。
+
+【改动】
+A. data_pipeline.py（已存 .bak）：
+   · 新增 Step 7 _feed_long_term_memory()：每批清洗完成后，把 memory_ref=0
+     的 monitoring_events（≤20 条，含上次遗留）异步喂给 LTM 工具；
+     回调按结果标 memory_ref=1/-1；工具禁用直接标 1 不堆积；
+     _pending_memory_ids 在途去重。
+   · 主循环启动时先消化上次遗留的待记忆事件。
+B. main_window.py（已存 .bak）：
+   · _on_input_monitor_data：剪贴板/窗口/进程事件统一落库 raw_events
+     （带 50 条一次的上限保护），进入 Pipeline 正规链路。
+   · _flush_batch_summarize：Pipeline 启用时改为 trigger_now()，废除
+     LLM1 总结→写回 raw_events 的污染环；Pipeline 关闭时保留旧兜底。
+   · _process_screen_image：视觉总结改写 monitoring_events（source=vision），
+     不再写回 raw_events；写后会经 Step 7 进长期记忆。
+   · 新增 _feed_ltm_from_chat()：会话完成后把 memory_processed=0 的
+     user/assistant 记录（每轮≤40 条，旧→新）异步喂 LTM 并标记 1/-1；
+     tool 记录直接标 1 不投喂；_chat_ltm_inflight 在途去重。
+C. 删除无用文件：src/core/fts_search.py（0 字节空文件）、
+   data/fts_index.db + -shm + -wal（旧版独立 FTS 索引，全仓库无引用）。
+D. 自测：tools/dev_tests/_test_dataflow_170.py —— 5 组 13 项 ALL PASS
+   （成功标记 / 失败回退 -1 / 禁用跳过 / 聊天链路 / 在途去重）。
+
+【改后数据流（闭环）】
+监控(含剪贴板/窗口) → raw_events → Pipeline 机械清洗+LLM总结
+  → monitoring_events(+视觉总结) → LTM(YES/NO→提取→去重/合并) → K-V 记忆
+聊天 → chat_records → 会话结束 → LTM → K-V 记忆
+K-V 记忆 → 画像注入 + 24h 摘要 → 对话上下文
+
+【待你验证】
+[ ] V1. 跑一次正常对话，看 logs 里是否出现
+     "[DataPipeline] 喂给长期记忆 N 条事件" / "[LTM] 喂给长期记忆 N 条聊天记录"
+     （LLM 可用时才会出现）
+[ ] V2. long_term_memories.db 里应开始出现 source=chat 的新记忆行
+[ ] V3. 复制一段带个人偏好的文字到剪贴板，确认 data/DBs/raw_monitor_data.db
+     的 raw_events 里有 source=clipboard 的行（此前是没有的）
+[ ] V4. 旧 LLM1 总结路径已废：日志里不应再出现 "LLM 定时总结"
+     （除非你在设置里关掉 Pipeline）
+
+==================================================================
+PTRTS1.7.1_DSH (hotfix)  —— 2026-09-15 18:40
+1，修 LTM 推理模型兼容
+2，回退历史脏 -1 标记
+
+────────────────────────────────────────────────────────────────
+【发现：log 里 LTM 全程判 "LLM 不可用"】
+看最新 prts_20260915_1834*.log，每轮对话结束都有：
+  [LongTermMemoryTool] WARNING: [LTM] 检测返回异常:
+注意错误内容是**空字符串**！原因是：
+· 配置 model = deepseek-flash（推理模型，启用 thinking）
+· reasoning_content 写入大量思考过程
+· max_tokens=10 太低，content 被截断为空
+· 代码只读 message.content，看不到 reasoning_content
+
+后果：所有 _detect_memorable() 返回 None → "LLM 不可用，放弃本批次"
+     → chat_records 标 memory_processed=-1（永久卡死）
+     → 用户问"有没有长期记忆参与"，LLM 老实答"没有"
+     → monitoring_events 链路同理（不过 Pipeline 10min 定时还没到，事件未触发）
+
+【修复】
+A. tools/long_term_memory_tool.py（已存 .bak）：
+   · 新增 _extract_text(response)：合并 content + reasoning_content，
+     推理模型 content 为空时从 reasoning 兜底抽取
+   · _detect_memorable：max_tokens 10→64；优先看末尾 token（reasoning
+     模式最后写结论），再退化到全文包含判断；重试时不再把 assistant 空
+     content 写回 messages（避免 OpenAI SDK 兼容性问题）
+   · _extract_memories：max_tokens 1000→2000；同样读 reasoning 兜底
+   · _merge_conflicts：max_tokens 1000→1500；同样读 reasoning 兜底
+B. tools/reset_failed_ltm.py（新增手动工具）：
+   · 统计并一键重置 memory_processed=-1 / memory_ref=-1
+   · --dry-run 只统计；--chat N / --events N 限定条数
+   · 干跑：chat_records.db 235 条中有 111 条 -1 脏数据
+         monitoring_events 4 条中 0 条 -1
+C. tools/dev_tests/_test_ltm_reasoning.py（新增 10/10 PASS）：
+   覆盖 content 末尾 YES/NO、reasoning 兜底、全空、混杂回答等场景
+
+【你下一步】
+[✓] 2026-09-15 18:44 已执行重置：
+     python tools/reset_failed_ltm.py
+     → chat_records 重置 111 条 → -1 计数归 0
+     → 二次 dry-run 确认两个表均为 0
+[ ] 重启桌宠，跑一轮对话，观察 logs 应能看到：
+     [LTM] LLM 判断: 有长期记忆价值
+     [LTM] 提取完成: N 条
+     [LTM] 已写入 N 条记忆
+
+==================================================================
+PTRTS1.7.2_DSH (hotfix)  —— 2026-09-15 18:50
+1，从源头关闭 deepseek 推理模型 thinking
+2，兜底判断逻辑（独立 YES/NO 正则）
+3，强化 detect prompt 禁止思考
+
+────────────────────────────────────────────────────────────────
+【症状：1.7.1 修复后仍判 "LLM 不可用"】
+prts_20260915_1845*.log 每轮仍出现：
+  [LTM] 检测返回异常: 'WE NEED TO DETERMINE IF THE CONVERSATION...'
+  [LTM] 检测返回异常: '我们需要判断这段对话是否包含值得长期记忆的信息。规则层...'
+注意：这次错误**不再是空字符串**，而是 reasoning_content 的截断思考过程。
+64 token 不够推理模型思考完，content 全空 → 兜底到 reasoning → 失败
+
+【根因】
+deepseek-flash 默认启用 thinking/reasoning_content，64 token 思考到一半
+就被截断。_detect_memorable() 读不到 YES/NO 结论。
+我之前那段判断逻辑 "if 'YES' in content and 'NO' in content" 直接返 None
+（因为 reasoning 里反复说"输出 YES 或 NO"），所以每次都是 None → 失败。
+
+【三层修复】
+A. 从源头关闭 thinking（治本）：
+   · _get_llm() 检测 host 含 deepseek 且 model 含 flash/reasoner/r1 → _disable_thinking=True
+   · 新增 _chat() helper，对 _disable_thinking=True 的调用
+     透传 extra_body={"thinking":{"type":"disabled"}}
+   · 普通模型不传 extra_body（兼容其他 OpenAI 兼容协议）
+
+B. 兜底判断逻辑（治标）：
+   · _extract_text() 保留兼容（content 为空时回退 reasoning_content）
+   · 正则 (?<![A-Z])(YES|NO)(?![A-Z]) 找**最后一个**独立 YES/NO
+     · 兼容 "结论YES"（中文紧贴）、"最后：NO"（标点紧贴）
+     · reasoning 里复述规则时出现的 YES/NO 不作为判断（取末尾）
+
+C. 强化 detect prompt：
+   · "严格规则：不要思考、不要解释、不要分析。看完对话后，
+     最后一行只输出一个单词 YES 或 NO。"
+
+D. 测试矩阵：
+   · tools/dev_tests/_test_ltm_171.py   mock 测试 13 项 PASS
+     （extra_body 透传 / 普通模型无 extra_body / 末尾 token 判定 /
+      中文标点黏连 / reasoning 同时含 YES+NO）
+   · tools/dev_tests/_test_ltm_171_live.py  真机端到端 3 项 PASS
+     （deepseek-flash 真实调用，content="YES"/"NO"，判定正确）
+
+【结果】
+· chat_records 已重置 111 条 -1 → 0（1.7.1 已做）
+· 重启后 LTM 正常工作（用户第二轮对话实测）
+· 仍残留 -1 的再次一键回退：python tools/reset_failed_ltm.py
+
+【关键文件】
+· tools/long_term_memory_tool.py   主修复（含 .bak/.bak2）
+· src/core/prompts.py              build_ltm_detect_messages 强化
+· tools/dev_tests/_test_ltm_171.py           mock 测试
+· tools/dev_tests/_test_ltm_171_live.py      真机测试
+· tools/reset_failed_ltm.py                  手动回退工具
+
+
+==================================================================
+PTRTS1.7.3_DSH (hotfix)  —— 2026-09-15 19:20
+1，长期记忆定期总结器（按文件大小/条目数定量触发）
+2，相近记忆聚类合并（difflib + LLM）
+3，过期权重衰减清理
+4，注入上下文时累计访问次数（衰减反哺）
+5，LTM 表 schema 兼容迁移
+
+────────────────────────────────────────────────────────────────
+【背景】
+1.7.2 修复 LLM thinking 后 LTM 工作正常。但 LTM 仍可能无限堆积：
+  · 老旧、长期未用的记忆长期占据 Top-K 注入位
+  · 相近表述的「差不多」记忆重复入库浪费
+  · 桌宠重启后无人清理 → 越长越胖
+用户问「有没有定期总结」，回答「没有」，并要求「按文件大小定量触发 +
+聚类合并相近记忆 + 过期权重衰减」三块功能。
+
+【A. 定量触发（按 DB 文件大小 / 条目数）】
+  · file_size_threshold_kb=1024 (1MB) 或 count_threshold=200 任一达到触发
+  · cooldown_minutes=5：两次 summarise 之间最小间隔
+  · 写后 hook：LTM 工具 execute() 末尾调用 maybe_trigger()
+  · 守护线程：每 60s 兜底巡检一次（即使写入停了也跑）
+
+【B. 聚类合并（difflib + LLM）】
+  · 对所有 LTM 条目按 variable_name 做 difflib 单链聚类（相似度 ≥0.75）
+  · 对 cluster size≥2 的簇调 LLM 合并为 1 条（复用 _chat() 入口，
+    自动处理 deepseek thinking 禁用）
+  · upsert 合并结果 + delete 源条目
+
+【C. 过期衰减清理】
+  · schema 扩展：access_count / last_accessed / decay_score
+  · 注入上下文时 get_summary() 累计 +1 access_count、更新 last_accessed
+  · summarise 时对 last_accessed ≥ decay_idle_days (7天) 的条目：
+      periods = days_idle / 7
+      new_conf = max(0, conf - periods * decay_rate (0.1))
+  · new_conf ≤ delete_threshold (0.15) → 删除
+  · 迁移旧 DB：ALTER TABLE ADD COLUMN，向前兼容（已存在则忽略）
+
+【关键文件】
+· src/core/database.py            +3 字段 + 4 方法 + get_summary 累计访问
+· tools/ltm_summarizer.py         新建核心组件（聚类/衰减/触发/守护）
+· src/utils/config.py             新增 LTMSummarizerConfig dataclass
+· config.json                     新增 ltm 默认配置段
+· tools/long_term_memory_tool.py  execute() 末尾加 _maybe_summarize()
+· main.py                         init_components() 启动 summarizer
+· tools/run_ltm_summarize.py      新建一键触发工具
+                                  (--dry-run / --decay-only / --cluster-only)
+· tools/dev_tests/_test_ltm_summarizer_173.py  7 项 mock 测试
+· tools/long_term_memory_tool.py.bak3          上一版备份
+· src/core/database.py.bak1                     上一版备份
+
+【测试矩阵】
+· python tools/dev_tests/_test_ltm_summarizer_173.py   7/7 PASS
+    T1 difflib 聚类正确性（user_name+user_nam 合一，孤立项独立）
+    T2 阈值判断（size=2MB 或 count=500 任一触发；都不到不触发）
+    T3 空库不崩
+    T4 全活跃场景不衰减（last_accessed 当天）
+    T5 30 天前 + 低 confidence (0.2) → 删除
+    T6 冷却期内 maybe_trigger 被卡，零提交
+    T7 _LTM_DDL 含新 3 字段
+· python tools/run_ltm_summarize.py --dry-run         现状报告正常
+   （DB 48KB / 6 条，未触发）
+· python tools/run_ltm_summarize.py --decay-only      衰减步正常
+   （全部 last_accessed 当天，decayed=0 / deleted=0）
+
+【配置示例（config.json ltm 段）】
+{
+  "ltm": {
+    "enabled": true,
+    "file_size_threshold_kb": 1024,
+    "count_threshold": 200,
+    "cooldown_minutes": 5,
+    "decay_idle_days": 7,
+    "decay_rate_per_period": 0.1,
+    "delete_threshold": 0.15,
+    "cluster_similarity": 0.75,
+    "run_on_start": false
+  }
+}
+
+【手动工具用法】
+python tools/run_ltm_summarize.py --dry-run        # 现状报告 + 是否触发
+python tools/run_ltm_summarize.py --decay-only     # 只跑衰减（不调 LLM）
+python tools/run_ltm_summarize.py --cluster-only    # 只跑聚类（不衰减）
+python tools/run_ltm_summarize.py                  # 跑完整链路
+
+==================================================================
+PTRTS1.8.0_DSH (hotfix)  —— 2026-09-15 19:33
+1，修复 knowledge_graph HTML 不出图形（对应 A3/B4）
+
+────────────────────────────────────────────────────────────────
+【★ 19:45 续修：找到真正的根因（d3 forceLink 字段名不匹配）】
+第一轮修复（CDN 崩溃链）后用户反馈仍无图。检查 19:44 生成的新 HTML
+确实已含修复代码且语法 PASS → 排除"看的旧文件"，继续深挖发现：
+
+· Python 生成的边 JSON 用 from/to 键，d3.forceLink() 默认读
+  source/target → 初始化即抛 "node not found: undefined"
+  → render() 崩溃 → 图形区空白。
+· 这就是"CDN 正常时反而白屏"的原因，也是 v1 以来从未出过图的
+  真正根因（CDN 崩溃链只是并发的第二层问题）。
+· 已用真实 d3@7（npm 临时安装）复现验证：
+  旧写法 → 抛 "node not found: undefined"；
+  新写法（构造 source/target 副本喂 d3）→ 初始化通过。
+· 修复：render() 内 const linkData = edges.map(e =>
+  Object.assign({}, e, {source: e.from, target: e.to}))，
+  原 edges 保留 from/to 供 showDetail/离线渲染使用。
+
+【已做】
+· PTRTS-core 的 HTML 已用修复后模板就地重新生成
+  （不用重新分析，直接重开那个文件即可）
+· 校验：py_compile / 内联 JS 语法 2/2 PASS / 含修复代码
+
+【★ 19:53 三修：大图"概览模式"太简陋，重写】
+用户确认 PTRTS-core（324 节点）出图成功；但桌宠随后分析整个
+PTRTS1.8.0 项目（1644 节点/2374 边）又"不太行"。原因：
+· >800 节点时 render() 自动降级到 renderSimple——旧版只画
+  4×4 像素小方块，无连线无标签，看着就像坏了。
+· 顺带确认：19:51 生成的新 HTML 已含 forceLink 修复，
+  说明桌宠进程已在用新模块（无需再纠结重启问题）。
+
+【重写 renderSimple 为可用概览】
+· 按类型分水平条带排布（project→function 六带，各带标注
+  "类型 (数量)"，带宽按节点占比分配）
+· 画连线（低透明度 0.25，id→坐标映射避免 O(n²)）
+· 彩色圆点节点（大小按类型）+ 原生 <title> 悬停提示 +
+  点击看详情；顶部写明"概览模式"和"取消勾选类型可降到
+  800 以下切回交互力导向图"的引导
+· 修正笔误：d3.assign 不存在于 v7 主包 → Object.assign
+
+【自测（全部 PASS）】
+· tools/dev_tests/_test_kg_simple_layout.js（真实 d3@7 +
+  真实 1644 节点数据）：6 类型排布 / 全节点有坐标且在画布内 /
+  2374 边两端坐标可解析 / forceLink 大图初始化通过 —— 7/7
+· PTRTS1.8.0_知识图谱.html 已就地重新生成，内联 JS 语法 2/2 PASS
+
+【你下一步】
+[ ] 重新打开 data\桌宠私有data\knowledge_graph\PTRTS1.8.0\
+     PTRTS1.8.0_知识图谱.html（已就地更新）
+   · 应看到六条彩色类型带 + 连线的概览图，可缩放、
+     悬停看节点名、点击看详情
+   · 右侧取消勾选「文件」「函数」后节点降到 800 以下，
+     自动切回可拖拽的力导向交互图
+
+==================================================================
+PTRTS1.8.1_DSH  —— 2026-09-15 20:05
+聊天文件链路大更新：
+1，用户可发送任意文件到聊天（与图片同级体验）
+2，LLM 优先多模态 / 否则用 file_ops read 读取，禁止"没眼睛"
+3，LLM 主动发文件（已有 send，本次强化描述）
+4，文件卡片重做：圆角白色长方形，顶部文件全名
+
+────────────────────────────────────────────────────────────────
+【改动（主文件均已存 .bak）】
+
+A. src/ui/chat_widget.py
+   · _handle_file 重写：任何文件都能发。
+     图片走原链路（预览+视觉+多模态直传）；
+     纯文本 = 卡片 + 2000字预览 + 绝对路径随消息直发；
+     其余一切文件（音视频/PDF/Office/压缩包/二进制）= 先显示
+     文件卡片，再经新信号 file_upload_request 交给主窗口处理。
+     上限 50MB 拒收；>10MB 文本不再读内容只发元信息。
+   · append_file_card 重做：圆角(12px)白色长方形，
+     顶部 = 图标 + 文件全名（不截断、word-break 换行），
+     下方 = "类型 · 大小 · 点「打开」查看 · 右键复制路径"，
+     标签行可选；文件名做 HTML 转义。
+   · 新增信号 file_upload_request(str)。
+
+B. src/ui/main_window.py
+   · 连接 file_upload_request → handle_file_upload。
+   · handle_file_upload 重写：音频→转写；视频→分析；
+     文档(含新增 .xlsx/.doc/.ppt/.xls)→后台抽取全文；
+     其他任意类型不再报"不支持"，改为元信息+绝对路径发给
+     LLM，并附提示"需要查看请调 file_ops read"。
+   · _read_document_file：新增 xlsx(openpyxl) 支持；发给 LLM
+     的消息带上绝对路径；截断提示引导分段读取。
+
+C. tools/file_ops.py
+   · file_read 全面升级（LLM 的"眼睛"）：
+     PDF/DOCX/PPTX/XLSX → 自动抽取文本（缺库给 pip 提示）；
+     图片 → 返回尺寸/格式元信息（内容走视觉/多模态）；
+     未知扩展名 → 嗅探文件头，二进制返回 hex+可打印预览；
+     纯文本原逻辑不变（offset/limit 分段）。
+   · TOOL_DESCRIPTION 强化：明确"读文件就是你的眼睛，
+     禁止说我看不到文件"。
+
+D. src/core/llm_client.py
+   · _DEFAULT_PROMPT 新增规则 8（文件查看规则）：
+     用户文件一律用 file_ops read 读取；严禁"没眼睛"话术；
+     发文件给用户用 file_ops send。
+
+【数据流（新）】
+用户发文件 → 聊天窗口
+  ├─ 图片 → 视觉识别 + 多模态直传(image_url)
+  ├─ 纯文本 → 卡片 + 预览直发（带绝对路径）
+  ├─ 音视频 → 卡片 + 转写/分析结果注入对话
+  ├─ PDF/Office → 卡片 + 抽取全文注入对话（带绝对路径）
+  └─ 其他二进制 → 卡片 + 元信息+路径 → LLM 需要时 file_ops read
+LLM 发文件 → file_ops send → 聊天文件卡片（图片走左侧内联预览）
+
+【自测】
+· tools/dev_tests/_test_file_flow_180.py —— 11/11 PASS
+  （纯文本全读/分段、xlsx/docx/pptx 抽取、图片元信息、
+   二进制嗅探、不存在文件友好提示）
+· _test_plugins.py 回归 —— ALL PASS（含 file_ops 读写编辑搜索）
+· 四文件 py_compile + 导入级检查（信号存在/提示词规则）全过
+
+【待你验证】
+[ ] W1. 拖一个 PDF/Excel 到聊天窗口 → 应出现白色圆角卡片
+     （顶部全名），随后 LLM 收到全文并直接回答内容问题
+[ ] W2. 发一个 zip/任意二进制 → 卡片 + LLM 收到路径；
+     再问"看看这个文件里是什么" → LLM 应调 file_ops read
+     返回 hex 预览而不是说"我看不到"
+[ ] W3. 让 LLM"把刚才的文件发给我" → 出现文件卡片
+[ ] W4. 老场景回归：发图片（视觉识别）、发 txt（预览直发）
+
+────────────────────────────────────────────────────────────────
+【根因：不是"没有图"，是整段 JS 崩溃】
+HTML 页面先从 jsdelivr 同步加载 d3；一旦 CDN 不可达（国内常态），
+脚本顶层 `const svg = d3.select(...)` 直接 ReferenceError →
+整段 <script> 崩溃，后面的 render() 和 1.6.0 加的离线兜底
+renderFallback() 一个都执行不到 → 页面只剩顶部统计数字。
+这正是 A3 里的症状③（空白/只有统计数字，无任何提示）。
+（1.6.0 的 document.write 备用 CDN 写在崩溃点之前能执行，
+ 但 unpkg 同样不可达，且崩溃点在后面照样炸。）
+
+【修复（tools/knowledge_graph.py，已存 .bak）】
+A. d3 全部延迟初始化：svg/g 移入 initD3()，模块级不再碰 d3 API；
+   d3 缺失时 render() 直接走 Canvas 兜底，不再抛异常。
+B. CDN 兜底链：jsdelivr(同步) → unpkg → cdnjs 动态 <script> 逐个试；
+   全失败保持内置 Canvas 离线渲染（先画兜底图，CDN 到货后自动
+   清空容器重画交互版）。废除 document.write 方案。
+C. renderFallback() 后置空 svg/g，避免操作已从 DOM 移除的悬空引用。
+D. searchNodes() 加 g 判空（离线模式只显示匹配计数，不再报错）。
+E. setLayout() 不再依赖全局 event，改为 onclick 显式传 this。
+F. Python 侧 8 处 kwargs 参数加 None 防护
+   （LLM 传 null 时 .strip() 抛 AttributeError → "图谱操作失败"）。
+
+【自测】
+· py_compile 通过；stats / add_entity(name=None) / search 正常
+  （None 参数返回友好错误而非异常）
+· 真实分析 src/core（19 文件/37 类/241 函数）生成 HTML 成功
+· node --check 等效校验：生成 HTML 的 2 段内联 JS 全部语法 PASS
+  （tools/dev_tests/_check_kg_html.js，可复用：node _check_kg_html.js <html>）
+
+【你下一步】
+[ ] 重做一次知识图谱 analyze_project：
+   · CDN 可达 → 正常 d3 交互图（力导向/树状/辐射、缩放、点节点看详情）
+   · CDN 全挂 → 左上角提示"离线渲染"，能看到分层环形图 + 搜索计数
+   两种情况都不该再出现"只有统计数字的空白页"
+
+==================================================================
+PTRTS1.8.2  —— 2026-09-15（接 1.8.1 的三条反馈）
+1，多模态/文件传输还是不行 → 找到并修掉真根因
+2，文件卡片太小 → 重做为「3cm × 1cm」紧凑芯片
+3，设置存不到本地、有些项每次启动被刷新 → 找到并修掉
+
+────────────────────────────────────────────────────────────────
+【A. 文件传输"还是不行"的真根因：后台线程里的 QTimer 永远不触发】
+现象（旧日志 logs/prts_20260915_201446.log 第 721 行）：
+  20:18:45  [ChatWidget] 文件上传(交主窗口处理): deepseek_intro.pptx (.pptx)
+  ……然后再无任何下文：没有"[正在读取文档…]"，没有"[文档读取完成]"，
+  也没有"收到用户消息"。卡片出来了，内容永远送不到对话里。
+
+根因：_read_document_file / _transcribe_audio_file / _analyze_video_file
+  跑在 threading.Thread 里，却用 QTimer.singleShot(0, …) 回主线程。
+  QTimer 是在「调用它的线程」里创建的，而 Python 线程没有 Qt 事件循环
+  → 定时器永不触发 → 抽取到的全文被静默丢弃。
+  （图片链路没事，因为 1.6.0 已经用 Signal 中转 _ImageSignalRelay —— 
+    main_window.py 里那句注释"QTimer.singleShot 的 lambda 可能被丢弃"
+    说的就是这件事，只是文件链路一直没跟着改。）
+  证据：tools/dev_tests/_test_bg_thread_ui_182.py 第 1 节实测
+  「后台线程 QTimer.singleShot 0ms/50ms 都不触发」。
+
+修复（src/ui/main_window.py，已存 .bak182）：
+  · 新增 _TaskSignalRelay(QObject)：system_msg / user_msg 两个 Signal；
+    跨线程是 queued connection，必然回主线程执行。
+  · _transcribe_audio_file / _analyze_video_file / _read_document_file
+    / _on_stt_transcription / _on_stt_speech_start / _on_stt_speech_end
+    全部改走 _task_relay，删掉所有 QTimer.singleShot。
+  · handle_file_upload 与三个后台函数补上 INFO 日志，
+    以后"发文件没反应"能一眼看出卡在哪一步。
+  · 图片直传补强：多模态开启时，除了 image_url 还把【本地视觉识别结果】
+    作为文字一起发。因为当前对话模型（deepseek-flash/deepseek-chat）不支持
+    看图，session 会把 image_url 剥掉重试，那时模型手里只剩"请直接看图回答"
+    → 于是回一句"我看不到画面"。带上识别结果后降级路径也有内容可答。
+
+────────────────────────────────────────────────────────────────
+【B. 文件卡片重做：3cm × 1cm】
+· 新增 ChatWidget 类常量：CARD_WIDTH_CM = 3.0 / CARD_HEIGHT_CM = 1.0
+  想改大小只动这两行；card_size_px() 按屏幕 logicalDotsPerInch 换算像素
+  （本机 96dpi → 113 × 38 px）。
+· 关键坑（实测得出，tools/dev_tests 里留了结论）：
+  1) Qt 富文本里 div 的 width/height/max-width **全部被忽略**，
+     只有 <table width height> 真正按像素生效。旧写法用 div + max-width:340px，
+     实际渲染成 300px 宽（≈7.9cm）铺满整行。
+  2) 底色必须写在 <table bgcolor>，写到 <td bgcolor> 只会覆盖文字那么高
+     （实测 32px），撑不满固定的 1cm。
+· 文件名按像素中间省略，且**保住完整扩展名**（_elide_filename 先摘出 .pptx
+  再只截主干，避免直接 elideText 把 ".pptx" 削成 "ptx"）。
+· 第二行：通用标签（"用户上传"）换成"点击打开"提示；
+  有意义的标签（如"📚 本子下载完成"）优先显示。
+· 整块内容都在 <a> 里，点卡片任意文字即可打开；右键复制路径照旧。
+
+────────────────────────────────────────────────────────────────
+【C. 设置存不到本地 / 每次启动被刷新】
+C1（就是"每次启动被刷新"的元凶）src/ui/settings_window.py _load_values：
+   原来用 f"_ui_{attr_key.replace('_color','')}_val" 拼属性名，
+   ui_bg_color → "_ui_ui_bg_val"、chat_bg_color → "_ui_chat_bg_val"，
+   而 __init__ 里真正的属性叫 _ui_bg_color_val / _ui_chat_bg_color_val。
+   结果：加载时颜色没进控件（色块也不着色），保存时又把初始默认值
+   (#ffffff / #f7f7fa) 写回 config → 用户改的"大底色/聊天区底色"永远存不住。
+   已改为显式映射表（字段名 → 值属性名 → 按钮属性名 → 默认值）。
+C2 src/utils/config.py：vision.api_key 既被 save() 从 config.json 里 pop 掉，
+   又没写进 .env → 每次启动被 _load_from_env 用 DEEPSEEK_API_KEY 覆盖。
+   新增 DEEPSEEK_VISION_API_KEY：单独设置的视觉 Key 存 .env；
+   与 LLM Key 相同时自动删掉该变量（回落语义），避免旧值一直盖住。
+C3 src/utils/config.py：config.json 会被「设置窗口后台保存线程」和
+   「主线程聊天窗口尺寸定时器 _save_chat_size / _on_config_changed」
+   同时写，两者共用同一个 config.json.tmp → replace() 互相踩，
+   偶发 FileNotFoundError = "点了保存但没保存上"。
+   新增模块级 _SAVE_LOCK，save() 串行化。
+
+【自测（全部实跑）】
+· tools/dev_tests/_test_bg_thread_ui_182.py   —— 27 PASS / 0 FAIL
+  含"后台线程 QTimer.singleShot 确实不触发"的根因复现、
+  Signal 中转必回主线程（普通类绑定方法，与 MainWindow 同形）、
+  源码静态检查（6 个后台函数里已无 QTimer.singleShot）、
+  以及真实 pptx 端到端（后台线程抽出 414 字符 → 主线程拿到 536 字符
+  且带绝对路径的注入消息）。
+· tools/dev_tests/_test_settings_persist_182.py —— 42 PASS / 0 FAIL
+  6 种颜色 load↔save 属性名一致 + 色块着色、15 项数值控件加载、
+  UI 改值→保存→重新读盘、视觉 Key 进出 .env、
+  4 线程 × 8 次并发 save() 无异常且 config.json 仍是合法 JSON。
+  （测试自带 config.json / .env / 角色 settings.json 备份与还原）
+· tools/dev_tests/_test_file_card_182.py —— 16 PASS / 0 FAIL
+  卡片渲染到透明画布量不透明外框 = 113×38px（2.99cm × 1.01cm），
+  未铺满整行；长文件名省略后不超像素预算且保住 .pptx；
+  改成 6cm×2cm 后确实变大（证明尺寸是活的）。
+· 回归：_test_file_flow_180 / _test_multimodal / _test_ui_160 /
+  _test_session_windows / _test_topic_bookmarks / _test_message_sanitize
+  全部 ALL PASS；src + tools 全量 py_compile 通过。
+  （_test_plugins.py 的 create xlsx/docx/pptx 三项 FAIL 是**既有问题**：
+    data/桌宠私有data/office 下已存在同名自检文件，与本次改动无关。）
+
+【备份说明（重要）】
+  本次改动前**没有**先存 .bak，是我的流程失误（UI几何模型.txt 第 3 条要求先备份）。
+  现有 .bak 是 1.8.0/1.8.1 时期的，已被本次改动取代。
+  为补救，已把改完的当前版本另存为：
+    src/ui/main_window.py.bak182
+    src/ui/chat_widget.py.bak182
+    src/ui/settings_window.py.bak182
+    src/utils/config.py.bak182
+  本次所有改动都带 ★ 1.8.2 注释，正文里也逐条写清了，可手工回退。
+
+【待你验证】
+[ ] V1. 拖一个 pptx/docx/xlsx/pdf 到聊天窗口 →
+      应看到 3cm×1cm 的小卡片，紧接着"文档读取完成"，并且 LLM 直接    ###成功
+      回答文件内容（不再"没反应"）。
+[ ] V2. 同一张卡：点卡片文字应能打开文件；右键应能复制路径。               ###成功
+[ ] V3. 设置 → 个性化 → 改"大底色/聊天区底色" → 保存 → 重启 →           ###失败，建议每次退出程序的时候吧设置内容（两套角色）保存到本地。
+      颜色应保持（以前会被刷回 #ffffff / #f7f7fa）。
+[ ] V4. 设置 → 视觉 → 单独填一个和 LLM 不同的 API Key → 保存 → 重启 →
+      仍然是这个 Key。
+[ ] V5. 若觉得 3cm×1cm 还是不合适：改 ChatWidget.CARD_WIDTH_CM /###确实有点小了，可以尝试整体放大1.5倍。
+      CARD_HEIGHT_CM 两行即可（1cm = 2.54 换算已自动处理 DPI）。
+
+==================================================================
+###重启后，聊天记录无法预览图片和文件卡片了
+###文件卡片的上传样式应该和图片一样，靠近发送方头像，一个消息一个头像，就像qq一样。
+
+==================================================================
+PTRTS1.8.4  —— 2026-09-15（接你的 5 条反馈）
+你回复：V1 成功 / V2 成功 / V3 失败 / V5"有点小，放大 1.5 倍"
+新提：重启后预览没了、卡片样式要像 QQ
+
+────────────────────────────────────────────────────────────────
+【先说结论：你那份新日志里又抓到两个真 bug】
+
+■ 1) 聊天窗口宽度每次启动被刷成 340（就是你说的"设置存不住"的一部分）
+   证据：logs/prts_20260915_203645.log 第 269 行明明写着
+       [MainWindow] DEBUG: 聊天窗口尺寸已保存: 420x640
+   但重启后的新实例在 20:43:59 把 config.json 写成了 340
+   （新实例日志 0 字节，看不到过程，所以是从文件时间戳反推的）。
+
+   根因在 main_window._on_chat_resized：
+       extra = SIDEBAR_WIDTH(120) + STRIP_W(18) + 20 = 158
+       self.config.ui.chat_window_width = max(MIN_WIDTH, width - extra)
+   侧栏从 1.6.0 起就是聊天窗口**外面**的独立窗口（UI几何模型.txt 第 3 条：
+   "聊天窗口宽 420 …… 完全不受侧栏影响"），聊天窗口的实际宽度从来不包含它。
+   于是启动阶段任意一次 resizeEvent 都会算成 max(340, 420-158)=262→340，
+   而 340 正好是 MIN_WIDTH —— 严丝合缝，就是它。
+   已修：不再减 158，只保留 MIN_WIDTH 兜底。
+
+■ 2) reasoning_content 400（边界轮整个被打断）
+       [Session] WARNING: 边界轮 #1 失败: Error code: 400 -
+       The `reasoning_content` in the thinking mode must be passed back to the API.
+   第 2 轮 thinking=282字符 用了工具；第 3 轮 thinking=**0**字符 给了最终回答。
+   session.py 第 1095 行 `if thinking_buffer:` 为假 → 这条 assistant 消息
+   没有 reasoning_content 字段 → 边界轮重发整个历史 → 400。
+   （第 966 行注释写的是"要求**每一条** assistant 消息都带回"，代码只覆盖了
+    带 tool_calls 的那一类。）
+   已修：_prepare_messages 这个"发送前体检"的必经点上统一补齐，
+   且只在历史里出现过 reasoning_content 时才补（换普通模型不会平白多塞字段）。
+   另：给出文字回复后不再多跑那次多余的边界轮。
+
+────────────────────────────────────────────────────────────────
+【按你的要求改的 4 件事】
+
+A. 文件卡片放大 1.5 倍（V5）
+   ChatWidget.CARD_WIDTH_CM = 4.5 / CARD_HEIGHT_CM = 1.5
+   （实测 170×57px = 4.50cm × 1.51cm；想再调只动这两行）
+   字号/内边距/省略预算跟着卡片尺寸等比缩放，不是只把框撑大。
+
+B. 文件卡片改成"和图片一样，靠发送方头像，一条消息一个头像"（QQ 式）
+   · append_file_card 现在和 append_image_preview 用同款行布局：
+     用户上传 → 卡片在左、用户头像在右；桌宠发来的 → 桌宠头像在左。
+   · file_card_in 信号加了第 4 个参数 from_bot；工具下载/LLM 发文件
+     一律 from_bot=True（jmcomic / bilibili / file_ops send 共 4 处）。
+   · 纯文本上传不再"卡片 + 文字"占两行两个头像，改为卡片和文字同属
+     一条消息、共用一个头像。
+
+C. 重启后仍能预览图片 / 文件卡片
+   根因：以前卡片和缩略图只是**画在界面上**，从没进过历史库；
+   _reload_chat_view 只按文本重画，所以重启就没了。
+   改法：给消息正文加两种内联标记，随消息一起落库，重画时解析成预览——
+     · 图片：沿用已有的 markdown ![](file:///...)（1.5.0 就有渲染支持）
+     · 文件：新增 [[FILE:路径|大小|标签]]
+   _render_message_html 负责把标记变成"卡片/缩略图 + 文字"的同一条消息；
+   文件已被删除时给"[文件已不在: xxx]"提示，不会露出原始标记。
+   已接线的入口：文档抽取、二进制文件、纯文本、用户上传图片。
+
+D. 退出程序时把设置落盘（你的建议）
+   · 新增 SettingsWindow.flush_current_character_settings() /
+     flush_all_on_exit()；MainWindow._quit 里调用（还有 config.save() 兜底）。
+     没点过「保存设置」的改动，退出时也会写回。
+   · 另外修了"两套角色"的隐患：以前切角色卡片**不会**先保存当前角色，
+     "改了角色 A 的人设 → 点一下角色 B" 就把 A 的改动丢了。
+     现在点别的角色卡片会先 flush 旧角色。
+   · 为什么 V3 会失败：很可能是改完直接关程序、没点「保存设置」——
+     现在退出兜底了，这条路不会再丢。
+   · 顺带：侧栏显隐以前不持久化，每次启动都自己变回显示。
+     新增 UIConfig.sidebar_visible，点 ◀/▶ 立即存，启动按配置恢复。
+
+────────────────────────────────────────────────────────────────
+【日志可靠性】
+logs/ 里出现过两个 0 字节日志（20:43:51 / 20:43:53），但进程活着、
+而且它确实在 20:43:59 写了 config.json —— 等于"出问题时反而没日志可看"。
+怀疑是控制台 handler 的 stdout 管道没人读、把整个日志流程卡住。
+logger.py 已把**文件 handler 提到控制台之前**注册（磁盘上一定有记录），
+并在重建 handler 时 close 掉旧的。
+
+────────────────────────────────────────────────────────────────
+【必须交代的一次事故 + 已恢复】
+_write 这条测试(_test_attach_persist_184.py)的初版为了隔离，
+  直接 rmtree 了真实的 data/桌宠形象 —— 而运行中的程序正锁着 GIF，
+  结果删掉了 deepseek/GIF 里的 11 个文件。
+  已立刻从备份逐字节恢复：27 个文件全部与备份 MD5 一致。
+  同时 config.json / deepseek/settings.json 被探针写过，也已还原。
+  测试已改成：只在**工作区内的临时副本**上操作，并把 CHARACTERS_DIR
+  临时指过去；real 目录只做只读校验；config.json 用内存文本备份还原。
+  测试结尾还加了"真实目录文件数正常""无探针残留"两条断言。
+
+【自测（全部实跑，exit=0）】
+· _test_attach_persist_184.py  32 PASS / 0 FAIL
+  尺寸 170×57px、标记解析、卡片与消息同排且**只有一个头像**、
+  用户/桌宠两侧方向正确、文件已不在的降级提示、
+  退出落盘救回未保存改动、切角色先 flush、真实数据未被写脏。
+· _test_window_size_184.py     21 PASS / 0 FAIL（复现 420→340 并证明已修）
+· _test_reasoning_content_183.py 13 PASS / 0 FAIL
+· _test_bg_thread_ui_182.py    27 PASS / 0 FAIL（这次真抓到 size_str 未定义）
+· _test_settings_persist_182.py 42 PASS / 0 FAIL
+· _test_file_card_182.py       16 PASS / 0 FAIL
+· 回归：_test_file_flow_180 / _test_multimodal / _test_ui_160 /
+  _test_session_windows / _test_topic_bookmarks / _test_message_sanitize /
+  _test_dataflow_170 / _test_ltm_171 全部 ALL PASS；src+tools 全量 py_compile 通过。
+
+【备份】src/ui/chat_widget.py.bak184、src/ui/main_window.py.bak184、
+        src/ui/settings_window.py.bak184（另 session.py.bak183 等 1.8.3 快照也在）
+
+【待你验证】
+[ ] V6. 拖一个 pptx → 卡片应比之前明显大一圈（4.5×1.5cm），
+      且卡片紧贴你自己的头像（右侧），一条消息只出现一个头像。###成功了，大小合适。
+[ ] V7. 发一张图片 → 重启程序 → 历史里应该还能看到缩略图；
+      发过的文件也应该还能看到卡片（点开仍能打开原文件）。  ###成功了
+[ ] V8. 设置里改"大底色/聊天区底色" → **直接关程序**（不点保存）→
+      重开 → 颜色应该还在。                                                             ###很奇怪，第一次设置后保存，成功应用。重启后，又回到了默认，打开设置，设置里面是数值确实是保留了之前的，所以是加载的时候还是按照默认加载的值。要再点一遍保存才会变回想要的样式，包括用户头像，聊天窗口边距，应该不止这些，仔细排查。
+[ ] V9. 把聊天窗口拖到你习惯的宽度 → 关掉重开 → 宽度应该保持
+      （以前会被压回 340）。侧栏收起后重开也应该还是收起的。         ###同上
+[ ] V10.（顺带）用过工具的那一轮，日志里不该再出现
+      "边界轮 #1 失败: ... reasoning_content ..." 的 400。    ###没看见了这次
+
+⚠️ 注意：你现在还开着旧实例（20:43:51 启动的那个进程），
+   它加载的是改动前的代码，会继续把宽度写回 340。
+   请先退出它再重新启动，上面 V6–V10 才作数。
+
+==================================================================
+###退出的时候有东西失败了：[21:09:17] [MainWindow] DEBUG: 数据库已断开
+[21:09:17] [MainWindow] DEBUG: 输入监控落库失败: 'NoneType' object has no attribute 'execute'
+[21:09:17] [Monitor] DEBUG: 监控已停止
+[21:09:17] [MainWindow] DEBUG: 监控已停止
+[21:09:19] [InputMonitor] DEBUG: 增强输入监控已停止
+[21:09:19] [MainWindow] DEBUG: 输入监控已停止
+[21:09:19] [MainWindow] INFO: 退出完成
+PS D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.8.0>
+
+==================================================================
+PTRTS1.8.5  —— 2026-09-15（V8/V9 的根因 + 退出报错）
+你回复：V6 成功(大小合适) / V7 成功 / V10 没再见到 400
+        V8、V9 失败，并且给出了一条极准的线索
+
+────────────────────────────────────────────────────────────────
+【V8/V9 的根因：Phase5 从来没执行过 —— 你的判断完全正确】
+你写的是："打开设置，设置里面是数值确实是保留了之前的，
+          所以是加载的时候还是按照默认加载的值。
+          要再点一遍保存才会变回想要的样式，包括用户头像，聊天窗口边距，
+          应该不止这些，仔细排查。"
+
+按这条线索查下去，三份日志（20:43:51 / 21:00:46 / 21:05:05）有一模一样的特征：
+   只有 Phase1: 配置+形象+基础UI...
+   只有 Phase4: 监控/画像等重组件(后台线程)...
+   **从来没有 Phase5: 更新定时器...**
+而且也没有"应用启动 UI 配置失败"的 warning —— 说明不是报错，是**根本没跑到**。
+
+根因（和 1.8.2 修文件传输那次是同一个坑）：
+   _init_phase4 里 _load_heavy() 跑在 threading.Thread 里，
+   收尾却写的是 QTimer.singleShot(0, self._init_finalize)。
+   子线程没有 Qt 事件循环 → 这个定时器永远不触发。
+
+于是只写在 _init_finalize 里的这几件事，从项目存在起就没在启动时执行过：
+   · _apply_config_to_ui()  ← 颜色/头像/窗口尺寸/边距/透明度/侧栏
+   · _update_summarize_timer()
+   · chat.set_sidebar_ready(True)
+   · 数据清洗 Pipeline 的启动        ← 顺带发现：Pipeline 其实一直没被启动过
+   · "主窗口初始化完成" 这行日志
+
+这就精确解释了你看到的现象：
+   config.json 里存着你的设置 → 设置页 _load_values 直接读 config，所以显示是对的；
+   但启动时没人把 config 应用到界面上 → 界面用 ChatWidget/UIConfig 的默认值；
+   点一次「保存设置」→ _on_config_changed → _apply_config_to_ui()，于是就对了。
+
+修法：复用 1.8.2 建的信号中转器
+   · _TaskSignalRelay 增加 heavy_ready = Signal()
+   · __init__ 里连到 self._init_finalize
+   · _load_heavy 里把 QTimer.singleShot(...) 换成 self._task_relay.heavy_ready.emit()
+   · _init_finalize 开头加一行 INFO 日志，以后"Phase5 到底跑没跑"一眼可见
+   （第 116 行那句"不能等 _init_finalize，本轮实测偶发不执行"的老注释也一并更新了，
+     它当时的临时绕法保留 —— 提前放行侧栏没坏处，两次调用幂等。）
+
+⚠️ 副作用提醒：Pipeline 现在会真的启动（config.pipeline.enabled = true）。
+   它是 1.7.0 设计好的数据清洗链路，此前因为同一个 bug 一直没跑起来。
+   启动后日志里会多出 Pipeline 的活动，属于预期行为。
+
+────────────────────────────────────────────────────────────────
+【退出时报 'NoneType' object has no attribute 'execute'】
+原因：退出时两个线程并行跑 ——
+   t1 _stop_services：停 monitor / input_monitor / stt / pipeline
+   t2 _stop_lightweight：停 idle_talker / tts / **db.close()**
+   db 先关掉，而剪贴板/窗口事件还在往 raw_events 里写 → 必报一次。
+   日志里时间戳看得很清楚：21:09:17 数据库已断开 → 21:09:17 落库失败
+                        → 21:09:19 输入监控才停。
+
+修法（两道保险）：
+   1. db.close() 从 _stop_lightweight 里挪出来，放到 t1/t2 都 join 之后再执行
+      —— 数据库一定在监控停稳之后才关。
+   2. 新增 self._shutting_down 旗子，_quit 第一件事就置 True；
+      _on_input_monitor_data 一进来就检查它，退出期间直接 return，不碰数据库。
+
+────────────────────────────────────────────────────────────────
+【自测（全部实跑，exit=0）】
+· _test_phase5_startup_185.py  26 PASS / 0 FAIL
+  - 子线程 emit heavy_ready → Phase5 确实被拉起，且跑在主线程（真跑，不是静态检查）
+  - _load_heavy 里已无 QTimer.singleShot
+  - _apply_config_to_ui 真把 6 种颜色 / 377×555 尺寸 / 0.66 透明度 /
+    211 侧栏宽 / 侧栏隐藏 应用到 ChatWidget 上，且样式表里确实含 #aaffff
+  - 退出顺序：db.close() 在 join 之后、_shutting_down 已立、
+    退出中回调不碰数据库（用一个"一写就抛"的假 db 验证）
+· 回归：_test_attach_persist_184(32) / _test_window_size_184(21) /
+  _test_reasoning_content_183(13) / _test_bg_thread_ui_182(27) /
+  _test_settings_persist_182(42) / _test_file_card_182(16)
+  + 8 个旧套件全部 ALL PASS；src+tools 全量 py_compile 通过。
+
+【备份】src/ui/main_window.py.bak185
+
+【待你验证】
+[ ] V11. 改底色/头像/窗口边距 → 保存 → **完全退出** → 重开 →
+       应该直接就是你要的样子，不用再点一次保存。                           ###成功
+[ ] V12. 拖好窗口宽度 / 收起侧栏 → 退出 → 重开 → 都应保持。          ###成功
+[ ] V13. 启动日志里应能看到这两行（证明 Phase5 真的跑了）：
+        [MainWindow] INFO: Phase5: 应用启动 UI 配置（颜色/头像/尺寸/侧栏）...###自己去看log
+        [MainWindow] INFO: 主窗口初始化完成
+[ ] V14. 退出日志里不应再有 "输入监控落库失败" 那行。###成功
+
+==================================================================
+PTRTS1.8.6  —— V13 复查 + 退出时 Pipeline 的问题
+（说明：这一段上次写过，被编辑器保存覆盖掉了，这里补回来）
+
+【V13 复查：Phase5 确实跑起来了】
+logs/prts_20260915_211511.log 与 211608.log 都有：
+   Phase5: 更新定时器... / Phase5: 应用启动 UI 配置...
+   数据清洗 Pipeline 已启动 / 主窗口初始化完成
+V14 复查：两份新日志里都**没有** "输入监控落库失败" 了。
+
+【但发现退出时 Pipeline 行为不对】
+logs/prts_20260915_211608.log 退出段：
+   21:18:41 正在退出...
+   21:18:46 [DataPipeline] === 开始清洗批次 ===   ← 退出中反而开了新批次
+   21:18:46 [DataPipeline] LLM 总结 第1/3次       ← 还在调 LLM
+   21:18:46 [Database] 数据库已关闭               ← 库关了，批次还在跑
+根因：stop() 用 _process_event.set() 唤醒线程，而 while self._running
+   的判断在 wait() 之前就通过了，醒来后照样往下走 → 开了新批次。
+修法（4 处守卫 + 退出顺序）：
+   A. _run_loop：wait() 之后 `if not self._running: break`
+   B. _process_batch：开头/调 LLM 前/LLM 回来后写库前各查一次
+   C. _llm_summarize_with_retry：每轮重试前查一次
+   D. _quit：Pipeline 提到**第一个**停（它是唯一会后台调 LLM + 写库的
+      长任务），db.close() 仍最后。
+自测：_test_pipeline_shutdown_186.py 15 PASS / 0 FAIL
+   （真起线程跑，断言 stop() 后一个批次都不开）
+
+==================================================================
+PTRTS1.8.7  —— "又重启了一遍，没看见 pipeline 工作啊"
+
+【先回答：它其实在工作，只是没到触发条件】
+最新日志 prts_20260915_212243.log：
+   21:22:48 [DataPipeline] 主循环启动: 定时=600s, 定量=100条
+   21:22:48 [DataPipeline] 启动 / 数据清洗 Pipeline 已启动
+   21:24:02 [DataPipeline] 已停止        ← 1.8.6 的修复生效了（以前没这行）
+线程活着、启动/停止都正常，只是整段会话只有 ~83 秒，
+而触发条件是「每 600s 一次」或「新增 100 条」—— 两个都没到。
+
+【但顺着查，发现两个真问题】
+
+■ 问题 1：积压永远等不到触发
+   write_counter 是**内存计数器，每次重启归零**；
+   而库里躺着 1058 条 cleaned=0 的历史数据（以前 Pipeline 从没成功清洗过）。
+   所以重启后：新增计数从 0 开始，"新增 ≥100" 认不到那 1058 条；
+   只能干等 10 分钟定时。表现就是"Pipeline 像死了一样"。
+   已改：定量触发同时看**库里真实积压**（get_uncleaned 取实际条数），
+   积压 ≥ 阈值也触发。下一次启动约 60 秒后就会开始清洗积压。
+
+■ 问题 2：完全看不见它在跑
+   从"启动"到"第一次触发"之间日志一片空白，没法判断它活着还是死了。
+   已加：
+     · 启动时打印触发条件 + 当前积压：
+       [DataPipeline] 触发条件: 每 10 分钟一次，或新增/积压达到 100 条；
+                        当前待清洗积压 1058+ 条
+     · 每轮心跳（DEBUG）：
+       [DataPipeline] 心跳: 新增=n/100, 积压=n, 定时已到/未到, db=OK
+     · 触发时打印原因：
+       [DataPipeline] 触发清洗（外部=False, 积压/新增达标=True, 定时=False, 当前积压=1058）
+
+【自测（全部实跑，exit=0）】
+· _test_pipeline_trigger_187.py  9 PASS / 0 FAIL
+  - 积压 1058 条 → 确实触发；无积压无新增 → 保持安静；
+  - 新增计数 100 → 触发，且触发后计数器归零（避免连刷）
+  - 启动日志/心跳/触发原因/积压查询方式 全部核对
+· _test_pipeline_shutdown_186.py 15 PASS / 0 FAIL（1.8.6 的修复仍在）
+· 其余 15 个套件全部 exit=0；src+tools 全量 py_compile 通过。
+· 辅助工具：tools/dev_tests/_db_probe.py（只读，看 DB 各表行数/cleaned/memory_ref）
+
+【备份】src/core/data_pipeline.py.bak187
+
+【待你验证】
+[ ] V15. 启动后**等 1～2 分钟**，日志里应该先出现心跳：
+        [DataPipeline] 心跳: 新增=0/100, 积压=101, 定时未到, db=OK
+        紧接着（积压达标）：
+        [DataPipeline] 触发清洗（... 当前积压=1058）
+        [DataPipeline] === 开始清洗批次 ===
+[ ] V16. 积压有 1058 条、每批处理 100 条 → 预计会连续跑约 11 批、
+        每批之间隔 1 分钟（每批最多 3 次 LLM 调用）。这段时间 API 用量会高一些。
+        跑完后 raw_events 里 cleaned=0 的数量应该明显下降。
+[ ] V17. 如果你**不想**让它在启动时就去啃历史积压：
+        把 src/core/data_pipeline.py 里那段 backlog 判断去掉即可
+        （标着 ★ 1.8.7 的 if not count_triggered: 那几行），
+        或者干脆 config.json 里 pipeline.enabled = false。
+
+==================================================================
+PTRTS1.8.8  —— "按道理来说这些监控数据应该会先机械清洗，然后才是 LLM 清洗吗？"
+
+【先回答顺序：你理解得对】
+_process_batch 的实际链路就是：
+   取数 get_uncleaned(100)
+     → _fetch_uncleaned（时间/ID 过滤）
+     → _mechanical_clean（机械清洗，纯规则、不花钱）
+     → _dedup_events（★ 本次新增：重复合并）
+     → _enrich_file_paths（标 [待视觉分析]/[待STT转写]）
+     → _llm_summarize_with_retry（LLM 清洗）
+     → 写 monitoring_events → 标记 raw cleaned=1 → 喂长期记忆
+   机械清洗在前、LLM 在后，设计上是对的。
+
+【但实测：机械清洗一直在空转】
+日志里那行 "获取 100 条原始数据 → 机械清洗后保留 100 条" 就是证据。
+用真实库跑了一把（tools/dev_tests/_diag_pipeline_layers.py）：
+
+  raw_events 总 1058 条，cleaned=0 也是 1058 条（一条都没清洗过）
+  第2层 _fetch_uncleaned：100 → 100（没过滤）
+  第3层 机械清洗：     100 → 100   四条规则一条都没命中
+
+  真实 source 分布：process_metadata 44 / window_metadata 39 / system 14
+                    / keyboard 2 / clipboard 1
+  而规则1 的 source 白名单写的是 ("process", "system")
+  → "process_metadata" 根本不在白名单里，规则1 对 88% 的数据永远不生效
+
+【所以这一批数据是「重复度极高的原始数据」直接丢给 LLM】
+  归一化后重复：65/100 条
+    ×44  [process_metadata] "活动应用类别: browser, ide"
+    ×6   [window_metadata]  "切换应用: python.exe | 窗口: python"
+    ×5   [system]           "[进程] idea64.exe(1进程, N MB)…"
+  既费 token，又让 LLM 把注意力花在 44 条一模一样的话上。
+
+【本次修法（你选的"两个都修"）】
+1. 规则1 的 source 白名单改成前缀匹配 ("process","system","window")
+   → process / process_metadata / window_metadata / system 全覆盖；
+   噪声词改成词边界正则（crash|gpu-process|utility|renderer|
+   network-service|video-capture），
+   避免窗口标题里出现 "Storage 管理" / "audio track" 就被误杀。
+2. 新增 _dedup_events：同一批里「同 source + 同归一化内容」合并成一条。
+   归一化 = 去掉数字与 "持续 Ns"（"[进程] idea64.exe(2749MB)" 与
+   "(2097MB)" 视为同一种状态）。
+   合并策略刻意**保留首次出现的位置与时间戳**，把末次时间与次数写进正文：
+     "活动应用类别: browser, ide（同批 ×44，至 2026-09-15 21:10:00）"
+   —— 比直接丢弃更有用：LLM 既知道"这段时间一直是这个状态"，
+      又保住了时间跨度，数据也不丢。
+   顺序：机械清洗 → 重复合并 → LLM（合并日志会写明省了多少条）。
+
+【真实数据上的效果（实测，不是估算）】
+   取数 100 → 机械清洗 100 → 重复合并 35
+   → 送进 LLM 的数据量减少 65%
+   （机械清洗这次仍滤掉 0 条 —— 你的数据里本来就没有浏览器子进程噪声；
+     白名单修复是让规则"能生效"，不是硬凑数字。）
+
+【自测】 _test_pipeline_clean_188.py  24 PASS / 0 FAIL
+   · 规则1 现在对 process_metadata/window_metadata/system 都生效（含向后兼容）
+   · 词边界匹配：窗口标题里的 Storage/audio 不会被误杀
+   · 规则2/3 仍有效；不该合并的（内容不同/source 不同）不会合并
+   · 合并保留首条位置+时间戳、标注 ×N 与末次时间
+   · 真实库上跑：100 → 35，减少 65%
+   · 顺序断言：机械清洗 < 重复合并 < LLM
+   全部 18 个套件 exit=0；src+tools 全量 py_compile 通过。
+
+【备份】src/core/data_pipeline.py.bak188
+【辅助】tools/dev_tests/_diag_pipeline_layers.py（只读诊断，逐层看过滤了多少）
+
+【顺带发现一个潜在隐患（本次未改，先记下）】
+   _fetch_uncleaned 的「时间/ID 过滤」会把不满足条件的行**从本批剔除，
+   但不标记 cleaned**。如果 raw_data_cap 裁剪导致 id 出现空洞，
+   这些被剔除的老行会一直排在最前面、每批都被剔除 → 永久卡住。
+   你当前的数据 id 是连续的（7033..7132），没触发；
+   等情况出现再修（改法：要么标记为已清洗，要么把它们置后）。
+
+【待你验证】
+[ ] V18. 启动后等 Pipeline 跑起来，日志里应能看到：
+        [DataPipeline] 重复合并: 100→35 条 (合并掉 65 条重复)
+        紧接着才是 [DataPipeline] LLM 总结 第1/3次
+[ ] V19. 等积压清完后（约 11 批），monitoring_events 表里应该有新数据，
+        raw_events 里 cleaned=0 的数量应明显下降。
+        想看进度可以跑：python tools/dev_tests/_db_probe.py
+[ ] V20. 长期记忆的内容质量应该比"44 条一模一样的话"时期更好认一些。
+
+==================================================================
+PTRTS1.8.9  —— "感觉永远都总结完" → 大力清洗
+
+【先说结论：上一轮的 1.8.7/1.8.8 其实生效了，而且真清完了】
+看 logs/prts_20260915_213404.log 全程 21:35→21:52，再查库：
+   raw_events 1027 条：cleaned=0 只剩 55 条，cleaned=1 有 972 条
+   monitoring_events 从 4 条涨到 70 条，且全部已喂长期记忆
+   重复合并也确实在工作：100→35 / 100→22 / 100→20 / …（每批省 65%~82%）
+所以积压不是没清，是**清得慢且看不出进度**。
+
+【你感觉"永远清不完"的两个真实原因】
+1. 单批硬编码 100 条，1058 条积压要跑 11+ 批；而且每批之间隔 60s
+   （主循环 wait(timeout=60)），于是 21:35→21:48 连续 13 分钟
+   每分钟都在调一次 LLM —— 看着就像永远不会结束。
+2. 心跳里的"积压=100"是**假象**：它用的是
+   len(get_uncleaned(limit=100))，被 limit 截断了，永远显示 100。
+   实际上当时库里还有 900 多条没清。数字不动，当然像卡死了。
+
+【按你的要求加的「大力清洗」】
+规则：积压 > bulk_threshold(500) → 本批直接取 bulk_batch_size(500) 条。
+顺序仍是你说的那样：先机械清洗 → 重复合并 → 再 LLM。
+
+具体改动：
+· src/utils/config.py  PipelineConfig 新增
+    bulk_threshold   = 500   积压超过这个数就进大力模式
+    bulk_batch_size  = 500   大力模式单批取多少条原始数据
+    bulk_max_tokens  = 4000  大力模式 LLM 输出上限
+  （现有 config.json 里还没有这三个字段，会先用 dataclass 默认值，
+    下次保存配置时自动写进去；想调大小改 config.json 即可。）
+· src/core/database.py  新增 count_uncleaned()：待清洗**真实总数**
+  （不再被 limit 截断）。
+· src/core/data_pipeline.py
+  - 主循环用 count_uncleaned() 判定积压；>500 → bulk，单批 500；
+    100~500 → 仍是常规单批 100（行为和以前一致）。
+  - _process_batch(batch_size) 接受单批条数，并把它传给取数。
+  - 心跳/启动日志显示真实积压与当前单批大小。
+  - LLM 的 max_tokens 跟着输入条数放大
+    （max(2000, min(4000, 1200 + 输入条数×12))），
+    避免 500 条合并后约 175 条进 prompt 时 JSON 被截断
+    （日志里 21:39:45 就出现过一次 "JSON 解析失败 (第1次)"）。
+
+【顺带根治一个会让流程永久卡死的隐患】
+   _fetch_uncleaned 原来的窗口写死 id_diff<=100 / 60s。
+   单批改成 500 后，取到的 500 条里最旧的那些 id_diff 会 >100 →
+   被剔出本批，**而且不会被标记 cleaned** → 下一批又排在最前面被剔
+   → 永远卡住。这正是"永远清不完"可能演变成死锁的地方。
+   现在：窗口随 limit 缩放（id_window=max(100,limit)，
+   time_window=60×(limit/100)）；并且加了「保底推进」——
+   万一真有行落在窗口外，也**不许丢**，只记一条 warning 并全部保留。
+   宁可多送几条给 LLM，也不能让流程卡死。
+
+【自测】
+· _test_bulk_clean_189.py  21 PASS / 0 FAIL
+  - 积压 1058 → batch_size=500；积压 300 → 100；积压 55 → 不触发
+  - id 跨度 5000 的 500 条仍返回 500 条（老逻辑会大量丢弃 → 卡死）
+  - 窗口随 limit 缩放、max_tokens 跟着放大、不再硬编码 2000
+  - 顺序断言：机械清洗 < 重复合并 < LLM
+· _test_pipeline_trigger_187.py 9 PASS / 0 FAIL（已适配 count_uncleaned
+  与带参的 _process_batch —— 这次它先抓到了我改接口没同步改测试桩）
+· 其余 17 个套件全部 exit=0；src+tools 全量 py_compile 通过。
+
+【备份】src/core/data_pipeline.py.bak189、src/core/database.py.bak189、
+        src/utils/config.py.bak189
+
+【预期效果】
+   1058 条积压：以前 100/批 × 11 批 ≈ 11 分钟；
+   现在 500/批 × 3 批 ≈ 3 分钟（机械清洗+重复合并把 500 压到约 175 再送 LLM）。
+   心跳会诚实显示"积压=1058 → 500 → 0"，进度可见。
+
+【待你验证】
+[ ] V21. 下次积压超过 500 时，日志里应出现：
+        [DataPipeline] 心跳: 新增=…/100, 积压=1058, 单批=500, 定时未到, db=OK
+        [DataPipeline] 积压 1058 条 > 500 → 大力清洗（单批 500 条）
+        [DataPipeline] === 开始清洗批次（单批 500 条）===
+        [DataPipeline] 机械清洗后保留 500 条
+        [DataPipeline] 重复合并: 500→1xx 条 (合并掉 3xx 条重复)
+        [DataPipeline] LLM 总结 第1/3次（输入 1xx 条, max_tokens=…）
+[ ] V22. 心跳里的"积压"数字现在会真的往下走，不再卡在 100。
+[ ] V23. 若 500 一批还是觉得慢（或反过来觉得一次太猛、容易触发 JSON 截断），
+        直接改 config.json 的 pipeline.bulk_batch_size / bulk_threshold：
+        想更猛就 1000/500，想保守就 300/300。
+
+==================================================================
+PTRTS1.8.10 —— 全面 bug 排查 + 清理 + 更新 README
+
+【方法】按分区并行跑了三路只读审计（src/core、src/ui、tools+utils），
+每路都要求"只报能证实的问题、给出文件:行号 + 证据 + 最小修法"。
+三路共报出 19 个真 bug，全部已修并加回归测试。
+
+────────────────────────────────────────────────────────────────
+【HIGH：用户画像提取整条链路是死的】
+user_profile.py:177 `result = self._llm.summarize(prompt)`
+—— SummarizerClient.summarize() 返回的是 **list[str]**（"- xxx" 记忆条目），
+不是 JSON 字符串。于是 `items = result` 拿到字符串列表，
+下面 `isinstance(item, dict) and "key" in item` 永远为假 →
+一条画像都写不进去，却照样 `_log.info(f"从提取了 {len(items)} 条画像特征")`。
+铁证在日志里：`[LLM] 总结完成: 4 条记忆` 紧跟
+`[UserProfile] 从文本中提取了 4 条画像特征` —— 两个数字永远相等。
+修法：SummarizerClient 新增 `complete_raw()` 返回原始回复文本，
+ProfileExtractor 改用它 + `_parse_items()`（容忍 ``` 围栏与前后废话），
+并且只统计**真正写进去**的条数，解析失败打 debug 而不是假装成功。
+
+────────────────────────────────────────────────────────────────
+【MED ×3】
+1) 总结后台线程直接改 QWidget（session.py:373-382）
+   `summarize_current_topic` 在 "topic-summarize" 线程里跑，却直接调
+   `on_topic_changed` / `on_input_blocked` —— 这两个最终会
+   `QListWidget.clear/addItem`、`QLineEdit.setEnabled`。
+   修法：_TaskSignalRelay 新增 topic_changed / input_blocked 两个信号，
+   MainWindow 改成 emit，和 on_summary_done 的做法一致。
+
+2) Phase4 抛异常 → Phase5 永不执行（main_window.py:240）
+   `heavy_ready.emit()` 原来写在 try 的**末尾**。只要
+   get_monitor/get_stt/get_profile/get_idle_talker 任何一步抛异常，
+   Phase5（_apply_config_to_ui / _update_summarize_timer / 启动 Pipeline）
+   就永远不跑 —— 1.8.5 刚修好的症状原样复现。
+   修法：挪进 `finally:`。
+
+3) Phase4 完成前发消息会丢（main_window.py:469）
+   `self.idle_talker` 只在 heavy-load 线程里创建，而 chat.send_message
+   在 Phase2 就接上了 → 用户在 Phase3/4 期间抢先打字会 AttributeError，
+   异常发生在 `self.session.send_message(text)` **之前**，整条消息丢失。
+   修法：idle_talker / profile_extractor / user_profile 全部改软访问。
+
+4) 设置窗口保存会冲掉用户刚拖好的窗口尺寸（settings_window.py:1889）
+   尺寸 spinbox 只在 __init__ 里 `_load_values()` 填过一次；
+   而拖拽窗口是**直接写 config** 的（两条保存路径）。
+   于是"拖好窗口 → 开设置 → 点保存"会把启动时的旧尺寸写回去。
+   修法：新增 `showEvent`，每次打开设置页先把 config 里的实时尺寸同步进控件。
+
+5) 工具回调永远收不到（tools/endfield_tool.py:40、jmcomic_tool.py:23）
+   ToolManager 用 importlib 把工具加载成**私有模块名**
+   `_prts_tool_<name>`，而 MainWindow 注册回调时 import 的是
+   `tools.endfield_tool` —— 两个不同的 module 对象。
+   于是工具里 `global _on_login_done` 设的是"另一个模块"的全局，
+   真正在跑的模块里它仍是 None：扫码登录成功推不到聊天窗口、
+   jmcomic 下载完不弹卡片（register_post_load_hook 也修不了，同理）。
+   修法：tools/__init__.py 新增包级登记表 LOGIN_CALLBACKS /
+   FILE_READY_CALLBACKS（包只导入一次、不随工具重载重建），
+   两边读写同一份。回归测试里真的用私有模块名加载了一遍验证可达。
+
+6) bilibili CDN 轮换必然失败（bilibili_tool.py:471）
+   三次连续 replace 用 "upos-sz-mirror" 当 "upos-sz-mirrorcos" 的前缀，
+   temp 交换根本回不去：`upos-sz-mirrorcos` → `upos-sz-mirror_temp`
+   → `upos-sz-mirrorcos_temp`（第三 replace 匹配不到）→ 请求一个
+   不存在的主机。修法：改用真实镜像主机列表 + 正则整体替换主机段。
+
+────────────────────────────────────────────────────────────────
+【LOW ×11（全部已修）】
+· settings_window:1005 用了未导入的 CHARACTERS_DIR → 兜底分支必 NameError
+  且被外层 except 吞掉（角色设置静默不写）→ 补模块内导入
+· main_window:1433 ffprobe 的 video_stream 可能是 None（纯音频存成 .mp4）
+  → 无条件 .get() 崩 → 加 None 判断
+· settings_window:528 「检测」按钮对视觉也拿 LLM Key → 按 target 取 Key
+· shell_exec:19 兜底分支引用后面才定义的 PROJECT_ROOT → 模块导入即失败
+  （偏偏就是那条兜底存在的场景）→ PROJECT_ROOT 提到 try 之前
+· jmcomic:239 读了库里不存在的 tag_list / photo_count → tags / page_count
+· web_search:41 不看 HTTP 状态码 → 401/429 被当成"没搜到" → 加状态与
+  detail/error 判断
+· tts_engine:523 genie 角色无原生模型切 edge 时，第一句既不进 worker
+  也不重排 → 静默丢一句 → 补走 _do_edge_tts()
+· llm_client:203 OCR 引擎不可用也被缓存 → 后续只报"图中未检测到文字"，
+  丢了"请安装 xx"的可操作提示 → 不可用则置回 None
+· input_monitor:114 tkinter 兜底的 root.destroy() 不在 finally →
+  剪贴板为空时每秒泄漏一个 Tk root → try/finally
+· stt_engine:442 None chunk 直接 continue（read_chunk 自己吞了异常，
+  外层带 sleep 的 except 永远到不了）→ 100% CPU 空转 → 补 sleep
+· long_term_memory_tool:268 `keep_new` 只把 vn 换成 _new_vn 就结束
+  （elif 命中后不再往下走），upsert 没执行 → 这条记忆被静默丢弃
+· tool_manager:369 没有 execute 的文件照样注册成"无参数工具"
+  （ltm_summarizer / reset_failed_ltm / run_ltm_summarize）
+  → 扫到就跳过；config.json 里对应的 enabled_tools / tool_policies 也清了
+
+────────────────────────────────────────────────────────────────
+【清理无关文件与备份】
+· 删除 30 个 *.bak / *.bak1 / *.bak2 / *.bak3 备份（约 1.4 MB）
+· 删除 19 个 __pycache__ 目录
+· 删除 tools/开发日志.txt（主开发日志里的 1.7.3 段落重复副本）
+· 删除 tools/dev_tests/_append_log_173.py（0 字节空文件）
+· 删除 data/fts_index.db + -shm + -wal（全 0 字节、全仓无任何引用）
+· 删除 src/core/fts_search.py（0 字节、无人 import，审计也确认是死文件）
+· 清理 config.json 里指向已删脚本的 enabled_tools / tool_policies 残留
+· 清理 data/桌宠私有data/office 下历次自检测试残留的 自检*.docx/xlsx/pptx
+· 修正 _test_plugins.py：以前用固定文件名，第一次能过、第二次必因
+  "File already exists" 失败；现在用唯一后缀 + 开跑前清残留，连跑两次都过
+
+⚠️ 备份删干净了 = 没有回退点了。项目至今没有版本控制，
+  建议在项目根目录 `git init` 并提交一次作为基线（我没有擅自替你建仓）。
+
+────────────────────────────────────────────────────────────────
+【README 更新】
+· 版本号 → v1.8.9；Pipeline 章节重写（机械清洗 → 重复合并 → LLM、
+  四种触发含积压与大力清洗、窗口随 limit 缩放 + 保底推进）
+· 新增「聊天与文件链路」（附件标记 [[FILE:…]] / ![](...) 如何落库并在
+  重启后重建、文件卡片 4.5×1.5cm 与 QQ 式头像布局）
+· 新增「窗口与设置持久化」（Phase 编排、Phase5 必须走信号、
+  线程→UI 的唯一正确姿势、哪些设置何时写何时恢复）
+· 配置参考补上 pipeline.bulk_* 与 ui.sidebar_visible 等新字段
+· 新增「开发与测试」：全部 dev_tests 一览 + 两条写测试的红线
+  （绝不删真实 data/桌宠形象；动 config/.env 必须自带备份还原）
+
+────────────────────────────────────────────────────────────────
+【自测】
+· _test_audit_fixes_1810.py  49 PASS / 0 FAIL（本次 19 个修复逐条断言，
+  其中画像提取、跨模块回调、Phase4 未完成时发消息、设置页尺寸同步
+  都是**真跑一遍**验证，不是只 grep 源码）
+· 全量 27 个套件 exit=0；src+tools 全量 py_compile 通过
+· 数据完整性自检 tools/dev_tests/_diag_integrity.py：
+  config.json 合法且用户设置完好（ui_bg=#aaffff / width=420 /
+  sidebar=False）、.env 无探针残留、角色资源 27 个文件、
+  三个库正常（chat_records 211 / topics 4 / LTM 20 / raw 1027 / monitoring 70）
+
+【待你验证】
+[ ] V22. 随便聊几句 → 日志里应出现真实的画像提取（数字不再恒等于
+        "总结完成 N 条记忆"）；问它"你记得我什么"能答出更多细节。
+[ ] V23. 点「总结旧话题」→ 侧栏话题列表应正常刷新（不再有跨线程改控件的
+        隐患）；输入框禁用/恢复也正常。
+[ ] V24. 拖好聊天窗口尺寸 → 打开设置 → 直接点「保存设置」→
+        窗口尺寸**不该**被拉回启动时的旧值。
+[ ] V25. jmcomic 下载完应能弹出文件卡片；终末地扫码成功后应能收到
+        聊天窗口的登录成功提示。
+[ ] V26. 设置里配了独立视觉 Key 时，视觉页点「检测」应能列出模型
+        （以前会拿错 Key）。
+
+==================================================================

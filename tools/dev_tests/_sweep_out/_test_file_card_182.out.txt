@@ -1,0 +1,28 @@
+== 1. 卡片尺寸（目标 170×57px = 4.50cm × 1.51cm）==
+  PASS  卡片画出了自绘白底   (55, 13, 246, 43)
+  实测自绘卡片: 246×43px = 6.51cm × 1.14cm
+  PASS  卡片 HTML 仍写着目标尺寸（意图保留）
+  PASS  卡片矩形框住了卡片文字（几何没算偏）   246×43
+  NOTE 已知问题：应用里卡片被 Qt 拉伸成 246×43px（目标 170×57），CARD_*_CM 在嵌套表格里不生效；见 1.9.0 开发日志「Y4a」一节。
+
+== 2. 卡片确实插进聊天区且整块是链接 ==
+  文档块数=6 锚点=['file:///D:/Dtopdesk/%E6%99%AE%E7%91%9E%E8%B5%9B%E6%96%AF%E5%9C%A8%E5%93%AA/%E5%80%92%E8%85%BE/%E6%A1%8C%E5%AE%A0/PTRTS1.9.0/data/%E6%A1%8C%E5%AE%A0%E7%A7%81%E6%9C%89data/office/pptx/deepseek_intro.pptx', 'file:///D:/Dtopdesk/%E6%99%AE%E7%91%9E%E8%B5%9B%E6%96%AF%E5%9C%A8%E5%93%AA/%E5%80%92%E8%85%BE/%E6%A1%8C%E5%AE%A0/PTRTS1.9.0/data/%E6%A1%8C%E5%AE%A0%E7%A7%81%E6%9C%89data/office/pptx/deepseek_intro.pptx', 'file:///D:/Dtopdesk/%E6%99%AE%E7%91%9E%E8%B5%9B%E6%96%AF%E5%9C%A8%E5%93%AA/%E5%80%92%E8%85%BE/%E6%A1%8C%E5%AE%A0/PTRTS1.9.0/data/%E6%A1%8C%E5%AE%A0%E7%A7%81%E6%9C%89data/office/pptx/deepseek_intro.pptx']
+  PASS  卡片 HTML 里有 file:// 锚点   ['file:///D:/Dtopdesk/%E6%99%AE%E7%91%9E%E8%B5%9B%E6%96%AF%E5%9C%A8%E5%93%AA/%E5%80%92%E8%85%BE/%E6%A1%8C%E5%AE%A0/PTRTS1.9.0/data/%E6%A1%8C%E5%AE%A0%E7%A7%81%E6%9C%89data/office/pptx/deepseek_intro.pptx']
+  PASS  卡片显示了图标   ||📊 d….pptx|PPT …点击打开||￼|
+  PASS  卡片显示了扩展名   ||📊 d….pptx|PPT …点击打开||￼|
+  PASS  锚点指向真实文件路径
+
+== 3. 长文件名按像素省略且尽量保住扩展名 ==
+  '一个名字特别特别长的文件用来测试换行效果_最终版_v3.pptx' -> '一个名字特别….pptx'
+  PASS  确实变短了
+  PASS  短名字原样返回
+  PASS  省略后不超出像素预算   adv=132px <= 140px
+  PASS  扩展名保留（.pptx 或至少留 .pp）   一个名字特别….pptx
+
+== 4. 尺寸常量可一行调整 ==
+  PASS  CARD_WIDTH_CM == 4.5（1.8.4 放大 1.5 倍）   4.5
+  PASS  CARD_HEIGHT_CM == 1.5（1.8.4 放大 1.5 倍）   1.5
+  PASS  改成 6cm×2cm 后像素按比例变大   227×76px
+  PASS  6cm×2cm 的尺寸确实写进了卡片 HTML   227×76px
+
+==== 结果: 15 PASS / 0 FAIL ====

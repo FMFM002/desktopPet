@@ -1,0 +1,19 @@
+=== _chat() helper thinking 禁用 ===
+  [OK] extra_body 透传: {'thinking': {'type': 'disabled'}}  max_tokens=512
+
+=== _chat() helper 普通模型不传 extra_body ===
+  [OK] 普通模型无 extra_body
+
+=== _extract_text 兜底 ===
+  [OK] content 优先 + reasoning 兜底
+
+=== _detect_memorable 判断逻辑 ===
+  [OK] 7 个分支全部命中
+
+=== 真实 bug 场景：reasoning 同时含 YES/NO ===
+  [OK] 末尾独立匹配策略生效（旧 bug 已修）
+
+=== reasoning 长截断场景 ===
+  [OK] 无 YES/NO 时返 None（由重试/失败兜底处理）
+
+ALL PASS

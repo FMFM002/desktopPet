@@ -1,0 +1,39 @@
+
+=== test_build_clusters ===
+  [T1] cluster sizes=[2, 2, 1] (期望 [2, 2, 1])
+  [T1] user cluster: ['user_nam', 'user_name']
+  [T1] preferred cluster: ['prefered_language', 'preferred_language']
+  [T1] solo: ['totally_unique_xyz']
+  [T1] PASS [OK]
+
+=== test_check_thresholds ===
+  [T2] below both: triggered=False reason=below
+  [T2] above size: triggered=True reason=db 2000.0KB ≥ 1024KB
+  [T2] above count: triggered=True reason=count 500 ≥ 200
+  [T2] PASS [OK]
+
+=== test_decay_step_empty ===
+  [T3] empty: result={'decayed': 0, 'deleted': 0}
+  [T3] PASS [OK]
+
+=== test_decay_step_decay_active ===
+  [T4] all active: result={'decayed': 0, 'deleted': 0}
+  [T4] PASS [OK]
+
+=== test_decay_step_delete_low ===
+  [T5] {'decayed': 1, 'deleted': 1}
+  [T5] PASS [OK]
+
+=== test_maybe_trigger_cooldown ===
+  [T6] submit called (cooldown): 0 (期望 0)
+  [T6] PASS [OK]
+
+=== test_database_migration_columns ===
+  [T7] DDL 包含 access_count [OK]
+  [T7] DDL 包含 last_accessed [OK]
+  [T7] DDL 包含 decay_score [OK]
+  [T7] PASS [OK]
+
+=== 测试汇总 ===
+  通过: 7/7
+  失败: 0

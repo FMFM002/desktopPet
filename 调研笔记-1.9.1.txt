@@ -1,0 +1,129 @@
+==================================================================
+PTRTS1.9.1 —— 调研笔记（和风天气扩展 / ComfyUI 工具化）
+==================================================================
+  做于 2026-09-17 23:40，为 1.9.1 阶段的两项新任务做准备。
+  **本文件是"可执行结论"**：具体该怎么改、要用户给什么、哪里有坑。
+  原始调研（含全部来源 URL）在 1.9.1开发日志.txt 的【更新记录】里。
+
+
+==================================================================
+一、和风天气（QWeather）扩展 —— 结论：**能查未来天气，而且比现在强得多**
+==================================================================
+── 0. 实测现状（2026-09-17 23:40，本机跑的）────────────────
+  · `tools/weather_tool.py` **现在还能用**：
+      北京 → 「北京天气: 雾, 温度22°C, 体感22°C, 湿度87%, 风力3级」
+      上海 → 「上海天气: 阴, 温度25°C, 体感27°C, 湿度65%, 风力1级」
+  · `.env` 里已经是**专属 API Host**：`WEATHER_API_HOST=p37byj4xwf.re.qweatherapi.com`
+    （说明用户早就按新规迁移过了，公共域名那条坑没踩）
+  · ★ **但有一个遗留变量是雷**：
+      `WEATHER_API_BASE_URL = https://api.qweather.com/v7/weather/now`
+    —— 指向**已停服的公共域名**。目前似乎没被用到（所以工具还能跑），
+    但哪天代码改成优先读 BASE_URL 就会突然全坏。**扩展时顺手把它清掉/改对。**
+  · ★ 工具**返回值不符合项目约定**：现在返回**裸字符串**
+    （`"北京天气: 晴, 25°C"` / `"模拟天气: …"`），而约定是
+    `{"success": true, ..., "text": "…"}`。扩展时顺手对齐，
+    并且把「模拟天气」改成 `{"success": false, "error": "未配置 WEATHER_API_KEY"}` ——
+    否则模型会把模拟值当真实天气。
+  · 参数只有 `city`（中文城市名，靠本地 `data/China-City-List-latest.csv` 查 LocationID）。
+
+── 1. 平台现状（关键，2026 年已大改）────────────────────────
+  · 中文文档：https://dev.qweather.com/docs/
+  · **API Host 已是每用户专属**：形如 `xxxxx.xx.qweatherapi.com`，
+    在控制台-设置页查看；**公共域名已停服**（`api.qweather.com` 2026-01-01、
+    `devapi.qweather.com` 2026-06-01）。规则：`https://<专属Host>/<path>`，仅 HTTPS。
+  · **鉴权：API KEY 与 JWT(Ed25519) 都行，官方推荐 JWT，免费额度相同。**
+      - API KEY：请求头 `X-QW-Api-Key: <key>` **或** `?key=<key>`（**别同时用**）
+      - JWT：`Authorization: Bearer <jwt>`，需 `PyJWT` + `cryptography`，
+        payload 用开发者ID(Q开头10位)/项目ID，有效期 ≤24h
+      - 注意：**2027-01-01 起会限制 API KEY 的每日请求量**
+  · **免费额度（2025-03-01 起的新计费）**：无档位，按量后付费；
+    「天气和环境」分组（含预报/预警/指数/AQI/GeoAPI）**每月前 50000 次 = 0 元**，
+    超出 0.0007 元/次；**可商用**，但**必须注明"数据来源 和风天气"**（否则可能停服）。
+
+── 2. 停服时间表（**照这个选端点，选错就白做**）──────────────
+  | 端点 | 状态 |
+  |---|---|
+  | `/v7/weather/now` `/v7/weather/{3d,7d,10d,15d,30d}` `/v7/weather/{24h,72h,168h}` | 2027-06-01 停 |
+  | `/v7/air/now` `/v7/air/5d` | **已停（2026-06-01）** |
+  | `/v7/warning/now` | **2026-10-01 停（就快了）** |
+  | `/v7/solar-radiation/*` | 已停（2026-09-01） |
+  | `/v7/indices/{1d,3d}` | 未列停服（v1 还没有指数接口） |
+  新接口（v1）用**经纬度路径参数**，不是 LocationID：
+    · 实时  `/weather/v1/current/{lat}/{lon}`
+    · 逐日  `/weather/v1/daily/{lat}/{lon}?days=1..10`（默认 7）
+    · 逐小时 `/weather/v1/hourly/{lat}/{lon}?hours=1..240`（默认 24）
+    · 预警  `/weatheralert/v1/current/{lat}/{lon}` ← **必须用这个 v1**
+    · 空气  `/airquality/v1/current|hourly|daily/{lat}/{lon}`
+    · 城市查找 `/geo/v2/city/lookup?location=北京`（返回 id/lat/lon）
+  ★ **要 15/30 天只能走 v7（2027-06 停）；v1 逐日最多 10 天。**
+
+── 3. 建议的改法（下一轮照着做）────────────────────────────
+  `TOOL_PARAMETERS` 扩成 action 风格（和 system_tool 一致）：
+    action ∈ now / daily / hourly / warning / indices / air
+    city（中文名或 `经度,纬度`，注意**经度在前**）
+    days(1-10) / hours(1-240) / indices_type(1..16，逗号分隔)
+  迁移策略：**新增能力一律用 v1**；`now` 可以暂时保留 v7（2027-06 前可用）
+  以免一次改太多；**预警必须用 v1**。
+  要拿经纬度：现有 CSV 只有 LocationID → 要么给 CSV 补经纬度列，
+  要么调一次 `/geo/v2/city/lookup`（也可以直接让用户传 `经度,纬度`）。
+
+── 4. 需要用户提供 ────────────────────────────────────────
+  · ✅ 已有：专属 Host、API KEY（`.env` 里都在）
+  · ❓ 确认免费额度/是否绑定支付方式（以控制台-账单为准，文档可能又变了）
+  · ❓ 是否接受在回复里注明"数据来源 和风天气"（**合规要求**）
+
+
+==================================================================
+二、ComfyUI 做成 tool —— 结论：可行，参考实现要**重写成同步单文件**
+==================================================================
+── 0. 参考项目摸清了（`素材-不可改-可复制提取\draw_tool`，只读）──
+  是个 **NoneBot(QQ机器人) 的文生图插件**，4 个文件：
+    `manifest.json`（插件声明）/ `workflow.json`（ComfyUI 工作流）/
+    `__init__.py`（819 行全部逻辑）/ `__pycache__`
+  · 连 ComfyUI：**纯 HTTP，无 websocket、无鉴权**
+      `COMFYUI_HOST=127.0.0.1` / `COMFYUI_PORT=8188`（环境变量可覆盖）
+    `GET /queue` 探测就绪 → `POST /prompt` 提交（拿 prompt_id）→
+    `GET /history/{prompt_id}` 每秒轮询（最多 180 次）→
+    `GET /view?filename=&subfolder=&type=output` 取图
+  · 执行模型：**提交即返回 + 后台轮询**（出图 30~180 秒，不能同步等）
+  · 工作流是 **12 节点的"泳装铃兰"成品**（UNETLoader + DualCLIPLoader +
+    NewBieLoraLoader + KSampler + EmptyLatentImage(904×1600) + SaveImage…）
+
+── 1. 三个硬性不兼容（必须先解决）──────────────────────────
+  ① **本项目工具是同步的**（`ToolInfo.execute()` 里直接 `self._func(**kwargs)`，
+     没有 await）→ 参考实现是 `async def`，**必须改写成同步 `def execute()` + requests**。
+  ② **一次出图 30~180 秒，同步等会卡住整轮 LLM**。
+     → 推荐**零改动方案**：分两个 action —
+       `draw` 只提交并返回 `prompt_id`；`status` 轮询 `/history`，
+       完成后返回带 **`file_path`** 的成功结果。
+       本项目的通用分支会自动把任何带 `file_path` 的成功结果推给聊天窗口
+       （`download` 工具就走这条路），**不用改 main_window**。
+  ③ 参考实现里「中文提示词 → 英文 XML」那一步依赖 NoneBot 的 `deepseek` 对象，
+     本项目没有 → **不要移植**；建议直接让主 LLM 写英文 danbooru tag。
+
+── 2. 落地方案（下一轮照着做）──────────────────────────────
+  · 新增 `tools/comfyui_tool.py`（单文件、同步）+ `tools/comfyui_workflow.json`
+    （从参考目录**复制**过来；源目录只读不许改）
+  · `TOOL_NAME = "draw"`，action ∈ draw / status / queue / models
+    参数：prompt / negative / width / height / steps / cfg / seed / prompt_id
+  · 产物落 `data/downloads/comfyui/`（合 download 工具的 bucket 约定），
+    `file_path` 必须是**绝对路径的真文件**（目录会被跳过）
+  · `text` 别太长（工具结果回灌给 LLM 会被截断到 4000 字符）
+  · **requirements.txt 不用加东西**（requests 已有；别用 aiofiles/nonebot）
+  · ★ **千万别把 `draw_tool` 整个目录拷进 `tools/`**：ToolManager 的
+    manifest 分支读的键是 `entry`（不是 `entry_point`），会落到 `__init__.py`
+    → async execute + 不存在的 `src.llm_client.deepseek` → **必崩**。
+
+── 3. ★ 现在**跑不了**，缺这些（要用户回答）─────────────────
+  调研时实测：**8188/8000/8080/7860/3000 全都没有监听**，
+  `D:\` 根下也没有名字含 comfy 的目录 → **ComfyUI 可能还没装/没启动**。
+  需要用户提供：
+    □ ComfyUI 装在哪、启动端口、启动参数（是否 `--listen`）、现在是否在跑
+    □ 工作流点名的模型是否齐全：
+        `newbie01.safetensors`（unet）/ `gemma3-4b-it.safetensors` +
+        `jina-clip-v2.safetensors`（clip）/ `ae.safetensors`（vae）/
+        `NBfym.safetensors`（lora）—— 缺一个 `/prompt` 就直接校验失败
+    □ **自定义节点 `NewBieLoraLoader` 是否装了**（不是 ComfyUI 自带，要第三方节点包）
+    □ 这个"泳装铃兰"工作流是不是他想用的那个，还是换他自己导出的工作流
+      （换的话节点 id 要重新映射 —— 参考实现里 KSampler=3、SaveImage=10 是硬编码的）
+    □ 要不要和本地 Ollama 抢显卡做互斥（参考项目有这套逻辑）

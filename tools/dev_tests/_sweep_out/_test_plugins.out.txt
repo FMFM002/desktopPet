@@ -1,0 +1,76 @@
+== office 工具 ==
+  [PASS] create xlsx  已创建文档: 自检表格_12028_1789718953.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_12
+  [PASS] create docx  已创建文档: 自检文档_12028_1789718953.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_12
+  [PASS] create pptx  已创建文档: 自检幻灯_12028_1789718953.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_12
+  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_12028_1789718953.docx', '自检幻灯_12028_1789718953.pptx', '自检表格_12028_1789718953.xlsx']
+  [PASS] view pptx  文档 自检幻灯_12028_1789718953.pptx 的 outline:
+{
+  "success": true,
+  "data": {
+    "fileName": "自检幻灯_12028_17897189
+  [PASS] add slide  已添加到 自检幻灯_12028_1789718953.pptx: /
+路径: N/A
+== file_ops 工具 ==
+  [PASS] write  ✅ 已写入 data\桌宠私有data\自检文件.txt (22 字节)
+  [PASS] read  [data\桌宠私有data\自检文件.txt (行 1-2 / 共2行)]
+   1| hello 自检
+   2| 第二行
+  [PASS] edit  ✅ 已编辑 data\桌宠私有data\自检文件.txt
+
+Diff:
+--- a/data\桌宠私有data\自检文件.txt
++++ b/data\桌宠私有data\自检文件.txt
+@@ -1,
+  [PASS] edit 生效
+  [PASS] list  [data\桌宠私有data] — 6 目录, 48 文件
+
+--- 目录 ---
+📁 comfyui/
+📁 endfield/
+📁 endfield_unzi
+  [PASS] search  搜索 'hello' — 找到 6 个匹配 (搜索了65个文件)
+
+gen_pdf.py:10:     "(Hello FM, this is a test 
+  [PASS] 沙箱拒绝写系统盘（可读文案）  [拒绝] 沙箱限制：当前为只读模式，仅允许写入
+  D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data
+不允许写入: C:/Windows/Temp/prts_should_fail.txt
+请将文件写到「桌宠私
+== system / weather / web_search / knowledge_graph ==
+  [PASS] system get_local_ip  本机IP: 10.35.173.200
+主机名: FMs
+说明: 这是局域网IPv4地址（ipconfig里那个）
+  [PASS] weather 离线不崩（可能报网络错误）  重庆天气: 阴, 温度22°C, 体感22°C, 湿度88%, 风力3级
+  [PASS] web_search 不崩（可能无 key）  搜索'测试':
+1. 测试 - 维基百科，自由的百科全书
+   跳转到内容
+
+  维基百科 自由的百科全书
+
+搜索
+
+## 目录
+
+ 序言
+ 1 科学技术
+
+# 测试
+
+ العر
+  [PASS] knowledge_graph stats  📊 知识图谱统计
+   实体: 0 个
+   关系: 0 条
+   项目图谱数: 8 个
+     KGV2 (366.1KB)
+     KG自检 (365.4KB)
+     
+== shell_exec 沙箱 ==
+  [PASS] shell 正常命令  命令: echo prts_ok
+工作目录: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0
+退出码: 0
+耗时: 17ms
+
+--- STDOUT ---
+  [PASS] shell 拦截破坏性命令  [拒绝] 沙箱限制：禁止向只读区域写入/修改: C:\Windows\Temp\x.txt
+仅允许在 D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data 下操作。
+
+结果: ALL PASS

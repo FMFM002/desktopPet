@@ -1,0 +1,30 @@
+  [+] file_ops: 文件操作工具集。支持: 查看文件、读取原文、写入、编辑、搜索、列出目录、发送文件 [lazy]
+  [+] jmcomic: 禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜 [lazy]
+  [+] knowledge_graph: 知识图谱工具，用于存储和查询结构化知识。支持:
+- analyze_projec [lazy]
+  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [resident]
+  [+] meme: 发表情包。想在回复里表达情绪时调用**一次**：它会挑一张表情包并进入待发送状态 [lazy]
+  [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
+  [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
+  [+] shell_exec: 执行终端/shell命令并返回stdout和stderr。Windows用cmd [lazy]
+  [+] system_command: 执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日 [lazy]
+  [+] weather_query: 查询指定城市的天气。传入城市名称(中文)即可，只有国内城市。
+参数 days：不 [lazy]
+  [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]
+共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
+SQLite 数据库已就绪: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\_test_tmp_dbs
+会话初始化完成
+切换角色窗口: 甲
+为角色「甲」创建新窗口话题 #4
+切换角色窗口: 乙
+为角色「乙」创建新窗口话题 #5
+切换角色窗口: 甲
+恢复角色「甲」窗口 话题 #4 (0 条)
+切换角色窗口: 乙
+恢复角色「乙」窗口 话题 #5 (0 条)
+用户开启新话题 #6（角色=乙, 不总结）
+对话客户端就绪: https://api.deepseek.com/v1/deepseek-flash
+会话初始化完成
+切换角色窗口: 丙
+为角色「丙」创建新窗口话题 #7
+新话题 #8 已创建（角色=丙, 原因=旧）

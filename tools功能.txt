@@ -1,0 +1,528 @@
+==============================================================================
+PTRTS1.9.0 —— 工具能力说明书（tools 功能 / 参数 / 返回）
+==============================================================================
+说明：
+  · 本文件是**给人和给 LLM 看的速查**；真正的参数 schema 由各工具源码里的
+    `get_parameters()`（或 PARAMETERS）定义，运行时由 ToolManager 扫描 tools/*.py 生成。
+  · 所有工具统一返回**字符串**；绝大多数是 JSON 文本，字段以 `success` 打头：
+        成功 -> {"success": true,  ...业务字段...,  "text": "给 LLM 看的可读摘要"}
+        失败 -> {"success": false, "error": "失败原因（可操作）"}
+  · 工具策略：`resident` = 常驻内存；`lazy` = 首次调用才加载，空闲会被卸载。
+  · 每次调用都会把结果回灌给 LLM（`text` 字段就是给人看的那段）。
+  · ★ 1.9.0 约定：如果一次调用希望桌宠换个动作表情，可在返回 JSON 里加
+        "gif": "<角色GIF名>"   （"0" 或省略 = 保持当前形象动作）
+    会话层会读它并切换形象（见《行为控制》一节的说明）。
+
+==============================================================================
+【工具一览】
+==============================================================================
+ 1. web_search   [LAZY]
+    联网搜索。需要给用户看图时：拿结果里的图片链接交给 download 下载并发聊天。
+ 2. download   [LAZY]
+    把任意 http/https 链接下载到 data/downloads/<来源>/，并自动发到聊天窗口。
+ 3. bilibili_video   [LAZY]
+    B站：info=视频信息、cover=封面下载并发聊天、download=下载视频（含音频）。
+ 4. file_ops   [LAZY]
+    文件操作总入口：view 看内容、read 读原文、write 写、edit 改、search 搜、list 列目录、send 发到聊天。view 支持指定页/抽样/多模态/OCR/STT。
+ 5. office   [LAZY]
+    创建/编辑 Word(docx)、Excel(xlsx)、PowerPoint(pptx)。
+ 6. weather_query   [LAZY]
+    查国内城市实时天气。
+ 7. system_command   [LAZY]
+    系统快捷操作：本机IP、打开应用、系统信息、进程管理、时间日期、磁盘内存等。
+ 8. shell_exec   [LAZY]
+    执行终端命令（Windows=cmd 语法），返回 stdout/stderr。
+ 9. knowledge_graph   [LAZY]
+    结构化知识的存取与查询（本地图谱文件）。
+10. long_term_memory   [RESIDENT]
+    长期记忆：分析一段文字，判断/写入值得记的信息。
+11. jmcomic   [LAZY]
+    JM(禁漫)本子搜索与下载（会自动合并 PDF 并发到聊天）。
+12. pixiv   [LAZY]
+    P站：info/search/ranking/user/download（下载自动发到聊天）。
+13. endfield   [LAZY]
+    明日方舟：终末地 公告查询（login 等需扫码，服务端不稳）。
+14. meme   [LAZY]
+    发表情包：挑一张进「待发送」队列，文字回复结束后单独发出去（一轮只生效一次）。
+
+==============================================================================
+【逐个工具：参数与返回】
+==============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+■ web_search
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  联网搜索。需要给用户看图时：拿结果里的图片链接交给 download 下载并发聊天。
+
+【完整描述（LLM 看到的就是它）】
+  联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把图片发给用户时：拿到结果里的图片链接后，调 download 工具(url=图片链接) 把图下载下来，它会自动显示在聊天窗口里。
+
+【参数】
+  · query  (string, **必填**)
+      说明: 搜索关键词
+  必填项: query
+
+【返回】
+  JSON 文本；常见字段：（见源码）
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · 搜索出错: {e}
+      · 未找到关于'{query}'的结果
+      · 模拟搜索: 关于'{query}'的结果 - 搜索API未配置
+
+【示例】
+  web_search({"query": "上海今天天气", "include_images": true})
+
+──────────────────────────────────────────────────────────────────────────────
+■ download
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  把任意 http/https 链接下载到 data/downloads/<来源>/，并自动发到聊天窗口。
+
+【完整描述（LLM 看到的就是它）】
+  把任意 http/https 链接（图片、封面、PDF、压缩包、音视频等）下载到本地，并自动发送到聊天窗口。联网搜索拿到图片链接后要用它把图取回来；B站封面、网页上的附件同理。参数: url(必填); filename(可选，含扩展名); bucket(可选，data/downloads 下的子目录，默认 websearch)。
+
+【参数】
+  · url  (string, **必填**)
+      说明: 要下载的 http/https 链接
+  · filename  (string, 可选)
+      说明: 保存的文件名（含扩展名）；不填则从 URL 推断
+  · bucket  (string, 可选)
+      说明: 保存到 data/downloads/ 下的哪个子目录，默认 websearch
+  必填项: url
+
+【返回】
+  JSON 文本；常见字段：error, file_path, message, success, url
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · download
+      · {n / 1024 / 1024:.1f} MB
+      · {n / 1024:.1f} KB
+
+【示例】
+  download({"url": "https://…/a.jpg", "filename": "封面.jpg"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ bilibili_video
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  B站：info=视频信息、cover=封面下载并发聊天、download=下载视频（含音频）。
+
+【完整描述（LLM 看到的就是它）】
+  B站视频信息查询与下载工具。当用户分享B站链接、BV号、b23.tv短链接时使用。支持: info(查询视频信息)、cover(下载封面到本地并显示在聊天窗口)、download(下载视频)。
+
+【参数】
+  · action  (string, 可选)
+      可选值: info, cover, download
+      说明: info=查询视频信息, cover=下载封面（会自动显示在聊天窗口）, download=下载视频
+  · bv_id  (string, 可选)
+      说明: BV号(不含BV前缀)，如 1k24y1B7Ef
+  · raw_message  (string, 可选)
+      说明: 原始消息文本，用于自动提取BV号/短链接
+  必填项: 无
+
+【返回】
+  JSON 文本；常见字段：action, error, file_path, pages, success, title, url
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · BV{m.group(1)}
+      · {bvid}_封面{suf}
+
+【示例】
+  bilibili_video({"action": "cover", "bvid": "BV1xx411c7mD"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ file_ops
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  文件操作总入口：view 看内容、read 读原文、write 写、edit 改、search 搜、list 列目录、send 发到聊天。view 支持指定页/抽样/多模态/OCR/STT。
+
+【完整描述（LLM 看到的就是它）】
+  文件操作工具集。支持: 查看文件、读取原文、写入、编辑、搜索、列出目录、发送文件到聊天窗口。通过action参数选择操作类型。★ 要看文件内容用 view（推荐）：它会按文件类型和大小**自动选路** —— 图片/扫描件直接走多模态**如实描述**（禁思考、不编造）；大文件自动抽样；可以指定 pages 只看某几页（如 "3" 或 "3-5"）。★ 要逐字原文用 read（文本/代码/PDF/Word/Excel/PPT 都能抽文本）。用户发来的文件或提到的本地文件路径，你都可以（也应该）去看，不要说「我看不到文件/我没有眼睛」——看文件就是你的眼睛。要把文件发给用户时用 send 操作。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: view, read, write, edit, search, list, send, list_downloads
+      说明: 操作类型: view(统一查看文件内容，推荐), read(读原文), write(写入), edit(编辑), search(搜索), list(列表), send(发送文件到聊天窗口), list_downloads(列出下载目录中的文件)
+  · path  (string, 可选)
+      说明: 文件/目录路径。[send] 需要发送的文件的完整路径
+  · content  (string, 可选)
+      说明: [write] 写入内容
+  · old_string  (string, 可选)
+      说明: [edit] 要替换的旧文本
+  · new_string  (string, 可选)
+      说明: [edit] 替换后的新文本
+  · offset  (integer, 可选)
+      说明: [read] 起始行号
+  · limit  (integer, 可选)
+      说明: [read] 读取行数
+  · method  (string, 可选)
+      可选值: auto, multimodal, vision, stt, text
+      说明: [view] 查看方式: auto(自动选路，默认) / multimodal(多模态直读) / vision(视觉识别) / stt(语音转写) / text(本地看原文)
+  · pages  (string, 可选)
+      说明: [view] 查看位置: 空=默认(超过8页自动抽样) / "3"=第3页 / "3-5"=第3到5页 / "1,4,7"。PDF按页、PPT按张、Excel按工作表
+  · max_chars  (integer, 可选)
+      说明: [view] 返回文本上限（默认 20000 字，超出自动抽样头尾）
+  · prompt  (string, 可选)
+      说明: [view] 自定义视觉提示词（一般不用填，默认强制如实描述）
+  · pattern  (string, 可选)
+      说明: [search/list/list_downloads] 搜索模式或文件过滤
+  · file_types  (string, 可选)
+      说明: [search] 文件类型过滤
+  · case_sensitive  (boolean, 可选)
+      说明: [search] 区分大小写
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action, count, file_path, files, message, pages, success
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · [拒绝] 禁止修改关键配置文件: {os.path.basename(full_path)}
+      · [未找到] {path}: 文件不存在
+      · [错误] old_string在文件中未找到。请确保文本完全匹配（包括空格、换行）。
+
+【示例】
+  file_ops({"action": "view", "path": "D:/x.pdf", "method": "multimodal", "pages": "3"})
+  file_ops({"action": "write", "path": "D:/a.txt", "content": "hi"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ office
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  创建/编辑 Word(docx)、Excel(xlsx)、PowerPoint(pptx)。
+
+【完整描述（LLM 看到的就是它）】
+  Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(.xlsx)、PowerPoint(.pptx) 文件。基于OfficeCLI命令行，可创建文档、添加幻灯片/表格/形状/文字/图片、修改属性、查看大纲。支持的操作: create(创建空白文档), add(添加元素), set(修改元素), view(查看大纲/内容), batch(批量JSON操作)。生成的文件保存在 桌宠私有data/office/ 下的对应子文件夹(pptx/docx/xlsx)中，用完后可调用file_ops的send操作发送到聊天窗口。注意: 图片路径必须使用本地绝对路径，图片素材在data/downloads/目录下，可先用shell_exec下载图片。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: create, add, set, view, get, batch, help, install
+      说明: 操作类型
+  · file  (string, 可选)
+      说明: 文档路径(相对于data/downloads/)，如 'report.pptx'、'data.xlsx'
+  · format  (string, 可选)
+      可选值: pptx, docx, xlsx
+      说明: 文档格式（仅 create 时需要）
+  · path  (string, 可选)
+      说明: 元素路径，如 '/' 表示根、'/slide[1]' 第一张幻灯片、'/slide[1]/shape[1]' 第一个形状
+  · type  (string, 可选)
+      说明: 添加的元素类型: slide(幻灯片), shape(形状/文本框), image(图片), sheet(工作表), table(表格), paragraph(段落)
+  · props  (object, 可选)
+      说明: 属性键值对。PPT常用: title(标题), text(文字), x/y(位置如'2cm'), w/h(宽高), font(字体), size(字号), color/fill(颜色), background(背景色), bold(加粗)。Excel: name(表名), value(值), formula(公式)。图片: src(本地图片绝对路径)
+  · mode  (string, 可选)
+      可选值: outline, text, html
+      说明: view 查看模式
+  · commands  (array, 可选)
+      说明: batch操作的JSON命令数组，每条命令含op(操作:add/set/remove)和对应参数。示例: [{"op":"add","path":"/","type":"slide","props":{"title":"标题"}}]
+  · data  (object, 可选)
+      说明: merge模板合并时的JSON数据
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action, error, message, mode, success, text
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · OfficeCLI 安装成功，路径: {found}
+      · 修改失败: {result.get('error', '未知错误')}
+      · 创建失败: {result.get('error', result.get('text', '未知错误'))}
+
+【示例】
+  office({"action": "create", "file_type": "docx", "path": "D:/a.docx", "content": "…"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ weather_query
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  查国内城市实时天气。
+
+【完整描述（LLM 看到的就是它）】
+  查询指定城市的实时天气。传入城市名称(中文)即可，只有国内城市。
+
+【参数】
+  · city  (string, **必填**)
+      说明: 城市名称,如'北京'、'上海'
+  必填项: city
+
+【返回】
+  JSON 文本；常见字段：（见源码）
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · 天气API连接失败: {e}
+      · 天气查询出错: {e}
+      · 天气查询失败 (HTTP {resp.status_code})
+
+【示例】
+  weather_query({"city": "北京"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ system_command
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  系统快捷操作：本机IP、打开应用、系统信息、进程管理、时间日期、磁盘内存等。
+
+【完整描述（LLM 看到的就是它）】
+  执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日期、磁盘内存等。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: get_local_ip, open_calc, open_notepad, open_explorer, open_browser, system_info, get_time, get_date, list_processes, disk_usage, memory_usage, kill_process, open_url
+      说明: 操作类型: - get_local_ip: 获取本机局域网IP地址（即ipconfig里那个IPv4，不是公网IP） - open_calc: 打开计算器 - open_notepad: 打开记事本 - open_explorer: 打开文件资源管理器 - open_browser: 打开浏览器 - system_info: 系统信息 - get_time: 当前时间 - get_date: 当前日期 - list_processes: 列出高CPU进程 - disk_usage: 磁盘使用情况 - memory_usage: 内存使用情况 - kill_process: 终止进程(需param=进程名或PID) - open_url: 打开网址(需param=URL)
+  · param  (string, 可选)
+      说明: [open_url/open_explorer/kill_process] 额外参数
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · [提示] psutil未安装
+      · [提示] psutil未安装，无法列出进程
+      · [错误] kill_process 需要进程名或PID参数
+
+【示例】
+  system_command({"action": "ip"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ shell_exec
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  执行终端命令（Windows=cmd 语法），返回 stdout/stderr。
+
+【完整描述（LLM 看到的就是它）】
+  执行终端/shell命令并返回stdout和stderr。Windows用cmd语法，Linux/macOS用bash语法。★ 沙箱限制：用户电脑全盘只读，仅 data/桌宠私有data 目录可写可读。写入/下载/生成的文件请使用绝对路径 data/桌宠私有data/... 或先 cd 到该目录。★ Windows重要提示: 临时文件请写到 data/桌宠私有data/，不要用 /tmp/（Windows 不存在 /tmp/）。限制: 超时60秒、输出≤50000字符。
+
+【参数】
+  · command  (string, **必填**)
+      说明: 要执行的命令。★Windows: 临时输出文件请用 data\xxx 或 .\xxx，不要用 /tmp/。Windows常用: ipconfig /all, tasklist, dir, ping, nslookup, systeminfo, curl/wget等。Linux/macOS常用: ifconfig, ps aux, ls -la, ping, nslookup, curl/wget等。
+  · cwd  (string, 可选)
+      说明: 工作目录（可选，默认为项目目录）
+  必填项: command
+
+【返回】
+  JSON 文本；常见字段：（见源码）
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · [错误] 命令未找到: {command}
+      · [错误] 执行失败: {e}
+
+【示例】
+  shell_exec({"command": "dir"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ knowledge_graph
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  结构化知识的存取与查询（本地图谱文件）。
+
+【完整描述（LLM 看到的就是它）】
+  知识图谱工具，用于存储和查询结构化知识。支持:
+  - analyze_project: 分析代码项目结构，自动生成知识图谱和 HTML 可视化
+  - add_entity: 添加知识实体（如人物、概念、事件等）
+  - add_relation: 添加实体间关系
+  - query_entity: 查询实体及其所有关系
+  - query_relation: 查询两个实体间的关系路径
+  - search: 按名称/描述搜索实体
+  - list_types: 列出所有实体类型
+  - stats: 图谱统计信息
+  analyze_project 会自动分析代码项目的文件结构、模块依赖、类/函数定义等，
+  生成可交互的 HTML 知识图谱文件，发送给用户。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: analyze_project, add_entity, add_relation, query_entity, query_relation, search, list_types, stats
+      说明: 操作类型。analyze_project: 分析代码项目生成图谱
+  · project_path  (string, 可选)
+      说明: [analyze_project] 项目根目录的绝对路径
+  · project_name  (string, 可选)
+      说明: [analyze_project] 项目名称（可选，默认取目录名）
+  · name  (string, 可选)
+      说明: [add_entity/query_entity] 实体名称
+  · entity_type  (string, 可选)
+      说明: [add_entity] 实体类型，如 person/concept/event/location/file/note/module/class/function
+  · description  (string, 可选)
+      说明: [add_entity] 实体描述
+  · properties  (string, 可选)
+      说明: [add_entity] JSON格式的额外属性（可选）
+  · source  (string, 可选)
+      说明: [add_relation/query_relation] 源实体名称
+  · target  (string, 可选)
+      说明: [add_relation/query_relation] 目标实体名称
+  · relation  (string, 可选)
+      说明: [add_relation] 关系类型，如 knows/contains/depends_on/related_to/part_of/imports/calls/inherits
+  · rel_description  (string, 可选)
+      说明: [add_relation] 关系描述（可选）
+  · query  (string, 可选)
+      说明: [search] 搜索关键词
+  · entity_type_filter  (string, 可选)
+      说明: [list_types/search] 按类型过滤（可选）
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action, error, files, id
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · [错误] add_entity 需要 name 参数
+      · [错误] add_relation 需要 source 和 target 参数
+      · [错误] analyze_project 需要 project_path 参数（项目路径）
+
+【示例】
+  knowledge_graph({"action": "query", "query": "桌宠"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ long_term_memory
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  长期记忆：分析一段文字，判断/写入值得记的信息。
+
+【完整描述（LLM 看到的就是它）】
+  管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记忆存储结果。
+
+【参数】
+  · text  (string, **必填**)
+      说明: 需要分析并提取长期记忆的文本内容（聊天对话、监控事件等）
+  必填项: text
+
+【返回】
+  JSON 文本；常见字段：text
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型输出片段：
+      · [长期记忆] LLM 不可用，放弃本批次。（数据已回退，不污染记忆库）
+      · [长期记忆] LLM 提取失败，放弃本批次。（数据已回退）
+      · [长期记忆] 功能已禁用。
+
+【示例】
+  long_term_memory({"text": "用户喜欢简短回复"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ jmcomic
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  JM(禁漫)本子搜索与下载（会自动合并 PDF 并发到聊天）。
+
+【完整描述（LLM 看到的就是它）】
+  禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜索等关键词时使用。支持: search(按关键词搜索本子)、info(查看本子详情)、download(后台下载指定本子)、progress(查询下载进度)。注意: 仅供学习研究使用，请遵守当地法律法规。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: search, info, download, progress
+      说明: 操作: search=搜索, info=详情, download=下载, progress=查询进度
+  · keyword  (string, 可选)
+      说明: 搜索关键词
+  · album_id  (string, 可选)
+      说明: 本子ID
+  · page  (integer, 可选)
+      说明: 页码
+  · limit  (integer, 可选)
+      说明: 返回条数，默认 10。仅当用户明确要求"返回 X 条/看 X 个"时才修改
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action, error, id, keyword, message, pages, save_dir, success, title
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+
+【示例】
+  jmcomic({"action": "search", "keyword": "…"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ pixiv
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  P站：info/search/ranking/user/download（下载自动发到聊天）。
+
+【完整描述（LLM 看到的就是它）】
+  Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜索)、ranking(排行榜)、user(画师作品)、download(下载原图，可指定第几页)。用户给 P站链接/作品ID、或想找某个主题的插画时用它。下载完成的图会自动发到聊天窗口。需要先在 .env 配置 PIXIV_REFRESH_TOKEN。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: info, search, ranking, user, download
+      说明: 操作类型: info=作品详情, search=关键词搜索, ranking=排行榜, user=画师作品, download=下载原图
+  · illust_id  (string, 可选)
+      说明: [info/download] 作品ID或整段 P站链接
+  · keyword  (string, 可选)
+      说明: [search] 搜索关键词
+  · user_id  (string, 可选)
+      说明: [user] 画师ID或主页链接
+  · limit  (integer, 可选)
+      说明: [search/ranking/user] 返回多少条（默认 10）
+  · mode  (string, 可选)
+      说明: [ranking] 榜单: day/week/month/day_male/day_female/week_original/week_rookie/day_manga
+  · pages  (string, 可选)
+      说明: [download] 只下第几页: "1" / "1-3" / 空=全部（多图作品才有意义）
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action, count, downloaded, error, file_path, files, id, items, keyword, message, mode, pages, pushed, save_dir, success, text, title, url, user
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+
+【示例】
+  pixiv({"action": "search", "keyword": "风景", "limit": 3})
+
+──────────────────────────────────────────────────────────────────────────────
+■ endfield
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  明日方舟：终末地 公告查询（login 等需扫码，服务端不稳）。
+
+【完整描述（LLM 看到的就是它）】
+  明日方舟：终末地 游戏数据查询工具。支持: announce(最新公告，无需登录)、login(扫码登录，会发二维码图片到聊天窗口)、login_status(登录状态)、logout(退出登录)、char_list(角色列表，需登录，keyword 可选筛选)、signin(森空岛每日签到，需登录)、help(帮助)。首次使用查角色/签到需要先登录。
+
+【参数】
+  · action  (string, **必填**)
+      可选值: announce, login, login_status, logout, char_list, signin, help
+      说明: 操作类型，默认 announce
+  · keyword  (string, 可选)
+      说明: [char_list] 可选：按角色名筛选
+  必填项: action
+
+【返回】
+  JSON 文本；常见字段：action, error, keyword, message, mode, success, title
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+
+【示例】
+  endfield({"action": "announce"})
+
+──────────────────────────────────────────────────────────────────────────────
+■ meme
+──────────────────────────────────────────────────────────────────────────────
+【用途】
+  发表情包。想表达情绪时调用一次，它会挑一张进「待发送」队列；你的文字回复
+  结束后，主窗口会**单独发一条**表情包（不是混在文字里）。
+
+【完整描述（LLM 看到的就是它）】
+  发表情包。想在回复里表达情绪时调用一次：它会挑一张表情包并进入待发送状态，
+  你的文字回复结束后会自动单独发出去（表情包最后发）。一轮里只会生效一次，
+  别重复调用。参数 tag 可选（happy/angry/sad/shy/daily/confused/surprised/
+  like/see/cpu/color 等），name 可选（直接指定文件名）。
+
+【参数】
+  · tag  (string, 可选)
+      说明: 想表达的情绪标签，例如 happy/angry/sad/shy/daily
+  · name  (string, 可选)
+      说明: 直接指定文件名（如 009.webp），给了就以它为准
+  · reason  (string, 可选)
+      说明: 为什么发这张（只记日志，不发给你）
+  必填项: 无
+
+【返回】
+  JSON 文本；常见字段：action, meme, path, success, tag, text
+  失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  典型失败:
+      · 本轮已经选过表情包了（xxx），一轮只生效一次
+      · 找不到表情包「xxx」。请用目录里列出的文件名，或改用 tag 让我自己挑
+      · 当前角色的「行为控制 → 表情包倾向」是「不发」
+
+【示例】
+  meme({"tag": "happy", "reason": "用户夸了我"})
+
+
+==============================================================================
+【给 LLM 的调用纪律（写进系统提示词的那几条）】
+==============================================================================
+  1. 能一次说清就别连着调好几个工具；同一轮里同一种工具别重复调。
+  2. 要看图片/PDF/Office/音频内容 → 一律用 file_ops 的 view（不要再试图「直接看图」）。
+  3. 拿到 URL 要落地成文件（发给用户）→ download，别自己写脚本爬。
+  4. 工具失败时 `error` 里通常已经写了补救办法，照着它改参数重试一次即可。
+  5. 想让形象换动作 → 在返回里带 "gif"（或直接在思考末尾输出 {"gif": "…"}）。
+
+==============================================================================

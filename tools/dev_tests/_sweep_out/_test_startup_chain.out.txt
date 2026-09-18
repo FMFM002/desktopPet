@@ -1,0 +1,8 @@
+  [PASS] gif_once_finished 事件已回传  n=1
+  [PASS] 启动 GIF 以一次性方式加载(loop_gif=False 曾被设置)  frames=82
+  [PASS] 播完后已切到待机 GIF  behavior=吃爆米花悠闲
+  [PASS] 待机轮播定时器在跑
+  [PASS] 启动等待标记已清除
+  [PASS] 不会重复触发一次性完成事件  n=1
+
+结果: ALL PASS

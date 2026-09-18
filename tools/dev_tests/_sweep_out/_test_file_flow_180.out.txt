@@ -1,0 +1,21 @@
+== 1. 纯文本读取 ==
+  [PASS] 读取全部行  [D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\_kg_file_
+  [PASS] offset/limit 分段  [D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\_kg_file_
+== 2. Excel 抽取 ==
+  [PASS] xlsx 抽取含表头和数值  [文档抽取成功] D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格.xlsx
+  [PASS] xlsx 标注工作表  
+== 3. Word 抽取 ==
+  [PASS] docx 抽取段落  [文档抽取成功] D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\o
+== 4. PPT 抽取 ==
+  [PASS] pptx 抽取标题  [文档抽取成功] D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\o
+== 5. 图片元信息 ==
+  [PASS] 图片返回尺寸  [图片文件] D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\_read_test.png
+尺寸: 320x
+  [PASS] 图片提示走视觉通道  
+== 6. 二进制嗅探 ==
+  [PASS] 二进制识别为 [二进制文件]  [二进制文件] D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\_r
+  [PASS] 十六进制头部  
+== 7. 错误处理 ==
+  [PASS] 不存在文件友好提示  [未找到] D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私
+
+结果: ALL PASS (11/11)

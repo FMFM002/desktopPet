@@ -1,0 +1,266 @@
+
+== A3 气泡几何（贴头像 + 文字齐左 + 自绘圆角）==
+QFontDatabase: Cannot find font directory C:/Users/farma/AppData/Local/Programs/Python/Python312/Lib/site-packages/PySide6/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+This plugin does not support raise()
+  PASS  用户消息含内层左对齐 td（对齐不再跟着外层 align 跑）
+  PASS  桌宠消息含内层左对齐 td
+  PASS  用户侧：头像贴住内容右边界
+  PASS  桌宠侧：头像贴住内容左边界
+  PASS  短消息得到短气泡（内容自适应，不铺满整行）   右边界=61px / 内容宽=400px
+  PASS  用户侧多行文字每行起点一致（齐左）   离散度=0px
+  PASS  （反向对照）旧写法续行右对齐，离散度明显很大   旧写法离散度=312px
+  PASS  桌宠侧同理（齐左）   离散度=0px
+  PASS  气泡底色不再由 HTML 画（Qt 富文本画不出圆角，还会与 frame 位置错开）
+  PASS  有底色时内层 td 只下发内边距（不再下发 background/border-radius）   padding:8px 12px;
+  PASS  transparent 时不下发内边距（保持旧观感）
+  PASS  只为有底色的消息登记气泡区间   [{'start': 0, 'end': 16, 'role': 'user', 'color': '#dddddd'}]
+  PASS  气泡矩形可算出
+  PASS  画出的气泡与算出的矩形一致（几何自洽，不依赖 Qt 赏色位置）   实测=(179, 332, 13, 43) 算出=(179,332,13,43)
+  PASS  气泡左内边距处是气泡色
+  PASS  四角都被切掉（真的圆角，不是方角）   仍是气泡色的角 0/4
+  PASS  （反向对照）旧写法在 Qt 下没有圆角 —— 四角全是背景色
+  PASS  圆角半径与内边距是类常量（改一处即可）
+  PASS  清空聊天会同时清空气泡区间
+  PASS  ★Y4 能识别出文件卡片矩形（显式高度的 1×1 表格）   1 个
+  PASS  ★Y4 卡片内边距处是白色（白底确实由自绘画出来了）
+  PASS  ★Y4 卡片四角被切掉（圆角，不再是直角）   0/4 角仍是白色
+  PASS  ★Y4 画出的卡片框住了卡片文字（几何没算偏）
+  NOTE 实测发现：卡片在应用里被 Qt 拉伸成 326x43px，CARD_*_CM 目标 170x57 在嵌套表格里**不生效**（既有 _test_file_card_182 只量了单独渲染，所以一直没暴露）。本轮只做圆角，尺寸问题留档见开发日志。
+  PASS  卡片 HTML 不再自带 bgcolor（否则 Qt 会画出方角盖住自绘）
+
+== ★Y4b 窗口四角圆角（聊天窗口 / 左侧栏 / 设置窗口）==
+  [+] file_ops: 文件操作工具集。支持: 查看文件、读取原文、写入、编辑、搜索、列出目录、发送文件 [lazy]
+  [+] jmcomic: 禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜 [lazy]
+  [+] knowledge_graph: 知识图谱工具，用于存储和查询结构化知识。支持:
+- analyze_projec [lazy]
+  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [resident]
+  [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
+  [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
+  [+] shell_exec: 执行终端/shell命令并返回stdout和stderr。Windows用cmd [lazy]
+  [+] system_command: 执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日 [lazy]
+  [+] weather_query: 查询指定城市的实时天气。传入城市名称(中文)即可，只有国内城市。 [lazy]
+  [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]
+共扫描 13 个工具: ['bilibili_video', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
+  PASS  ★Y4b 聊天窗口：四角透明（圆角生效）   四角最大 alpha=0
+  PASS  ★Y4b 聊天窗口：中间不透明（内容还在）   alpha=255
+  PASS  ★Y4b 聊天窗口：边距区是自己的底色（没透出桌面）   #aaffff alpha=255
+  PASS  ★Y4b 聊天窗口：边距底色 = 配置色 #aaffff   #aaffff
+This plugin does not support propagateSizeHints()
+This plugin does not support raise()
+  PASS  ★Y4b 左侧栏：四角透明（圆角生效）   四角最大 alpha=0
+  PASS  ★Y4b 左侧栏：中间不透明（内容还在）   alpha=255
+  PASS  ★Y4b 左侧栏：边距区是自己的底色（没透出桌面）   #f0f0f2 alpha=255
+  PASS  ★Y4b 左侧栏：边距底色 = 配置色 #f0f0f2   #f0f0f2
+This plugin does not support raise()
+  PASS  ★Y4b 设置窗口：四角透明（圆角生效）   四角最大 alpha=0
+  PASS  ★Y4b 设置窗口：中间不透明（内容还在）   alpha=255
+  PASS  ★Y4b 设置窗口：边距区是自己的底色（没透出桌面）   #fafafa alpha=255
+  PASS  ★Y4b 设置窗口：边距底色 = 配置色 #fafafa   #fafafa
+  PASS  ★Y4b 三个窗口都开了 WA_TranslucentBackground（圆角的前提）
+
+== A2 点击形象 → 直接可打字（W1 二次修复）==
+  PASS  形象点击信号从子线程发出 → 槽在主线程执行（QTimer.singleShot 合法的前提）   实际线程=MainThread
+This plugin does not support raise()
+  PASS  可见且启用时，延时聚焦能把焦点交给输入框
+  PASS  输入框被禁用时（如总结话题中）不硬抢焦点
+  PASS  聚焦走「延时 + 强制前台」，并在 0/80/220ms 三段重试
+  PASS  主进程会用 AttachThreadInput 绕开前台权限制（W1 真根因）
+  PASS  子进程在点击瞬间放前台权（AllowSetForegroundWindow）
+  PASS  延时聚焦会写诊断日志（foreground_ok / isActiveWindow / fieldHasFocus）
+
+== A1 下载工具 / web_search 取图 / B站封面 ==
+  PASS  文件名清洗：去掉路径分隔符，无法目录穿越   → '____etc_passwd'
+  PASS  从 URL 推断文件名（含 URL 编码的空格与扩展名）
+  PASS  同名不覆盖：已存在时自动加序号
+  PASS  非 http/https 直接拒绝
+  PASS  空 url 直接拒绝
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B)
+  PASS  真实下载：成功 + 落在 data/downloads/websearch/   D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png
+  PASS  真实下载：字节数与源一致
+  PASS  真实下载：识别为图片
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test-1.png (145 B)
+  PASS  同名再下载不覆盖（另存副本，两份都在）
+  PASS  超过大小上限时拒绝并给出原因
+  PASS  404 时明确报 HTTP 状态
+  PASS  web_search：取回图片链接且过滤非 http
+  PASS  web_search：兼容 [{url:…}] 形式
+  PASS  web_search：请求真的带上了 include_images
+  PASS  B站封面文件名：取不到扩展名回落 .jpg
+  PASS  B站封面：取信息失败时原样返回
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B)
+  PASS  B站封面：真的下载到本地并返回 file_path（不再是「只返回 url」）   D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg
+  PASS  B站封面：保留 cover_url 供回显
+  PASS  ToolManager 已扫到 download 工具且默认启用
+  PASS  config.json 登记了 download
+
+== ① 头像路径（不再指向旧版本目录）==
+  PASS  项目内绝对路径 → 存成相对项目根
+  PASS  相对路径原样保留
+  PASS  项目外的手工路径保持绝对
+  PASS  读回来时能还原成绝对路径供预览
+  PASS  旧版留下的 PTRTS1.8.0 绝对路径不会被误当项目内路径
+  PASS  config.json 里已不存在指向旧版本目录的绝对头像路径   data/avatars/user_avatar.jpg
+  PASS  chat_widget 能直接加载相对头像路径
+
+== ② + W6 工具推送的附件（显示 + 落库 + 目录/去重）==
+  PASS  非图片附件：生成 [[FILE:…]] 标记并交给落库
+  PASS  图片附件：生成 ![]() 内联图片标记
+  PASS  文件不存在时不产生记录
+  PASS  ★W6 目录不会被当成文件卡片发出来   []
+  PASS  ★W6 同一轮内同一路径只推一次（download + file_ops send 不再发两遍）   推送了 1 次
+  PASS  ★W6 通用分支不再把 save_dir 当附件
+  PASS  通用分支仍然认真实文件 file_path
+  PASS  附件以 assistant 角色写进当前话题
+  PASS  附件的路径标记不进长期记忆提取队列
+  PASS  附件进入「待补进会话」队列（错开工具调用链，避免 400）
+  PASS  本轮结束后补进 session.messages 且队列清空
+  PASS  [[FILE:…]] 标记可被解析回 (path,size,label)
+  PASS  重启重画：标记变成卡片，且不露出原始标记
+  PASS  重启重画：图片标记变成内联缩略图
+  PASS  ★W6 jmcomic 的后台回调改走 file_ready 中转（不再只显示不落库）
+  PASS  _maybe_show_file_card / _handle_file_ops_result 都走统一落库入口
+  PASS  本轮结束/中断都会收尾待补附件
+  PASS  新一轮开始时清空附件去重集合
+  PASS  ★W7 路径含方括号也能完整解析出来（旧正则会截断）   [('D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\tools\\dev_tests\\_test_tmp_char_190\\本子[汉化组](C108)_1.pdf', '1.0 KB', '📚 本子下载完成')]
+  PASS  ★W7 含方括号的卡片能正常重建（不再变成「文件已不在」）
+  PASS  ★W7 历史库里残留的「目录」标记不再渲染成卡片
+
+== W3 动作由 LLM 按 GIF 文件名挑（不再有四槽映射）==
+  PASS  deepseek/settings.json 里的 behavior_gifs 四槽已删除   ['name', 'avatar', 'icon', 'scale', 'reply_style', 'emoji_level', 'persona_prompt', 'model', 'startup_gif', 'idle_gifs', 'idle_switch_rule']
+  PASS  铃兰/settings.json 里的 behavior_gifs 四槽已删除   ['name', 'avatar', 'icon', 'scale', 'reply_style', 'emoji_level', 'persona_prompt', 'model', 'startup_gif', 'idle_gifs', 'idle_switch_rule']
+  PASS  behavior_gif 仍能给出兜底 GIF（不再读四槽映射）   D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠形象\deepseek\GIF\吃爆米花悠闲.gif
+  PASS  兜底顺序里含待机轮播第一个
+  PASS  pet_manager 里已不再**读取** behavior_gifs 映射（只留一句说明注释）
+  PASS  工具执行阶段不再顶掉 LLM 选好的动作
+  PASS  LLM 按文件名挑的实现仍在（JSON 协议 + 思考文本里出现文件名）
+  PASS  LLM 思考末尾的 JSON 协议能选出指定 GIF
+  PASS  思考文本里直接出现文件名也能选中（取最后一次）
+  PASS  什么都没提就返回空（由兜底接管）
+[形象] 说话 沿用 LLM 选定动作: 启动.gif
+[形象] 执行 沿用 LLM 选定动作: 启动.gif
+  PASS  ★W4 LLM 选好的动作不会被「说话/执行」的兜底顶掉（X4 根因）   ['启动.gif', '启动.gif']
+  PASS  ★W4 没有选定动作时才走兜底   ['吃爆米花悠闲.gif']
+  PASS  ★W4 待机不受选定动作影响（对话结束要回待机轮播）   ['吃爆米花悠闲.gif']
+  PASS  ★Y1 有选定动作时，对话结束**不立刻**切待机（改为保持）   hold=1 behavior=[]
+  PASS  ★Y1 没有选定动作时，照旧立刻回待机轮播   behavior=['待机'] idle=1
+  PASS  ★Y1 保持结束后清空选定动作并回待机
+[形象] 保持动作 GIF「震惊」0.05 秒后回待机轮播
+  PASS  ★Y1 保持到期会把 hold_finished 投递给形象线程（定时器线程不碰渲染）   hold_finished
+  PASS  ★Y1 on_user_message 会取消上一次的保持（否则对话中途会跳回待机）
+  PASS  设置页已不再有「行为动作 GIF」四槽控件
+  PASS  设置页源码里也没了 behavior_gifs 的读写   出现 2 次
+  PASS  但「启动默认 GIF」「待机默认轮播」两项仍在（这两项才需要人配）
+  PASS  写回 settings.json 时顺手删掉遗留的 behavior_gifs
+  PASS  写回不破坏其它字段
+  PASS  真实角色目录未被测试写脏（跑完与开跑前逐字节一致）   []
+
+== 多模态页：三开关互不干扰 ==
+  PASS  设置侧栏里「视觉识别」已改名为「多模态」   多模态
+  PASS  ① 多模态 / ② 视觉识别 / ③ STT 三个独立复选框都在
+  PASS  ① 最上面有多模态后端选择（api / ollama）
+  PASS  ③ STT 之前**没有**设置界面，现在有了完整控件
+  PASS  ① 多模态开关写回 vision.multimodal
+  PASS  ① 多模态后端写回 vision.multimodal_mode   ollama
+  PASS  ② 视觉识别开关**独立**写回（关掉不受①影响）
+  PASS  ③ STT 开关独立写回
+  PASS  ③ STT 配置写回（模式/模型/语言/线程）   whisper_cpp/medium/en/6
+  PASS  反向组合也互不干扰（三块各自读各自的复选框）
+  PASS  读回：①多模态/②视觉/③STT 各自独立
+  PASS  读回：多模态后端 = ollama
+  PASS  读回：STT 语言 = en
+  PASS  config 可序列化新字段（multimodal_mode 与 stt 全部字段）
+
+== 统一文件查看工具 ==
+  PASS  pages 解析：单页 / 区间 / 列表 / 空(全部)
+  PASS  pages 解析：越界页码被忽略
+  PASS  抽样页码：首页 + 均匀中间 + 末页
+  PASS  文本：auto 走原文直读
+  PASS  文本：超长自动抽样头尾并说明省略了多少字
+  PASS  不存在 / 目录 都返回失败而不是抛异常
+  PASS  图片没有文字原文时给出可操作的提示（不是干巴巴报错）
+  PASS  ★图片：小文件整份走 multimodal（视觉如实描述）   multimodal
+  PASS  ★图片：传给视觉的是「禁思考、强制如实描述」的提示词
+  PASS  ★图片：真的把图片对象交给了视觉（拿得到尺寸）
+  PASS  ★PDF：能识别总页数并只取指定页   总页数=25 本次=[1]
+  PASS  ★PDF：文本很少的页自动改走视觉（扫描件也能看）   PDF 共 25 页；本次看第 [2] 页
+  PASS  ★file_ops 新增 view 动作且返回合法 JSON
+  PASS  ★工具描述里写明了 view（模型才会用），且 enum 含 view
+  PASS  ★对话提示词已改成优先用 view 看文件
+  PASS  ★视觉：deepseek 推理模型会显式关思考（否则 content 为空）
+  PASS  ★视觉：普通模型不加 extra_body（兼容其它 OpenAI 协议）
+
+== 聊天链路统一走文件查看工具 ==
+  PASS  ★聊天不再把图片 attach 给 session 做 image_url 直传
+  PASS  ★用户上传的图片改走 file_view.view_file
+  PASS  ★音频/视频/文档/其它文件都统一走 _view_attachment
+  PASS  ★发进对话的图片消息里不再有「图片已随消息直接发给你」那条多模态分支
+  PASS  ★图片消息里保留缩略图标记（重启后还能重建预览）
+  PASS  ★多模态开 + api → 用云端视觉模型
+  PASS  ★多模态开 + ollama → 用本地视觉模型
+  PASS  ★多模态关 → 听「视觉识别」那块（可以是本地 OCR，不花 API）
+  PASS  ★两个开关互不干扰（关多模态不影响②选的模式）
+
+== 表情包功能 ==
+  PASS  ★表情包素材已抓到 data/memes（tools/fetch_memes.py 的产物）   可用 269 张 / 包 {'deepseek-chan': 128, 'dafeiyu-learned': 25, 'official-001': 92, 'dafeiyu-001': 24}
+  PASS  ★抓取脚本留在仓库里（以后可重新抓/更新素材）
+  PASS  ★给 LLM 的目录是**抽样**的（269 张不能全塞进提示词）   列了 60 行 / 2255 字符
+  PASS  ★目录里带情绪标签和说明（LLM 才能按语义挑）
+  PASS  ★resolve：文件名 / 主干 / caption 片段 都能解析到真实文件
+  PASS  ★resolve：编造的名字返回 None（不会发出不存在的文件）
+  PASS  ★random_meme 可按标签挑
+  PASS  ★思考协议：{gif,meme} 能解析出表情包文件名
+  PASS  ★思考协议：JSON 后面又补了一句话也能解析（实测模型会这么干）
+  PASS  ★meme 是可选的：没写这个键就返回空（不发）
+  PASS  ★形象线程解析后记在 _chosen_meme，并对外暴露 chosen_meme()
+  PASS  ★提示词里写明了表情包协议（和 gif 放同一个 JSON）
+  PASS  ★提示词的表情包段落带目录 + 明确「回复之后单独一条」   2555 字符
+  PASS  ★表情包在「文字回复之后」单独一条发送（stream_done 之后）
+  PASS  ★先取走再清（在 on_done 之前读 chosen_meme，避免被清空/重复发）
+  PASS  ★发送走统一附件通道（会落库、重启后仍在，且是桌宠侧内联图）
+  PASS  ★挑不到就静默跳过（不报错、不发空）
+
+== P站工具 ==
+  PASS  ★内置 pixivpy3 能 import + 实例化（cloudscraper/requests-toolbelt 缺失也能用）
+  PASS  ★内置副本已打「可选依赖」补丁（cloudscraper / toolbelt 变可选）   实例化=True
+  PASS  ★补丁内容在（缺 cloudscraper 时退回 requests.Session）
+  PASS  ★ID 解析：作品链接 / 纯数字 / 画师短ID(42) / 乱码
+  PASS  ★pages 解析：空=全部 / 单页 / 区间 / 越界回落全部
+  PASS  ★文件名清洗（P站标题常带 / : 等非法字符）
+  PASS  ★多图作品取 meta_pages 的原图地址
+  PASS  ★单图作品回落 meta_single_page / image_urls.large
+  PASS  ★action=info 能出可读信息
+  PASS  ★action=search / ranking / user
+  PASS  ★action=download 真的落盘 + 通过回调推给聊天窗口   下载 2 张 / 推送 2 条
+  PASS  ★下载目录在 data/downloads/pixiv 下
+  PASS  ★没配刷新令牌时返回**可操作的提示**（不是干巴巴报错）
+  PASS  ★未知 action 有明确提示
+  PASS  ★已登记进 config.json（enabled_tools / tool_policies）
+  PASS  ★主窗口注册了 Pixiv 的文件就绪回调（下载完自动进聊天）
+
+== 剪贴板粘贴 ==
+  PASS  ★输入框装了事件过滤器（Ctrl+V 才拦得住）
+[粘贴] 从剪贴板发送图片 40x30（不落盘）
+  PASS  ★剪贴板是图片 → 我们接管并把图片交给主窗口（不落盘）   handled=True
+  PASS  ★剪贴板是纯文本 → 不拦（交给输入框正常粘贴）
+[粘贴] 从剪贴板发送文件: README.md
+  PASS  ★剪贴板是文件（资源管理器复制）→ 走已有上传链路，我方不额外落盘
+  PASS  ★粘贴图片生成 [[CLIP:key|名字|尺寸]] 标记
+  PASS  ★本次会话内能渲染出内存图片（clip:// 资源）
+  PASS  ★像素清掉后（等价于重启）→ 显示「未落盘」占位，且不露出原始标记
+  PASS  ★内存图片走的是同一套视觉后端 + 同一个「如实描述」提示词
+  PASS  ★主窗口收到粘贴图片 → 描述 + 作为用户消息发给 LLM
+  PASS  ★粘贴这条链路**不写磁盘**（方法体里没有任何写文件调用）
+  PASS  ★剪贴板信号已连接
+
+== 经验小本子（轻方案）==
+  PASS  LTM 提取提示词里有 experience 分类
+  PASS  LTM 提取提示词要求写清「什么情况 / 为什么不行 / 怎么解决」
+  PASS  LTM 判断层认为「踩坑→解决」值得记住
+  PASS  对话提示词里加了「经验小本子」规则（会主动翻记忆 + 事后记一条）
+
+============================================================
+★ 1.9.0 A 档回归：204 PASS / 0 FAIL
+============================================================
+  NOTE 退出时仍存活线程: tool-idle-check(daemon=True)
+QThreadStorage: entry 0 destroyed before end of thread 0x2d8224e6d10

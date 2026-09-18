@@ -1,0 +1,35 @@
+== 1. 复现日志场景：空 thinking 的那一轮 assistant 消息 ==
+  PASS  最后一条 assistant 已被补上 reasoning_content   reasoning_content=' '
+  PASS  补的是非 None 的占位值（API 只要求字段存在）
+  PASS  原文 content 没被动过
+  PASS  带 tool_calls 的那条仍有自己的思考内容   '我先查一下文件'
+
+== 2. 普通（非思考）模型不该被塞进多余字段 ==
+  PASS  工具的 assistant 仍按老行为补占位（兼容旧逻辑）   ' '
+  PASS  普通文本 assistant 不会被塞 reasoning_content   {'role': 'assistant', 'content': '你好呀'}
+
+== 3. 不写脏调用方的 self.messages（深拷贝一层）==
+  PASS  传入的字典列表没被就地修改   [None, '我先查一下文件', None, None]
+
+== 4. 残缺 tool_calls 链仍会被丢弃（老行为不能丢）==
+  PASS  无 tool 结果的 tool_calls 链被丢弃   [{'role': 'user', 'content': 'hi'}, {'role': 'assistant', 'content': '答'}]
+  PASS  正常消息保留   2 条
+
+== 5. 边界轮不该在「已给文字回复」后再跑 ==
+  PASS  标记 reset 已加在文字回复的 break 之前
+  PASS  reset 紧跟 break   [' = 上一轮的工具结果已经消化完，', '                #   不需要再走「边界轮」补一次 API 调用', '                #   （不置回 False 的话，每次用过工具都会多打一次请求，', '                #    而那一次正好是会踩 reasoning_content 400 的那次）。', '                tool_just_executed = False', '                break']
+  PASS  except 结构完好（err_name 还在）
+  PASS  _prepare_messages 的旧兜底已扩展为「全部 assistant」
+
+== 6. ★1.9.0 真机 400：tool 结果变成孤儿 / 链中间被塞消息 ==
+  PASS  ①孤儿 tool 全部被丢掉（不再触发 400）   2 条
+  PASS  ①用户的正文都还在（只丢工具链，不丢对话）   ['user', 'user']
+  PASS  ②残缺链连它的 tool 结果一起丢（旧实现只丢 assistant → 留孤儿）   ['user', 'user']
+  PASS  ②后面的用户消息不受影响
+  PASS  ③反向对照：旧实现在同样的输入上会留下孤儿 tool（证明本条测的是真行为）   孤儿 tool 消息（tool_call_id=A）
+  PASS  ④夹在链中间的消息被挪到 tool 结果之后（保证紧跟）   ['user', 'assistant', 'tool', 'assistant']
+  PASS  ④中间那条内容没丢
+  PASS  ⑤正常工具链顺序原样保留   ['user', 'assistant', 'tool', 'assistant']
+  PASS  ⑤所有输出都满足接口的两条硬规则（不变式）
+
+==== 结果: 22 PASS / 0 FAIL ====

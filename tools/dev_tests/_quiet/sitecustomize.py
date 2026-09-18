@@ -1,0 +1,43 @@
+"""
+★ 1.9.0: 测试进程的 Windows 静音补丁（由 _sweep190.ps1 通过 PYTHONPATH 注入）。
+
+【为什么需要】
+  这些套件里有不少会创建 QApplication、抓屏量像素、起子进程。个别套件在
+  Qt 退出阶段会踩到访问违例（实测弹窗：
+      python.exe - 应用程序错误
+      0x00007FFBADA4BCE1 指令引用了 0x0000000000000820 内存。该内存不能为 read。
+  ）。进程崩了本身不可怕，可怕的是 **Windows 弹出一个模态错误框**：
+    · 它会把控制台/回归**挂住**（没人点确定就一直等）；
+    · 更糟的是它看起来像"桌宠崩了"，会误导排查方向。
+
+【做法】
+  进程启动时调 SetErrorMode，关掉"严重错误"和"通用保护错误"弹窗：
+    · SEM_FAILCRITICALERRORS (0x0001)
+    · SEM_NOGPFAULTERRORBOX (0x0002)
+  这样真崩了就直接退出（可被回归脚本按"没有汇总行"识别出来），不会弹框。
+
+  只在 Windows 生效；非 Windows 或调用失败都静默跳过，绝不影响测试。
+"""
+try:
+    import ctypes
+    import sys
+
+    if sys.platform == "win32":
+        SEM_FAILCRITICALERRORS = 0x0001
+        SEM_NOGPFAULTERRORBOX = 0x0002
+        ctypes.windll.kernel32.SetErrorMode(
+            SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
+        )
+except Exception:
+    pass
+
+# ★ 1.9.0: 再把 faulthandler 打开 —— 万一某个套件真的踩了访问违例，
+#   它会把 Python 层的调用栈打到 **stderr**（回归脚本会把 stderr 存成
+#   `<套件名>.err.txt`）。不打开的话，崩溃只表现为"进程没了"，
+#   连是哪个套件、崩在哪一行都不知道（排查这个弹窗时就卡在这里）。
+try:
+    import faulthandler
+
+    faulthandler.enable()
+except Exception:
+    pass

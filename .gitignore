@@ -1,0 +1,59 @@
+# ══════════════════════════════════════════════════════════════
+# PTRTS 桌宠 —— .gitignore
+# ★ 1.9.2 建立（用户要求"开始使用 git 控制版本"）
+#
+# 原则：
+#   · **代码全部入库**（src / tools / main.py / 文档 / 测试）
+#   · **大体积二进制与模型不入库**（几 GB，且可重新下载）
+#   · **密钥绝不入库**（.env 含 DeepSeek/Pixiv/天气 等 key）
+#   · 日志、缓存、临时物不入库
+# ══════════════════════════════════════════════════════════════
+
+# ---- 密钥（★ 绝不入库：.env 里有 API key / token）----
+.env
+.env.*
+!.env.example
+
+# ---- TTS 模型权重（src/genie_tts/assets 共约 1.86 GB）----
+#   onnx / bin 都是大模型文件，可重新下载，不进版本库
+src/genie_tts/assets/**/*.onnx
+src/genie_tts/assets/**/*.bin
+src/genie_tts/assets/**/*.pth
+src/genie_tts/assets/**/*.pt
+src/genie_tts/assets/**/*.ckpt
+
+# ---- 其它模型 / 大资源 ----
+data/models/
+data/whisper/
+data/downloads/
+data/cookies/
+data/DBs/
+data/桌宠私有data/
+
+# ---- 日志 ----
+logs/
+*.log
+
+# ---- Python 缓存 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# ---- 备份文件（1.9.2 起用 git 兜底，不再需要一堆 .bak）----
+*.bak
+*.bak-*
+*.bak2
+
+# ---- 测试临时库 / 编辑器 ----
+_test_tmp_dbs/
+.idea/
+.vscode/
+*.swp
+
+# ---- 系统 ----
+Thumbs.db
+desktop.ini

@@ -1,0 +1,20 @@
+  [PASS] 找到测试图片  D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠形象\deepseek\头像.jpg
+== 1. 关闭多模态 ==
+  [PASS] 未开启时仍是纯文本
+  [PASS] 未开启时不会消耗待传图片
+== 2. 开启多模态 ==
+  [PASS] 组装成 content 数组  list
+  [PASS] 第一块是文本
+  [PASS] 含 image_url 块
+  [PASS] 是 data:image/jpeg base64 URI
+  [PASS] 图片体积受控（<2MB）  10KB
+  [PASS] 发送后待传列表已清空
+== 3. 相对路径登记 ==
+  [PASS] 相对路径被解析为绝对路径  ['D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\data\\桌宠形象\\deepseek\\头像.jpg']
+== 4. 模型不支持时的降级 ==
+  [PASS] 检测到并剥离图片块
+  [PASS] 降级后是纯文本
+  [PASS] 保留了原文字
+  [PASS] 重复调用返回 False
+
+结果: ALL PASS

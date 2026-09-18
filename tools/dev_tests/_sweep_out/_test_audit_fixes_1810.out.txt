@@ -1,0 +1,62 @@
+== A. 用户画像提取（HIGH）==
+  PASS  SummarizerClient 有 complete_raw（返回原始文本）
+  PASS  extract_from_text 不再用 summarize() 的结果当 JSON
+  PASS  extract_from_text 改用 complete_raw
+  PASS  解析纯 JSON 数组
+  PASS  解析 ```json 围栏
+  PASS  解析带前后废话的 JSON
+  PASS  解析失败返回 [] 而不是抛异常
+  PASS  空输入返回 []
+  PASS  非数组返回 []
+  PASS  画像真的被写进 UserProfile   [{'key': 'user_name', 'value': 'FM', 'confidence': 0.9, 'source': 'llm_extraction', 'category': 'identity'}]
+  PASS  写入的 key/value 正确
+
+== B. session 回调必须走信号（MED）==
+  PASS  on_topic_changed 走 relay 信号
+  PASS  on_input_blocked 走 relay 信号
+  PASS  不再直接把 QWidget 方法赋给 session 回调
+  PASS  relay 声明了 topic_changed / input_blocked 信号
+  PASS  两个信号都连到了真实槽
+
+== C/D. Phase 顺序与消息丢失（MED）==
+  PASS  heavy_ready.emit 在 finally 里
+  PASS  heavy_ready 仍连到 _init_finalize
+  PASS  _on_user_message 软访问 idle_talker
+  PASS  _on_user_message 软访问 profile_extractor
+  PASS  _inject_user_profile_context 软访问 user_profile
+  PASS  Phase4 未完成时发消息不再抛异常
+  PASS  消息确实发给了 session   ['提早发的消息']
+
+== E. 设置窗口尺寸不再冲掉拖拽结果（MED）==
+  PASS  SettingsWindow 新增 showEvent
+  PASS  showEvent 里同步了宽/高
+  PASS  保存时仍用控件值（保持原逻辑）
+  PASS  showEvent 把 config 的新尺寸同步进了控件   377x555
+
+== F. 工具回调跨模块可达（MED）==
+  PASS  tools 包有 LOGIN_CALLBACKS
+  PASS  tools 包有 FILE_READY_CALLBACKS
+  PASS  endfield set_login_callback 写登记表
+  PASS  endfield _finish_login 读登记表
+  PASS  jmcomic set_file_ready_callback 写登记表
+  PASS  jmcomic 通知处读登记表
+  PASS  私有模块实例也能触发 MainWindow 注册的回调   [(True, '扫码成功')]
+
+== G. 其余 LOW 修复 ==
+  PASS  shell_exec: PROJECT_ROOT 在 try 之前定义
+  PASS  shell_exec: 不再重复定义 PROJECT_ROOT
+  PASS  jmcomic: 用 tags 而不是 tag_list
+  PASS  jmcomic: 用 page_count 而不是 photo_count
+  PASS  bilibili: 定义了 _CDN_MIRRORS
+  PASS  bilibili: 不再用坏的 temp 前缀交换
+  PASS  bilibili: 用正则整体换主机
+  PASS  web_search: 检查 resp.status_code
+  PASS  web_search: 识别 JSON 里的 detail/error
+  PASS  settings: _detect_models 按 target 取 Key
+  PASS  settings: 导入了 CHARACTERS_DIR
+  PASS  file_view: ffprobe 无视频流不再崩（★1.9.0 搬到 file_view）
+  PASS  LTM: keep_new 会真的 upsert
+  PASS  tool_manager: 没有 execute 的文件不再注册成工具
+  PASS  已删除无人引用的 0 字节 src/core/fts_search.py
+
+==== 结果: 49 PASS / 0 FAIL ====

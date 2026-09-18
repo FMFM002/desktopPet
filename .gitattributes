@@ -1,0 +1,39 @@
+# ══════════════════════════════════════════════════════════════
+# PTRTS 桌宠 —— .gitattributes（★ 1.9.2 建立）
+#
+# 目的：统一换行符，消掉 git 每次 add 都刷的
+#   "LF will be replaced by CRLF the next time Git touches it" 警告。
+#   `text=auto` = 仓库里统一存 LF，检出到 Windows 工作区时自动转 CRLF。
+# ══════════════════════════════════════════════════════════════
+
+* text=auto
+
+# 文本类：明确按文本处理（避免中文 txt 被当二进制）
+*.py    text
+*.txt   text
+*.md    text
+*.json  text
+*.yml   text
+*.yaml  text
+*.html  text
+*.css   text
+*.js    text
+*.ps1   text
+*.bat   text
+
+# 二进制类：别做换行转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.db    binary
+*.wav   binary
+*.mp3   binary
+*.mp4   binary
+*.onnx  binary
+*.bin   binary
+*.exe   binary
+*.dll   binary
+*.zip   binary

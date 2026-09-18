@@ -1,0 +1,22 @@
+== 1. DB 角色窗口 ==
+  [PASS] create_topic 带角色
+  [PASS] get_active_topic 命中
+  [PASS] 两个角色各自活跃
+  [PASS] 归档后可取回总结
+  [PASS] 归档话题不在活跃列表
+  [PASS] list_character_topics 按角色隔离
+  [PASS] count_character_messages 统计
+  [PASS] get_topic_messages 正序
+  [PASS] 清理完成
+== 2. 会话角色窗口 ==
+  [PASS] set_character 建立窗口
+  [PASS] 切到乙：窗口独立
+  [PASS] 切回甲：恢复原话题
+  [PASS] 开启新话题清空上下文
+== 3. 总结 → 新话题 链路 ==
+  [PASS] 总结后开启新话题
+  [PASS] 新话题继承总结
+  [PASS] 旧话题已归档
+  [PASS] 旧话题状态=archived
+
+结果: ALL PASS

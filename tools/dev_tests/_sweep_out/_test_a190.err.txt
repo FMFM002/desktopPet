@@ -1,0 +1,66 @@
+QFontDatabase: Cannot find font directory C:/Users/farma/AppData/Local/Programs/Python/Python312/Lib/site-packages/PySide6/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+This plugin does not support raise()
+  [+] file_ops: 文件操作工具集。支持: 查看文件、读取原文、写入、编辑、搜索、列出目录、发送文件 [lazy]
+  [+] jmcomic: 禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜 [lazy]
+  [+] knowledge_graph: 知识图谱工具，用于存储和查询结构化知识。支持:
+- analyze_projec [lazy]
+  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [resident]
+  [+] meme: 发表情包。想在回复里表达情绪时调用**一次**：它会挑一张表情包并进入待发送状态 [lazy]
+  [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
+  [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
+  [+] shell_exec: 执行终端/shell命令并返回stdout和stderr。Windows用cmd [lazy]
+  [+] system_command: 执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日 [lazy]
+  [+] weather_query: 查询指定城市的天气。传入城市名称(中文)即可，只有国内城市。
+参数 days：不 [lazy]
+  [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]
+共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
+This plugin does not support raise()
+This plugin does not support raise()
+  角色 'deepseek': ['GIF']
+  角色 '铃兰': ['GIF']
+桌宠组件就绪: 2 个角色
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test-1.png (145 B)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B)
+[形象] 说话 沿用 LLM 选定动作: 启动.gif
+[形象] 执行 沿用 LLM 选定动作: 启动.gif
+OCR 引擎「tesseract」不可用 → 自动改用「easyocr」（想用回 tesseract 请先安装它）
+OCR 引擎就绪: easyocr (语言: chi_sim+eng)
+OCR 引擎「tesseract」不可用 → 自动改用「easyocr」（想用回 tesseract 请先安装它）
+OCR 引擎就绪: easyocr (语言: chi_sim+eng)
+STT 用不了，data/whisper 里还缺：（未知原因，见上一条日志）
+补齐办法：把 ggml-small.bin（约 465MB）放到 data/whisper/ 即可 —— 下载：python -c "from huggingface_hub import snapshot_download; snapshot_download('ggerganov/whisper.cpp', allow_patterns=['ggml-small.bin'], local_dir='data/whisper')"（国内先设 HF_ENDPOINT=https://hf-mirror.com 与代理）
+[WhisperCLI] 就绪: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\whisper\whisper-cli.exe, model=ggml-small.bin
+[形象] 正文协议 → GIF「赞啊!」
+[形象] 正文协议 → 表情包「009.webp」（回复结束后单独发）
+[形象] 正文协议 → 表情包「009.webp」（回复结束后单独发）
+[形象] 切换命令 → GIF「震惊」（来源 think）
+[形象] 切换命令「不存在的动作xyz」（来源 think）在当前角色里找不到，保持当前
+[形象] 切换命令「0」（来源 idle）在当前角色里找不到，保持当前
+[形象] 切换命令 → GIF「震惊」（来源 think）
+[形象] 切换命令 → GIF「努力敲代码」（来源 idle）
+[形象] 切换命令「不存在的动作xyz」（来源 think）在当前角色里找不到，保持当前
+主动说话: 注入会话（系统触发，短触发语）
+[Pixiv] 第 1 页不是有效图片：对方返回的是 HTML（多半是 403 防盗链/UA 被拦）
+[Pixiv] 返回结构与内置模型不符（SearchIllustrations: illusts, next_url, search_span_limit），按原始 JSON 处理
+[粘贴] 从剪贴板发送图片 40x30（不落盘）
+[粘贴] 从剪贴板发送文件: README.md
+[表情包信箱] 待发送: 083.webp (tag=happy)
+[表情包工具] 已选: 083.webp (tag=happy, 理由=测试) → 待回复结束后发送
+[表情包信箱] 待发送: 009.webp (tag=-)
+[表情包工具] 已选: 009.webp (tag=-) → 待回复结束后发送
+[表情包工具] 被空参调用 meme({}) → 拒绝，要求模型自己选 tag
+[表情包信箱] 待发送: 095.webp (tag=happy)
+[表情包工具] 已选: 095.webp (tag=happy) → 待回复结束后发送
+主动说话: 注入会话（系统触发，短触发语）
+执行工具: weather_query(['action', 'city'])
+工具 weather_query 的 action「query」已被设置禁用，拒绝执行
+执行工具: weather_query(['action'])
+工具 [weather_query] 加载完成 (策略=lazy)
+工具 weather_query 参数错误: execute() missing 1 required positional argument: 'city', kwargs=['action']
+工具 weather_query 无参数调用也失败: execute() missing 1 required positional argument: 'city'
+This plugin does not support raise()
+[工具设置] pixiv 禁用的 action: ['info']
+[工具设置] pixiv 禁用的 action: （无）
+工具管理器已关闭

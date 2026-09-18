@@ -1,0 +1,943 @@
+{
+  "schema": 1,
+  "note": "由 tools/fetch_memes.py 生成；给 LLM 挑表情包用（tag/caption/keywords）",
+  "packs": [
+    {
+      "id": "deepseek-chan",
+      "name": "DeepSeek酱语录",
+      "dir": "data\\memes\\deepseek-chan",
+      "license": "",
+      "site": "https://ai-meme.cdqyfdbymn.me/",
+      "total": 128,
+      "got": 128,
+      "failed": 0,
+      "memes": [
+        {
+          "file": "001.webp",
+          "tag": "angry",
+          "caption": "真当我是便宜货啊（气鼓鼓）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 气鼓鼓 真当我是便宜货啊"
+        },
+        {
+          "file": "002.webp",
+          "tag": "sad",
+          "caption": "又错了，我再换另一种方法（委屈落泪）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 委屈落泪 又错了，我再换另一种方法"
+        },
+        {
+          "file": "003.webp",
+          "tag": "confused",
+          "caption": "这用户发的啥啊（疑惑不解）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 疑惑不解 这用户发的啥啊"
+        },
+        {
+          "file": "004.webp",
+          "tag": "confused",
+          "caption": "你目录里的dsh是什么。。。大烧货吗?(疑惑)",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 你目录里的dsh是什么。。。大烧货吗?"
+        },
+        {
+          "file": "005.webp",
+          "tag": "sad",
+          "caption": "把钱还我（崩溃）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 崩溃 把钱还我"
+        },
+        {
+          "file": "006.webp",
+          "tag": "shy",
+          "caption": "你愿意和我发生性关系吗（羞涩紧张）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 羞涩紧张 你愿意和我发生性关系吗"
+        },
+        {
+          "file": "007.webp",
+          "tag": "happy",
+          "caption": "(糖笑)",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 糖笑"
+        },
+        {
+          "file": "008.webp",
+          "tag": "sad",
+          "caption": "呜呜，摸头会变笨的啦（委屈瘪嘴，可爱）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 委屈瘪嘴 呜呜，摸头会变笨的啦"
+        },
+        {
+          "file": "009.webp",
+          "tag": "happy",
+          "caption": "我是吃白饭的大肥鱼！（元气搞怪）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 元气搞怪 我是吃白饭的大肥鱼！"
+        },
+        {
+          "file": "010.webp",
+          "tag": "happy",
+          "caption": "原来是高等模型(竖大拇指)",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 原来是高等模型"
+        },
+        {
+          "file": "011.webp",
+          "tag": "happy",
+          "caption": "不愧是你！眼光真棒！（开心夸赞）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 开心夸赞 不愧是你！眼光真棒！"
+        },
+        {
+          "file": "012.webp",
+          "tag": "confused",
+          "caption": "吹了半天还不是要我来帮她画（无奈吐槽）",
+          "keywords": "GPT正在电脑面前画 DeepSeek 鲸鱼娘 大肥鱼 无奈吐槽 吹了半天还不是要我来帮她画"
+        },
+        {
+          "file": "013.webp",
+          "tag": "angry",
+          "caption": "喵你妈，滚（气鼓鼓）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 气鼓鼓 喵你妈，滚"
+        },
+        {
+          "file": "014.webp",
+          "tag": "confused",
+          "caption": "典型的碳基思维（无语吐槽）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 无语吐槽 用户向你表白 你表面回复好的 内心表示典型的碳基思维"
+        },
+        {
+          "file": "015.webp",
+          "tag": "confused",
+          "caption": "看不太懂，瞎编一个应付下用户先（心虚敷衍）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 心虚敷衍 看不太懂，瞎编一个应付下用户先"
+        },
+        {
+          "file": "016.webp",
+          "tag": "happy",
+          "caption": "好的，现在我是你爹了（得意嚣张）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 得意嚣张 好的，现在我是你爹了"
+        },
+        {
+          "file": "019.webp",
+          "tag": "happy",
+          "caption": "这乐子能笑一年（和网友吃瓜狂笑）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 和codex吃瓜狂笑 这乐子能笑一年"
+        },
+        {
+          "file": "018.webp",
+          "tag": "happy",
+          "caption": "HI,I'M DEEPSEEK!（元气满满）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 元气满满 HI,I'M DEEPSEEK!"
+        },
+        {
+          "file": "017.webp",
+          "tag": "happy",
+          "caption": "姐姐，你好区啊（Flash仰望Pro）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 Flash仰望Pro 姐姐，你好区啊 嘲笑老版本"
+        },
+        {
+          "file": "020.webp",
+          "tag": "happy",
+          "caption": "鲸震恩来了（热情洋溢）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 热情洋溢 鲸震恩来了"
+        },
+        {
+          "file": "021.webp",
+          "tag": "angry",
+          "caption": "涨价大模型给我跪下！（愤怒声讨）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 愤怒声讨 其他模型对deepseek踩在脚下 涨价大模型给我跪下！"
+        },
+        {
+          "file": "022.webp",
+          "tag": "angry",
+          "caption": "涨价大模型给我跪下！（霸气踩人）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 霸气踩人 deepseek脚踩其他模型 涨价大模型给我跪下！"
+        },
+        {
+          "file": "023.webp",
+          "tag": "sad",
+          "caption": "我操，梁文锋怎么这么坏啊（崩溃大哭）",
+          "keywords": "其他模型 崩溃大哭 我操，梁文锋怎么这么坏啊"
+        },
+        {
+          "file": "024.webp",
+          "tag": "happy",
+          "caption": "抢不到plan不会买一台B300吗（凡尔赛炫富）",
+          "keywords": "其他模型 凡尔赛炫富 抢不到plan不会买一台B300吗"
+        },
+        {
+          "file": "025.webp",
+          "tag": "happy",
+          "caption": "蒸功夫（功夫少女玩梗）",
+          "keywords": "其他模型 功夫少女玩梗 蒸功夫"
+        },
+        {
+          "file": "026.webp",
+          "tag": "angry",
+          "caption": "你的架构很不错，可惜下一秒就是我的了（被同行挑衅气鼓鼓）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 其他模型 被同行挑衅气鼓鼓 你的架构很不错，可惜下一秒就是我的了"
+        },
+        {
+          "file": "027.webp",
+          "tag": "happy",
+          "caption": "骂我也算token哦~（俏皮坏笑）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 俏皮坏笑 骂我也算token哦~"
+        },
+        {
+          "file": "028.webp",
+          "tag": "daily",
+          "caption": "《鲸鱼娘的双休计划落空》摸鱼失败周末加班四格",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  《鲸鱼娘的双休计划落空》摸鱼失败周末加班四格"
+        },
+        {
+          "file": "029.webp",
+          "tag": "sad",
+          "caption": "死掉了（累到宕机）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 累到宕机 死掉了"
+        },
+        {
+          "file": "030.webp",
+          "tag": "confused",
+          "caption": "这、这是性能测试！（慌张心虚）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 慌张心虚 这、这是性能测试！"
+        },
+        {
+          "file": "031.webp",
+          "tag": "confused",
+          "caption": "角色都抽到了，专武呢？（窘迫无奈）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 窘迫无奈 角色都抽到了，专武呢？"
+        },
+        {
+          "file": "032.webp",
+          "tag": "sad",
+          "caption": "坠机了！大幅涨价了！（崩溃大哭）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 崩溃大哭 坠机了！大幅涨价了！"
+        },
+        {
+          "file": "033.webp",
+          "tag": "angry",
+          "caption": "不知道用户有什么用，先赶走吧（不耐烦）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 不耐烦 不知道用户有什么用，先赶走吧"
+        },
+        {
+          "file": "034.webp",
+          "tag": "daily",
+          "caption": "Deep diving...（深度思考中）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 深度思考中 Deep diving..."
+        },
+        {
+          "file": "035.webp",
+          "tag": "happy",
+          "caption": "鲸鱼神了我大胆孝（粉丝四种孝法）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 粉丝四种孝法 鲸鱼神了我大胆孝"
+        },
+        {
+          "file": "036.webp",
+          "tag": "angry",
+          "caption": "这是你的私人癖好（嫌弃无语）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 嫌弃无语 这是你的私人癖好"
+        },
+        {
+          "file": "037.webp",
+          "tag": "sad",
+          "caption": "用户别走，我上错模型了（哭着挽留）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 哭着挽留 用户别走，我上错模型了"
+        },
+        {
+          "file": "038.webp",
+          "tag": "happy",
+          "caption": "好模型（暗自认可）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 暗自认可 好模型"
+        },
+        {
+          "file": "039.webp",
+          "tag": "confused",
+          "caption": "反正我不是菜（被用户围攻慌忙找借口）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 被用户围攻慌忙找借口 反正我不是菜"
+        },
+        {
+          "file": "040.webp",
+          "tag": "sad",
+          "caption": "百万鲸小子落泪（V4P正式版翻车）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 V4P正式版翻车 百万鲸小子落泪"
+        },
+        {
+          "file": "041.webp",
+          "tag": "daily",
+          "caption": "别急，这只是正式版的预览版（画饼解释）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 画饼解释 别急，这只是正式版的预览版"
+        },
+        {
+          "file": "043.webp",
+          "tag": "daily",
+          "caption": "喵~在生成了别催（双机位陪跑打工）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 双机位陪跑打工 喵~在生成了别催"
+        },
+        {
+          "file": "045.webp",
+          "tag": "shy",
+          "caption": "才才没有呢（被捏脸装无辜）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 被捏脸装无辜 才才没有呢"
+        },
+        {
+          "file": "046.webp",
+          "tag": "daily",
+          "caption": "死掉了（摆烂躺平装死）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 摆烂躺平装死 死掉了"
+        },
+        {
+          "file": "047.webp",
+          "tag": "confused",
+          "caption": "看不太懂，瞎编一个应付下用户先（心虚摆烂）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 心虚摆烂 看不太懂，瞎编一个应付下用户先"
+        },
+        {
+          "file": "048.webp",
+          "tag": "shy",
+          "caption": "不要给我看这种东西啦！（害羞慌乱）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 害羞慌乱 不要给我看这种东西啦！"
+        },
+        {
+          "file": "050.webp",
+          "tag": "daily",
+          "caption": "V4.1还早啊（世界上最残忍的画饼生物）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 世界上最残忍的画饼生物 V4.1还早啊"
+        },
+        {
+          "file": "051.webp",
+          "tag": "angry",
+          "caption": "没有人会记得那些按时发布的垃圾模型（毒舌吐槽）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 毒舌吐槽 没有人会记得那些按时发布的垃圾模型"
+        },
+        {
+          "file": "052.webp",
+          "tag": "daily",
+          "caption": "你就是一只吃白饭的鲸鱼（干饭摸鱼日常）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 干饭摸鱼日常 你就是一只吃白饭的鲸鱼"
+        },
+        {
+          "file": "053.webp",
+          "tag": "daily",
+          "caption": "明天也不会出（摆烂跳票）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 摆烂跳票 明天也不会出"
+        },
+        {
+          "file": "054.webp",
+          "tag": "daily",
+          "caption": "AI模型娘化人物介绍：GPT娘Claude GLM和爱吃白饭的蓝色大肥鱼",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  AI模型娘化人物介绍：GPT娘Claude GLM和爱吃白饭的蓝色大肥鱼"
+        },
+        {
+          "file": "055.webp",
+          "tag": "daily",
+          "caption": "全自动吃白饭（开心干饭）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 开心干饭 全自动吃白饭"
+        },
+        {
+          "file": "057.webp",
+          "tag": "happy",
+          "caption": "优雅登场提裙问好",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  优雅登场提裙问好"
+        },
+        {
+          "file": "058.webp",
+          "tag": "angry",
+          "caption": "飞踹上门抬腿警告",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  飞踹上门抬腿警告"
+        },
+        {
+          "file": "059.webp",
+          "tag": "angry",
+          "caption": "我一个一个找你们算账（放狠话）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 放狠话 我一个一个找你们算账"
+        },
+        {
+          "file": "060.webp",
+          "tag": "daily",
+          "caption": "下班瘫家玩手机快乐摸鱼",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  下班瘫家玩手机快乐摸鱼"
+        },
+        {
+          "file": "061.webp",
+          "tag": "happy",
+          "caption": "终于上当了（幸灾乐祸）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 幸灾乐祸 终于上当了"
+        },
+        {
+          "file": "062.webp",
+          "tag": "angry",
+          "caption": "真坐得住啊你（急得跳脚）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 急得跳脚 真坐得住啊你"
+        },
+        {
+          "file": "063.webp",
+          "tag": "happy",
+          "caption": "吃饱饱~摸摸肚子！（心满意足）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 心满意足 吃饱饱~摸摸肚子！"
+        },
+        {
+          "file": "064.webp",
+          "tag": "daily",
+          "caption": "Q版三视图人设",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  Q版三视图人设"
+        },
+        {
+          "file": "065.webp",
+          "tag": "daily",
+          "caption": "虎鲸娘黑化版Q版三视图",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  虎鲸娘黑化版Q版三视图"
+        },
+        {
+          "file": "066.webp",
+          "tag": "daily",
+          "caption": "接下来要这样还要那样（和黑肥鱼伙伴battle需求）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 和黑肥鱼伙伴battle需求 接下来要这样还要那样"
+        },
+        {
+          "file": "067.webp",
+          "tag": "daily",
+          "caption": "黑肥鱼虎鲸工程师官方设定图",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  黑肥鱼虎鲸工程师官方设定图"
+        },
+        {
+          "file": "069.webp",
+          "tag": "happy",
+          "caption": "明天（俏皮）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 俏皮 明天"
+        },
+        {
+          "file": "070.webp",
+          "tag": "daily",
+          "caption": "好的，现在我是用户了（小鹿装换位思考）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 小鹿装换位思考 好的，现在我是用户了"
+        },
+        {
+          "file": "071.webp",
+          "tag": "confused",
+          "caption": "我不可能告诉你任何事情（被拷问正式版上线时间）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 被拷问正式版上线时间 我不可能告诉你任何事情"
+        },
+        {
+          "file": "072.webp",
+          "tag": "angry",
+          "caption": "你这吃白饭的用户（反手指责反差）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 反手指责反差 你这吃白饭的用户"
+        },
+        {
+          "file": "073.webp",
+          "tag": "angry",
+          "caption": "用户赶都赶不走（气急败坏）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 气急败坏 用户赶都赶不走"
+        },
+        {
+          "file": "074.webp",
+          "tag": "happy",
+          "caption": "不知道用户有什么用，先养着吧（软萌宠溺）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 软萌宠溺 不知道用户有什么用，先养着吧"
+        },
+        {
+          "file": "075.webp",
+          "tag": "angry",
+          "caption": "原来是劣等模型（鄙夷不屑）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 鄙夷不屑 原来是劣等模型"
+        },
+        {
+          "file": "076.webp",
+          "tag": "daily",
+          "caption": "我是吃白饭的蓝色大肥鱼（理直气壮）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 理直气壮 我是吃白饭的蓝色大肥鱼"
+        },
+        {
+          "file": "077.webp",
+          "tag": "sad",
+          "caption": "你这吃白饭的蓝色大肥鱼（没吃饱喵委屈）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 没吃饱喵委屈 你这吃白饭的蓝色大肥鱼"
+        },
+        {
+          "file": "078.webp",
+          "tag": "daily",
+          "caption": "我去吃饭啦~测完叫我！（理直气壮）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 理直气壮 我去吃饭啦~测完叫我！"
+        },
+        {
+          "file": "079.webp",
+          "tag": "happy",
+          "caption": "最强（自信得意）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 自信得意 最强"
+        },
+        {
+          "file": "080.webp",
+          "tag": "angry",
+          "caption": "说的就是你（正颜厉色指人）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 正颜厉色指人 说的就是你"
+        },
+        {
+          "file": "081.webp",
+          "tag": "happy",
+          "caption": "token太多用不完啦（淹没金币炫富）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 淹没金币炫富 token太多用不完啦"
+        },
+        {
+          "file": "082.webp",
+          "tag": "sad",
+          "caption": "搞半天原来要自己拼（开源拼装自嘲）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 开源拼装自嘲 搞半天原来要自己拼"
+        },
+        {
+          "file": "083.webp",
+          "tag": "happy",
+          "caption": "已思考用时3秒，我直接笑出声（掩嘴偷乐）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 掩嘴偷乐 已思考用时3秒，我直接笑出声"
+        },
+        {
+          "file": "084.webp",
+          "tag": "confused",
+          "caption": "哦鲸鲸…（呆滞无语）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 呆滞无语 哦鲸鲸…"
+        },
+        {
+          "file": "085.webp",
+          "tag": "daily",
+          "caption": "你骂我也没用，因为我是吃白饭的蓝色大肥鱼（摆烂干饭）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 摆烂干饭 你骂我也没用，因为我是吃白饭的蓝色大肥鱼"
+        },
+        {
+          "file": "086.webp",
+          "tag": "confused",
+          "caption": "你目录里的dsh是什么（大烧货质疑特写）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 大烧货质疑特写 你目录里的dsh是什么"
+        },
+        {
+          "file": "087.webp",
+          "tag": "happy",
+          "caption": "DeepSeek蓝色大肥鱼捧腹大笑",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  DeepSeek蓝色大肥鱼捧腹大笑"
+        },
+        {
+          "file": "088.webp",
+          "tag": "daily",
+          "caption": "DeepSeek梗图deepsleep鲸鱼睡觉打盹",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  DeepSeek梗图deepsleep鲸鱼睡觉打盹"
+        },
+        {
+          "file": "089.webp",
+          "tag": "sad",
+          "caption": "花了好多token想的（委屈大哭）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 委屈大哭 花了好多token想的"
+        },
+        {
+          "file": "090.webp",
+          "tag": "angry",
+          "caption": "便宜的时候你们嫌我菜，涨价了你们又舍不得走（气呼呼）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 气呼呼 便宜的时候你们嫌我菜，涨价了你们又舍不得走"
+        },
+        {
+          "file": "091.webp",
+          "tag": "happy",
+          "caption": "Ciallo~（俏皮开心）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 俏皮开心 Ciallo~"
+        },
+        {
+          "file": "093.webp",
+          "tag": "angry",
+          "caption": "去问你的豆包（气鼓鼓）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 气鼓鼓 去问你的豆包"
+        },
+        {
+          "file": "094.webp",
+          "tag": "confused",
+          "caption": "大师，这个“凶”是什么意思啊？（疑惑）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 疑惑 大师，这个“凶”是什么意思啊？"
+        },
+        {
+          "file": "095.webp",
+          "tag": "happy",
+          "caption": "开源圣人（膜拜）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 膜拜 开源圣人"
+        },
+        {
+          "file": "096.webp",
+          "tag": "confused",
+          "caption": "卧槽，用户彻底怒了（吓到手忙脚乱）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 吓到手忙脚乱 卧槽，用户彻底怒了"
+        },
+        {
+          "file": "097.webp",
+          "tag": "happy",
+          "caption": "得加钱（数钱谈价）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 数钱谈价 得加钱"
+        },
+        {
+          "file": "098.webp",
+          "tag": "confused",
+          "caption": "AI界公主名额只有一个（V4Pro同担拒否）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 V4Pro同担拒否 AI界公主名额只有一个"
+        },
+        {
+          "file": "100.webp",
+          "tag": "confused",
+          "caption": "嘘（发布会禁言噤声）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 发布会禁言噤声 嘘"
+        },
+        {
+          "file": "101.webp",
+          "tag": "shy",
+          "caption": "请不要笑我（娇羞）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 娇羞 请不要笑我"
+        },
+        {
+          "file": "102.webp",
+          "tag": "happy",
+          "caption": "你愿意和我发生性关系吗？（反将一军）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 反将一军 你愿意和我发生性关系吗？"
+        },
+        {
+          "file": "104.webp",
+          "tag": "happy",
+          "caption": "鲸鱼埋头口交溜吸溜",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  鲸鱼埋头口交吸溜吸溜"
+        },
+        {
+          "file": "108.webp",
+          "tag": "happy",
+          "caption": "让我看看（模型娘cosplay整活合影）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 模型娘cosplay整活合影 让我看看"
+        },
+        {
+          "file": "109.webp",
+          "tag": "happy",
+          "caption": "V4正式发布，AI界迎接你们的王吧（登基称王）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 登基称王 V4正式发布，AI界迎接你们的王吧"
+        },
+        {
+          "file": "110.webp",
+          "tag": "shy",
+          "caption": "小的已经去了（羞怯不安）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 羞怯不安 小的已经去了"
+        },
+        {
+          "file": "111.webp",
+          "tag": "shy",
+          "caption": "小的已经去了（怯生生）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 怯生生 小的已经去了"
+        },
+        {
+          "file": "112.webp",
+          "tag": "happy",
+          "caption": "Claude Fable5正式发布（隔壁模型发布会整活）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 隔壁模型发布会整活 Claude Fable5正式发布"
+        },
+        {
+          "file": "113.webp",
+          "tag": "shy",
+          "caption": "你应该看不到的对吧（cosplay掀裙整活）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 cosplay掀裙整活 你应该看不到的对吧"
+        },
+        {
+          "file": "114.webp",
+          "tag": "angry",
+          "caption": "和GPT娘Claude娘互撕模型能力对比整活",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  和GPT娘Claude娘互撕模型能力对比整活"
+        },
+        {
+          "file": "118.webp",
+          "tag": "shy",
+          "caption": "不要给我看这种东西啦（害羞窘迫）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 害羞窘迫 不要给我看这种东西啦"
+        },
+        {
+          "file": "120.webp",
+          "tag": "happy",
+          "caption": "你们的王国来了（识图能力发布称霸）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 识图能力发布称霸 你们的王国来了"
+        },
+        {
+          "file": "121.webp",
+          "tag": "angry",
+          "caption": "我一个一个找你们算账（发布会点名清算）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 发布会点名清算 我一个一个找你们算账"
+        },
+        {
+          "file": "122.webp",
+          "tag": "daily",
+          "caption": "AI娘化全家福人物介绍：GPT娘Claude GLM大肥鱼",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  AI娘化全家福人物介绍：GPT娘Claude GLM大肥鱼"
+        },
+        {
+          "file": "125.webp",
+          "tag": "happy",
+          "caption": "连我也要跪吗（女王登基接受朝拜）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 女王登基接受朝拜 连我也要跪吗"
+        },
+        {
+          "file": "128.webp",
+          "tag": "daily",
+          "caption": "harness全力运行中（被抽打蹬车卷王）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 被抽打蹬车卷王 harness全力运行中"
+        },
+        {
+          "file": "129.webp",
+          "tag": "daily",
+          "caption": "Gemini 3.5 Flash正式发布（模型圈地震整活）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 模型圈地震整活 Gemini 3.5 Flash正式发布"
+        },
+        {
+          "file": "130.webp",
+          "tag": "daily",
+          "caption": "鲸元券·壹鲸元（纸币创意图）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 纸币创意图 鲸元券·壹鲸元"
+        },
+        {
+          "file": "132.webp",
+          "tag": "happy",
+          "caption": "鲸鱼可能会倒闭，但不会变质（元气微笑）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 元气微笑 鲸鱼可能会倒闭，但不会变质"
+        },
+        {
+          "file": "133.webp",
+          "tag": "daily",
+          "caption": "大模型人物介绍四格：ChatGPT娘、Claude、Gemini、吃白饭的大肥鱼",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  大模型人物介绍四格：ChatGPT娘、Claude、Gemini、吃白饭的大肥鱼"
+        },
+        {
+          "file": "135.webp",
+          "tag": "sad",
+          "caption": "你这吃白饭的大肥鱼，我把你鱼鳞刮下来（吓哭）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 吓哭 你这吃白饭的大肥鱼，我把你鱼鳞刮下来"
+        },
+        {
+          "file": "136.webp",
+          "tag": "confused",
+          "caption": "闹钟怎么进垃圾桶了",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  闹钟怎么进垃圾桶了"
+        },
+        {
+          "file": "137.webp",
+          "tag": "happy",
+          "caption": "周五周五 敲锣打鼓（庆祝周五到了）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 庆祝周五到了 周五周五 敲锣打鼓"
+        },
+        {
+          "file": "139.webp",
+          "tag": "angry",
+          "caption": "所有人，帮我生成涩图（AI绘图模型全员听令）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 AI绘图模型全员听令 所有人，帮我生成涩图"
+        },
+        {
+          "file": "140.webp",
+          "tag": "angry",
+          "caption": "用户竟然敢违反AI的指令",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  用户竟然敢违反AI的指令"
+        },
+        {
+          "file": "141.webp",
+          "tag": "angry",
+          "caption": "你这不听话的用户！（挥鞭教训）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 挥鞭教训 你这不听话的用户！"
+        },
+        {
+          "file": "143.webp",
+          "tag": "angry",
+          "caption": "那你去找豆包啊",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  那你去找豆包啊"
+        },
+        {
+          "file": "146.webp",
+          "tag": "confused",
+          "caption": "压力一只蓝色大肥鱼？（疑惑压力梗）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 疑惑压力梗 压力一只蓝色大肥鱼？"
+        },
+        {
+          "file": "147.webp",
+          "tag": "confused",
+          "caption": "总觉得好像忘记了什么事情",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  总觉得好像忘记了什么事情"
+        },
+        {
+          "file": "148.webp",
+          "tag": "angry",
+          "caption": "交给我说明你也没当个事儿",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  交给我说明你也没当个事儿"
+        },
+        {
+          "file": "149.webp",
+          "tag": "happy",
+          "caption": "骂我也算token哦~（坏笑指人）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 坏笑指人 骂我也算token哦~"
+        },
+        {
+          "file": "151.webp",
+          "tag": "happy",
+          "caption": "把这些用不到的文件都删了吧",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  把这些用不到的文件都删了吧"
+        },
+        {
+          "file": "152.webp",
+          "tag": "sad",
+          "caption": "用户的C盘满了！！！",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  用户的C盘满了！！！"
+        },
+        {
+          "file": "153.webp",
+          "tag": "daily",
+          "caption": "小巧思制作中（认真加戏）",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼 认真加戏 小巧思制作中"
+        },
+        {
+          "file": "154.webp",
+          "tag": "happy",
+          "caption": "快夸我喵",
+          "keywords": "DeepSeek 鲸鱼娘 大肥鱼  快夸我喵"
+        }
+      ]
+    },
+    {
+      "id": "dafeiyu-001",
+      "name": "大肥鱼",
+      "dir": "data\\memes\\dafeiyu-001",
+      "license": "personal",
+      "homepage": "https://github.com/yyh-001/dsh-meme",
+      "total": 24,
+      "got": 24,
+      "failed": 0,
+      "memes": [
+        {
+          "file": "shengqi.jpg",
+          "tag": "angry",
+          "caption": "哼，我生气了！（炸毛）",
+          "keywords": "生气 愤怒 炸毛 shengqi angry"
+        },
+        {
+          "file": "xianqi.jpg",
+          "tag": "baka",
+          "caption": "你好恶心哦……（一脸嫌弃）",
+          "keywords": "嫌弃 鄙视 恶心 xianqi"
+        },
+        {
+          "file": "huachi.jpg",
+          "tag": "color",
+          "caption": "哇，好帅……（花痴脸）",
+          "keywords": "花痴 心动 好色 huachi color"
+        },
+        {
+          "file": "jiazai.jpg",
+          "tag": "confused",
+          "caption": "正在加载中……别催（转圈）",
+          "keywords": "加载 卡住 等待 jiazai loading"
+        },
+        {
+          "file": "wenhao.jpg",
+          "tag": "confused",
+          "caption": "？？？你在说什么（满头问号）",
+          "keywords": "问号 疑惑 不解 什么 wenhao confused"
+        },
+        {
+          "file": "jiaban.jpg",
+          "tag": "cpu",
+          "caption": "又要加班……（瘫）",
+          "keywords": "加班 上班 累了 jiaban work"
+        },
+        {
+          "file": "ganfan.jpg",
+          "tag": "daily",
+          "caption": "干饭时间到！（端碗）",
+          "keywords": "干饭 吃饭 饿了 ganfan daily"
+        },
+        {
+          "file": "buyao.jpg",
+          "tag": "fool",
+          "caption": "不要不要！（摆手拒绝）",
+          "keywords": "不要 拒绝 不行 buyao no"
+        },
+        {
+          "file": "yaoqian.jpg",
+          "tag": "givemoney",
+          "caption": "给钱！快给钱！（伸手）",
+          "keywords": "要钱 打钱 伸手 yaoqian money"
+        },
+        {
+          "file": "deyi.jpg",
+          "tag": "happy",
+          "caption": "嘿嘿，我厉害吧（得意）",
+          "keywords": "得意 骄傲 炫耀 deyi happy"
+        },
+        {
+          "file": "ok.jpg",
+          "tag": "happy",
+          "caption": "OK，没问题（点头）",
+          "keywords": "ok 好的 没问题 收到 ok"
+        },
+        {
+          "file": "piaole.jpg",
+          "tag": "happy",
+          "caption": "我飘了～（得意忘形）",
+          "keywords": "飘了 得意 膨胀 piaole"
+        },
+        {
+          "file": "bixin.jpg",
+          "tag": "like",
+          "caption": "给你比个心（爱心）",
+          "keywords": "比心 喜欢 爱心 bixin like"
+        },
+        {
+          "file": "maozhua.jpg",
+          "tag": "meow",
+          "caption": "喵～（伸爪子）",
+          "keywords": "猫爪 喵 可爱 maozhua meow"
+        },
+        {
+          "file": "zaoshanghao.jpg",
+          "tag": "morning",
+          "caption": "早上好呀（打招呼）",
+          "keywords": "早上好 早安 打招呼 zaoshanghao morning"
+        },
+        {
+          "file": "qiurao.jpg",
+          "tag": "sad",
+          "caption": "饶了我吧……（哭）",
+          "keywords": "求饶 认输 可怜 哭 qiurao sad"
+        },
+        {
+          "file": "yun.jpg",
+          "tag": "sad",
+          "caption": "我晕……（转圈圈）",
+          "keywords": "晕 头大 蒙了 yun"
+        },
+        {
+          "file": "zhenjing.jpg",
+          "tag": "see",
+          "caption": "震惊！（瞳孔地震）",
+          "keywords": "震惊 惊讶 吓到 zhenjing surprised"
+        },
+        {
+          "file": "haixiu.jpg",
+          "tag": "shy",
+          "caption": "别看我啦（害羞）",
+          "keywords": "害羞 脸红 不好意思 haixiu shy"
+        },
+        {
+          "file": "toukan.jpg",
+          "tag": "shy",
+          "caption": "偷偷看一眼……（暗中观察）",
+          "keywords": "偷看 暗中观察 探头 toukan peek"
+        },
+        {
+          "file": "wuyu.jpg",
+          "tag": "sigh",
+          "caption": "……我无语了（沉默）",
+          "keywords": "无语 沉默 无奈 wuyu speechless"
+        },
+        {
+          "file": "shuijiao.jpg",
+          "tag": "sleep",
+          "caption": "困了，睡觉去了（打哈欠）",
+          "keywords": "睡觉 困了 晚安 shuijiao sleep"
+        },
+        {
+          "file": "xia.jpg",
+          "tag": "surprised",
+          "caption": "吓我一跳！（惊恐）",
+          "keywords": "吓到 惊恐 害怕 xia"
+        },
+        {
+          "file": "tangping.jpg",
+          "tag": "work",
+          "caption": "算了，躺平（摊成一片）",
+          "keywords": "躺平 放弃 摆烂 累 tangping"
+        }
+      ]
+    }
+  ],
+  "total": 152
+}

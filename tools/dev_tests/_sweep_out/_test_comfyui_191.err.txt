@@ -1,0 +1,41 @@
+[ComfyUI] 资源不足，已拒绝: 系统虚拟内存（提交量）不够，画不了。
+提交上限 33.00 GB，现在只剩 3.00 GB 可用。
+画一张图峰值要 ~14GB 提交（ComfyUI 要把权重经
+[ComfyUI] 资源不足，已拒绝: 显存不足。
+显卡 F：总 8.00 GB，空闲 1.00 GB；这次要常驻约 6.60 GB
+ComfyUI 能动用的显存只有 1.00 GB，连模型常驻需要的
+  [+] file_ops: 文件操作工具集。支持: 查看文件、读取原文、写入、编辑、搜索、列出目录、发送文件 [lazy]
+  [+] jmcomic: 禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜 [lazy]
+  [+] knowledge_graph: 知识图谱工具，用于存储和查询结构化知识。支持:
+- analyze_projec [lazy]
+  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [resident]
+  [+] meme: 发表情包。想在回复里表达情绪时调用**一次**：它会挑一张表情包并进入待发送状态 [lazy]
+  [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
+  [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
+  [+] shell_exec: 执行终端/shell命令并返回stdout和stderr。Windows用cmd [lazy]
+  [+] system_command: 执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日 [lazy]
+  [+] weather_query: 查询指定城市的天气。传入城市名称(中文)即可，只有国内城市。
+参数 days：不 [lazy]
+  [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]
+共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
+[ComfyUI] 工具空闲卸载 → 释放模型并关闭 ComfyUI（同加载同卸载）
+[ComfyUI] 任务已入队 draw-6-41882（第 1 位） 512x512 steps=8
+[ComfyUI] 工具被卸载，但后台还有画图任务 → 这次不关，等它画完
+[ComfyUI] 开始画 draw-6-41882
+[ComfyUI] 任务 draw-6-41882 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
+[ComfyUI] 当前没在跑 → 交给后台 worker 先启动它
+[ComfyUI] 任务已入队 draw-7-42586（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-7-42586
+[ComfyUI] 没在跑 → 后台启动中…
+[ComfyUI] 已就绪，共花 0 秒（含启动）
+[ComfyUI] 任务 draw-7-42586 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
+[ComfyUI] 已请求释放模型与显存
+[ComfyUI] 任务已入队 draw-8-42791（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-8-42791
+[ComfyUI] 任务 draw-8-42791 失败: ComfyUI 报错了：模拟 OOM
+[ComfyUI] 当前没在跑 → 交给后台 worker 先启动它
+[ComfyUI] 任务已入队 draw-9-42893（第 1 位） 512x512 steps=35
+[ComfyUI] 开始画 draw-9-42893
+[ComfyUI] 没在跑 → 后台启动中…
+[ComfyUI] 已就绪，共花 0 秒（含启动）
+[ComfyUI] 任务 draw-9-42893 失败: ComfyUI 报错了：模拟 OOM

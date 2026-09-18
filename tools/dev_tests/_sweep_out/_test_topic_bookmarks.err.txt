@@ -1,0 +1,7 @@
+QFontDatabase: Cannot find font directory C:/Users/farma/AppData/Local/Programs/Python/Python312/Lib/site-packages/PySide6/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+Traceback (most recent call last):
+  File "D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\tools\dev_tests\_test_topic_bookmarks.py", line 73, in <module>
+    mw_mod.MainWindow._refresh_topic_list(stub)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'MainWindow' has no attribute '_refresh_topic_list'

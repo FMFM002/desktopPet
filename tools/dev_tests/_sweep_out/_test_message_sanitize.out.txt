@@ -1,0 +1,16 @@
+== 1. 带 tool_calls 的 assistant 缺 reasoning_content ==
+  [PASS] 保留了工具链  len=4
+  [PASS] 自动补齐 reasoning_content   
+== 2. 残缺链（有 tool_calls 无 tool 结果）应被丢弃 ==
+  [PASS] 丢弃了残缺的 tool_calls 消息  [{'role': 'user', 'content': 'x'}, {'role': 'assistant', 'content': '后面直接说话了'}]
+  [PASS] 其余消息保留  len=2
+== 3. 孤儿 tool 结果应被丢弃 ==
+  [PASS] 孤儿 tool 被丢弃  [{'role': 'user', 'content': 'x'}, {'role': 'assistant', 'content': 'ok'}]
+== 4. 已经带 reasoning_content 的不被改动 ==
+  [PASS] 原 reasoning_content 未被覆盖
+== 5. 普通对话不受影响 ==
+  [PASS] 普通消息原样返回
+== 6. 不修改调用方原始列表 ==
+  [PASS] 原始 message 未被写脏  {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'c1', 'type': 'function', 'function': {'name': 'f', 'arguments': '{}'}}]}
+
+结果: ALL PASS

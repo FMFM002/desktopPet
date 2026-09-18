@@ -1,0 +1,47 @@
+== 1. 配置项就位 ==
+  PASS  bulk_threshold 默认 500   500
+  PASS  bulk_batch_size 默认 500   500
+  PASS  bulk_max_tokens 默认 4000   4000
+  PASS  count_uncleaned 已接入主循环
+  PASS  心跳里显示真实积压 + 单批大小
+  PASS  大力清洗有独立日志
+
+== 2. 积压 > 500 → 单批 500（大力清洗）==
+  积压 1058 → 进程内 process_batch 收到的 batch_size = [500, 500]
+  PASS  确实走了大力清洗（batch_size=500）   [500, 500]
+  PASS  不是默认的 100   [500, 500]
+
+== 3. 积压 100~500 → 仍是常规单批 100 ==
+  积压 300 → batch_size = [100, 100]
+  PASS  常规模式仍用 100   [100, 100]
+
+== 4. 积压 < 100 且无其他触发 → 不动 ==
+  PASS  积压 55 条时不触发   []
+
+== 5. 保底推进：id 跨度大时不许丢行（老逻辑会卡死）==
+  PASS  limit=500、id 跨度 5000 时仍返回 500 条   返回 500 条（老逻辑会大量丢弃 → 永久卡住）
+  PASS  limit=100 时返回 100 条   100 条
+
+== 6. 窗口随 limit 缩放 ==
+  PASS  id_window = max(100, limit)
+  PASS  time_window 随 limit 放大
+
+== 7. _process_batch 把 batch_size 传给取数 ==
+  PASS  _fetch_uncleaned(limit=batch_size)
+  PASS  批次日志写明单批条数
+
+== 8. max_tokens 跟着输入放大（避免 JSON 被截断）==
+  PASS  _llm_summarize_with_retry 接受 max_tokens 参数
+  PASS  调用处按输入条数计算上限
+  PASS  不再硬编码 max_tokens=2000
+
+== 9. 顺序不变：机械清洗 → 重复合并 → LLM ==
+  PASS  机械清洗 < 重复合并 < LLM   1001 < 1395 < 2182
+
+== 10. 真实库上跑一遍取数（只读）==
+  真实积压 = 23 条
+  _fetch_uncleaned(limit=100) -> 23 条
+  _fetch_uncleaned(limit=500) -> 23 条
+  PASS  真实库取数不丢行（返回 = min(积压, limit)）   积压 23
+
+==== 结果: 21 PASS / 0 FAIL ====

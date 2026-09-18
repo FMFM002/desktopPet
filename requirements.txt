@@ -1,0 +1,70 @@
+# 核心依赖
+PySide6>=6.5.0
+openai>=1.0.0
+httpx>=0.25.0
+python-dotenv>=1.0.0
+
+# 数据库
+pymysql>=1.1.0
+sqlalchemy>=2.0.0
+
+# 监控
+Pillow>=10.0.0
+pynput>=1.7.0
+mss>=9.0.0
+pyaudio>=0.2.11
+pygetwindow>=0.0.9
+psutil>=5.9.0
+
+# 图像处理
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# 系统托盘
+pystray>=0.19.0
+
+# 工具
+requests>=2.31.0
+aiohttp>=3.9.0
+openpyxl>=3.1.0
+
+# ====== TTS 语音合成 ======
+# GENIE TTS (GPT-SoVITS ONNX) — 默认引擎
+onnx>=1.16.0
+onnxruntime==1.22.1
+tokenizers>=0.20.0
+soundfile>=0.12.0
+sounddevice>=0.5.0
+soxr>=0.4.0
+pyyaml>=6.0
+pydantic>=2.0.0
+# 中文 G2P (feibi 角色必需)
+pypinyin>=0.50.0
+g2pM>=0.1.0
+jieba>=0.42.0
+
+# Edge-TTS — 后备方案
+edge-tts>=6.1.0
+pygame>=2.5.0
+
+# 本地 OCR（可选，通过设置界面一键安装）
+# pip install pytesseract     # Tesseract OCR Python 封装（需先装系统 Tesseract）
+# pip install easyocr         # EasyOCR 深度学习 OCR（中文友好，首次自动下载模型）
+
+# ====== 增强输入监控（可选） ======
+# pip install pyperclip       # 剪贴板访问
+# pip install pywin32         # Windows API (win32gui/win32process)
+# pip install uiautomation    # Windows UI Automation（浏览器URL检测）
+
+# ====== STT 语音转文字（可选，选一） ======
+# pip install faster-whisper  # 推荐：本地高性能 Whisper
+# pip install openai-whisper  # OpenAI Whisper 原版
+
+# ====== 文档读取（可选） ======
+# pip install PyMuPDF         # PDF 读取
+# pip install python-docx     # Word 文档读取
+# pip install python-pptx     # PowerPoint 读取
+
+# ====== 外部工具（可选） ======
+# pip install yt-dlp          # B站视频下载
+# pip install jmcomic         # JMComic 爬虫
