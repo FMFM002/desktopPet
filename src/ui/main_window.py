@@ -2489,6 +2489,23 @@ class MainWindow:
         t1.join(timeout=5)
         t2.join(timeout=5)
 
+        # ★★ 1.9.2（用户 01:0x 报"JM下载出问题了"）：
+        #   等他一下 —— 真机日志显示，用户关掉桌宠时 JM 还在下：
+        #       [00:56:57] [Database] INFO: 数据库已关闭        ← 应用正在退出
+        #       [00:56:57] [jmcomic] ERROR: 图片下载失败 ...
+        #                  RuntimeError: cannot schedule new futures after shutdown
+        #   21 张里下完 4 张，剩下 17 张因为**进程退出、线程池被关闭**而失败。
+        #   这不是 JM 的 bug，是"关得太早"。这里给在飞的下载留一点时间
+        #   （有上限，绝不会卡住退出）。
+        try:
+            from tools.jmcomic_tool import wait_for_downloads as _wait_jm
+            _w = _wait_jm(timeout=25.0)
+            if _w.get("waited"):
+                _log.info(f"[退出] 等了 JM 下载 {_w['waited']:.1f}s"
+                          f"（剩 {_w.get('remaining', 0)} 个未完成）")
+        except Exception as e:
+            _log.debug(f"[退出] 等 JM 下载失败（忽略）: {e}")
+
         # ★ 1.8.5: 关数据库必须排在「监控真的停下来」之后。
         #   以前 db.close() 在 _stop_lightweight 里和停监控并行跑，
         #   db 先关掉、剪贴板/窗口事件还在往 raw_events 写 →

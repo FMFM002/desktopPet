@@ -37,7 +37,7 @@
   [PASS] 播完后退出等待
   [PASS] 播完后切到待机 GIF  ('gif', '吃爆米花悠闲.gif', False)
   [PASS] 待机轮播已排程
-  [PASS] idle tick 切了一张待机 GIF（范围内随机挑）  ('gif', '正在使用记事本.gif', False)
+  [PASS] idle tick 切了一张待机 GIF（范围内随机挑）  ('gif', '盖被子睡着了.gif', False)
   [PASS] idle tick 排了下一个定时器
   [PASS] 重复完成事件被忽略
 

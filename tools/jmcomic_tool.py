@@ -592,6 +592,39 @@ def _progress() -> dict:
 
 # ==================== 入口 ====================
 
+def wait_for_downloads(timeout: float = 25.0) -> dict:
+    """★ 1.9.2：等"在飞的 JM 下载"结束（退出流程用，有上限）。
+
+    为什么需要（真机日志）：
+        用户关掉桌宠时 JM 还在下 21 张图 —— 已下完 4 张，剩下 17 张报
+        `RuntimeError: cannot schedule new futures after shutdown`
+        （进程退出 → 解释器关线程池 → 新任务全被拒）。
+    这不是 JM 的 bug，是"关得太早"。退出前给一点时间，能把整本下完；
+    但**必须有上限** —— 绝不能让"关不掉"变成新问题。
+
+    返回 {"waited": 实际等待秒数, "remaining": 还没完成的个数}
+    """
+    import time as _t
+    t0 = _t.time()
+    remaining = 0
+    # 终态：这些状态说明这个任务已经结束，不用再等
+    _DONE = {"done", "finished", "failed", "merged", "success", "cancelled"}
+    try:
+        while _t.time() - t0 < max(0.0, timeout):
+            with _download_lock:
+                items = list(_download_tasks.values())
+            running = [d for d in items
+                       if isinstance(d, dict)
+                       and str(d.get("status") or "").lower() not in _DONE]
+            remaining = len(running)
+            if not running:
+                break
+            _t.sleep(0.25)
+    except Exception as e:
+        _log.debug(f"[JM] 等待下载结束出错（忽略）: {e}")
+    return {"waited": round(_t.time() - t0, 1), "remaining": remaining}
+
+
 def execute(action: str = "search", keyword: str = "", album_id: str = "",
             page: int = 1, limit: int = 10, **kwargs) -> str:
     _log.info("JMComic工具: %s", action)
