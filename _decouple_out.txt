@@ -1,0 +1,332 @@
+﻿python.exe : <unknown>:444: SyntaxWarning: invalid escape sequence '\A'
+At line:1 char:160
++ ... NG="utf-8"; & "C:\Users\farma\AppData\Local\Programs\Python\Python312 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (<unknown>:444: ...e sequence '\A':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+<unknown>:444: SyntaxWarning: invalid escape sequence '\A'
+======================================================================
+### 1A. TOP 20 BY LINES (all)
+======================================================================
+  3000  tools/dev_tests/_test_a190.py   classes=32
+  2721  src/ui/settings_window.py   classes=3
+  2534  src/ui/main_window.py   classes=3
+  2096  src/ui/chat_widget.py   classes=2
+  1466  src/core/session.py   classes=2
+  1268  tools/knowledge_graph.py   classes=0
+  1064  src/core/database.py   classes=4
+  1056  src/ui/direct_dispatch_window.py   classes=3
+   983  tools/_vendor/pixivpy3/aapi.py   classes=1
+   836  src/core/pet_manager.py   classes=2
+   832  tools/bilibili_tool.py   classes=0
+   774  src/core/llm_client.py   classes=4
+   715  src/core/comfyui_client.py   classes=0
+   710  src/ui/pet_animation.py   classes=1
+   668  src/core/tts_engine.py   classes=1
+   659  tools/file_ops.py   classes=0
+   655  src/ui/win_window.py   classes=0
+   651  tools/download_tool.py   classes=1
+   640  tools/endfield_tool.py   classes=0
+   603  src/core/data_pipeline.py   classes=1
+
+======================================================================
+### 1B. TOP 15 BY LINES (exclude tools/dev_tests)
+======================================================================
+  2721  src/ui/settings_window.py
+  2534  src/ui/main_window.py
+  2096  src/ui/chat_widget.py
+  1466  src/core/session.py
+  1268  tools/knowledge_graph.py
+  1064  src/core/database.py
+  1056  src/ui/direct_dispatch_window.py
+   983  tools/_vendor/pixivpy3/aapi.py
+   836  src/core/pet_manager.py
+   832  tools/bilibili_tool.py
+   774  src/core/llm_client.py
+   715  src/core/comfyui_client.py
+   710  src/ui/pet_animation.py
+   668  src/core/tts_engine.py
+   659  tools/file_ops.py
+
+======================================================================
+### 1C. FILES WITH >1 CLASS
+======================================================================
+ 30  tools/_vendor/pixivpy3/models.py  -> ['BasePixivpyModel', 'EmptyObject', 'ProfileImageUrls', 'UserInfo', 'CommentUser', 'Profile', 'ProfilePublicity', 'Workspace', 'UserInfoDetailed', 'ImageUrls', 'NovelTag', 'IllustrationTag', 'Series', 'NovelInfo', 'Comment', 'NovelComments', 'NovelNavigationInfo', 'NovelRating', 'WebviewNovel', 'UserBookmarksNovel', 'UserNovels', 'SearchNovel', 'MetaSinglePage', 'MetaPage', 'IllustrationInfo', 'SearchIllustrations', 'UserBookmarksIllustrations', 'UserPreview', 'UserFollowing', 'UserIllustrations']
+ 14  src/utils/config.py  -> ['LLMConfig', 'VisionConfig', 'PetConfig', 'MonitorConfig', 'TTSConfig', 'IdleConfig', 'STTConfig', 'UserProfileConfig', 'UIConfig', 'ToolDownloadConfig', 'PipelineConfig', 'LTMSummarizerConfig', 'DatabaseConfig', 'AppConfig']
+  6  src/core/monitor.py  -> ['BaseMonitor', 'ScreenMonitor', 'KeyboardMonitor', 'AudioMonitor', 'SystemMonitor', 'UnifiedMonitor']
+  5  src/core/input_monitor.py  -> ['PIIFilter', 'ClipboardMonitor', 'WindowMetadataMonitor', 'ProcessMetadataMonitor', 'UnifiedInputMonitor']
+  4  src/core/database.py  -> ['RawMonitorDB', 'ChatRecordsDB', 'LongTermMemoriesDB', 'Database']
+  4  src/core/llm_client.py  -> ['LLMClient', 'VisionClient', 'SummarizerClient', 'ChatClient']
+  4  src/genie_tts/Server.py  -> ['CharacterPayload', 'UnloadCharacterPayload', 'ReferenceAudioPayload', 'TTSPayload']
+  3  src/core/stt_engine.py  -> ['MicrophoneCapture', 'EnergyVAD', 'STTEngine']
+  3  src/core/tool_manager.py  -> ['ToolLoadPolicy', 'ToolInfo', 'ToolManager']
+  3  src/core/user_profile.py  -> ['UserProfile', 'LongTermMemory', 'ProfileExtractor']
+  3  src/genie_tts/ModelManager.py  -> ['GSVModelFile', 'GSVModel', 'ModelManager']
+  3  src/ui/direct_dispatch_window.py  -> ['_FieldSpec', '_FieldEditor', 'DirectDispatchWindow']
+  3  src/ui/main_window.py  -> ['_ImageSignalRelay', '_TaskSignalRelay', 'MainWindow']
+  3  src/ui/settings_window.py  -> ['_CharacterCard', '_WheelGuard', 'SettingsWindow']
+  2  src/core/pet_manager.py  -> ['CharacterInfo', 'PetManager']
+  2  src/core/session.py  -> ['SessionMessage', 'ChatSession']
+  2  src/ui/chat_widget.py  -> ['_RoundedBubbleBrowser', 'ChatWidget']
+  2  tools/_vendor/pixivpy3/utils.py  -> ['PixivError', 'JsonDict']
+
+======================================================================
+### 1D. TOTALS
+======================================================================
+files=166 total_lines=49919 non_devtests_lines=39699
+
+======================================================================
+### 2A. CYCLES (SCC size>1)
+======================================================================
+
+[SCC size=5]
+   src.core.llm_client
+      -> src.core.session
+   src.core.session
+      -> src.core.llm_client
+      -> src.core.tool_manager
+   src.core.tool_manager
+      -> tools.long_term_memory_tool
+   tools.long_term_memory_tool
+      -> src.core.llm_client
+      -> tools.ltm_summarizer
+   tools.ltm_summarizer
+      -> tools.long_term_memory_tool
+
+[SCC size=3]
+   tools._vendor.pixivpy3
+      -> tools._vendor.pixivpy3.aapi
+      -> tools._vendor.pixivpy3.bapi
+   tools._vendor.pixivpy3.aapi
+      -> tools._vendor.pixivpy3
+   tools._vendor.pixivpy3.bapi
+      -> tools._vendor.pixivpy3.aapi
+
+--- minimal cycles within each SCC (length<=6) ---
+  src.core.llm_client  ->  src.core.session  ->  src.core.llm_client
+  tools.long_term_memory_tool  ->  tools.ltm_summarizer  ->  tools.long_term_memory_tool
+  tools._vendor.pixivpy3  ->  tools._vendor.pixivpy3.aapi  ->  tools._vendor.pixivpy3
+  tools._vendor.pixivpy3  ->  tools._vendor.pixivpy3.bapi  ->  tools._vendor.pixivpy3.aapi  ->  tools._vendor.pixivpy3
+  src.core.llm_client  ->  src.core.session  ->  src.core.tool_manager  ->  tools.long_term_memory_tool  ->  src.core.llm_client
+
+======================================================================
+### 2B. LAYER VIOLATIONS (by file:line)
+======================================================================
+
+--- src/ui -> tools ---
+src/ui/main_window.py:284: from tools.long_term_memory_tool import get_long_term_memory_tool
+src/ui/main_window.py:403: from tools.jmcomic_tool import set_file_ready_callback
+src/ui/main_window.py:420: from tools.pixiv_tool import set_file_ready_callback as _pv_set_cb
+src/ui/main_window.py:434: from tools import comfyui_tool as _cg
+src/ui/main_window.py:458: from tools import endfield_tool as _ef
+src/ui/main_window.py:1481: from tools.file_view import describe_image, effective_vision_mode
+src/ui/main_window.py:1718: from tools.file_view import view_file, effective_vision_mode
+src/ui/main_window.py:2264: from tools.file_view import view_file
+
+--- tools -> src/ui ---
+tools/dev_tests/_diag_gif_frames.py:12: from src.ui.pet_animation import PetAnimationWidget
+tools/dev_tests/_test_a190.py:127: from src.ui.chat_widget import (ChatWidget, _RoundedBubbleBrowser,  # noqa: E402
+tools/dev_tests/_test_a190.py:302: from src.ui.settings_window import SettingsWindow as _SW2  # noqa: E402
+tools/dev_tests/_test_a190.py:340: from src.ui.main_window import MainWindow  # noqa: E402
+tools/dev_tests/_test_a190.py:547: from src.ui.pet_animation import PetAnimationWidget as _PAW  # noqa: E402
+tools/dev_tests/_test_a190.py:716: from src.ui.settings_window import _portable_avatar_path, _abs_avatar_path  # noqa: E402
+tools/dev_tests/_test_a190.py:898: from src.ui.settings_window import SettingsWindow  # noqa: E402
+tools/dev_tests/_test_a190.py:1095: from src.ui.settings_window import CATEGORIES as _CATS  # noqa: E402
+tools/dev_tests/_test_a190.py:2360: from src.ui.settings_window import CATEGORIES as _CATS  # noqa: E402
+tools/dev_tests/_test_a190.py:2436: from src.ui.chat_widget import ChatWidget as _CWtok  # noqa: E402
+tools/dev_tests/_test_a190.py:2492: from src.ui.settings_window import SettingsWindow as _SW3            # noqa: E402
+tools/dev_tests/_test_attach_persist_184.py:34: from src.ui.chat_widget import ChatWidget  # noqa: E402
+tools/dev_tests/_test_attach_persist_184.py:103: from src.ui.settings_window import SettingsWindow  # noqa: E402
+tools/dev_tests/_test_audit_fixes_1810.py:188: from src.ui.main_window import MainWindow
+tools/dev_tests/_test_audit_fixes_1810.py:192: from src.ui.main_window import MainWindow  # noqa: E402
+tools/dev_tests/_test_audit_fixes_1810.py:214: from src.ui.settings_window import SettingsWindow  # noqa: E402
+tools/dev_tests/_test_bg_thread_ui_182.py:65: from src.ui.main_window import _TaskSignalRelay  # noqa: E402
+tools/dev_tests/_test_bg_thread_ui_182.py:147: from src.ui.chat_widget import ChatWidget  # noqa: E402
+tools/dev_tests/_test_bg_thread_ui_182.py:148: from src.ui.main_window import MainWindow  # noqa: E402
+tools/dev_tests/_test_file_card_182.py:25: from src.ui.chat_widget import ChatWidget  # noqa: E402
+tools/dev_tests/_test_pet_proxy.py:11: import src.ui.pet_proxy as pp
+tools/dev_tests/_test_pet_window_heal_191.py:51: from src.ui import win_window as ww            # noqa: E402
+tools/dev_tests/_test_pet_window_heal_191.py:52: from src.ui.pet_animation import PetAnimationWidget  # noqa: E402
+tools/dev_tests/_test_phase5_startup_185.py:50: from src.ui.main_window import MainWindow, _TaskSignalRelay  # noqa: E402
+tools/dev_tests/_test_phase5_startup_185.py:51: from src.ui.chat_widget import ChatWidget  # noqa: E402
+tools/dev_tests/_test_settings_persist_182.py:110: from src.ui.settings_window import SettingsWindow  # noqa: E402
+tools/dev_tests/_test_startup_chain.py:11: import src.ui.pet_proxy as pp
+tools/dev_tests/_test_think_panel_192.py:58: from src.ui.think_panel import ThinkPanel, MAX_LINES, HEADER_H    # noqa: E402
+tools/dev_tests/_test_think_panel_192.py:221: from src.ui.chat_widget import ChatWidget                          # noqa: E402
+tools/dev_tests/_test_tools_layout.py:21: from src.ui.settings_window import SettingsWindow
+tools/dev_tests/_test_topic_buttons_191.py:80: from src.ui.chat_widget import ChatWidget  # noqa: E402
+tools/dev_tests/_test_topic_buttons_191.py:81: from src.ui import main_window as mw_mod  # noqa: E402
+tools/dev_tests/_test_ui_160.py:34: from src.ui.chat_widget import ChatWidget
+tools/dev_tests/_test_window_size_184.py:49: from src.ui.chat_widget import ChatWidget  # noqa: E402
+tools/dev_tests/_test_window_size_184.py:50: from src.ui.main_window import MainWindow  # noqa: E402
+
+--- src/core -> tools or ui ---
+src/core/data_pipeline.py:298: from tools.long_term_memory_tool import get_long_term_memory_tool
+src/core/meme_bus.py:11: 工具把待发送塞进模块 A，主窗口 `import tools.meme_tool` 拿到的是模块 B，
+src/core/tool_manager.py:265: from tools.long_term_memory_tool import get_long_term_memory_tool
+
+--- src/utils -> tools ---
+(none)
+
+======================================================================
+### 2C. FAN-IN TOP 20
+======================================================================
+  28  src.utils.config
+  22  src.core.database
+  11  src.core
+  10  src.ui.chat_widget
+   8  src.core.llm_client
+   8  tools.long_term_memory_tool
+   8  tools
+   7  src.core.pet_manager
+   7  src.core.tool_manager
+   7  src.genie_tts.Core.Resources
+   7  src.core.data_pipeline
+   6  src.core.session
+   6  src.ui.settings_window
+   5  src.core.prompts
+   5  src.genie_tts.ModelManager
+   5  src.ui.pet_animation
+   5  src.ui.main_window
+   4  src.genie_tts.Utils.Constants
+   4  src.genie_tts.Converter.load_state_dict
+   4  src.genie_tts.Audio.ReferenceAudio
+
+### 2D. fan-in per module, with importers (top10)
+
+src.utils.config  (28)
+    src.core.data_pipeline
+    src.core.idle_talker
+    src.core.llm_client
+    src.core.meme_library
+    src.core.monitor
+    src.core.pet_manager
+    src.core.session
+    src.core.stt_engine
+    src.core.tool_manager
+    src.core.tts_engine
+    src.core.whisper_local
+    src.ui.main_window
+    src.ui.settings_window
+    tools.bilibili_tool
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_attach_persist_184
+    tools.dev_tests._test_audit_fixes_1810
+    tools.dev_tests._test_bulk_clean_189
+    tools.dev_tests._test_phase5_startup_185
+    tools.dev_tests._test_settings_persist_182
+    tools.dev_tests._test_tts_memory
+    tools.dev_tests._test_window_size_184
+    tools.file_view
+    tools.jmcomic_tool
+    tools.ltm_summarizer
+    tools.meme_tool
+    tools.pixiv_tool
+    tools.run_ltm_summarize
+
+src.core.database  (22)
+    src.core.app_launcher
+    src.core.data_pipeline
+    src.core.monitor
+    src.core.session
+    src.core.user_profile
+    src.ui.main_window
+    tools.dev_tests._diag_pipeline_layers
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_app_launch_192
+    tools.dev_tests._test_bulk_clean_189
+    tools.dev_tests._test_dataflow_170
+    tools.dev_tests._test_ltm_summarizer_173
+    tools.dev_tests._test_message_sanitize
+    tools.dev_tests._test_multimodal
+    tools.dev_tests._test_pipeline_clean_188
+    tools.dev_tests._test_pipeline_shutdown_186
+    tools.dev_tests._test_pipeline_trigger_187
+    tools.dev_tests._test_topic_buttons_191
+    tools.dev_tests._test_ui_160
+    tools.long_term_memory_tool
+    tools.ltm_summarizer
+    tools.run_ltm_summarize
+
+src.core  (11)
+    src.core.comfyui_jobs
+    src.core.pet_manager
+    src.ui.main_window
+    src.ui.settings_window
+    tools.comfyui_tool
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_app_launch_192
+    tools.dev_tests._test_comfyui_191
+    tools.dev_tests._test_meme_desc_192
+    tools.meme_tool
+    tools.migrate_character_settings
+
+src.ui.chat_widget  (10)
+    src.ui.main_window
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_attach_persist_184
+    tools.dev_tests._test_bg_thread_ui_182
+    tools.dev_tests._test_file_card_182
+    tools.dev_tests._test_phase5_startup_185
+    tools.dev_tests._test_think_panel_192
+    tools.dev_tests._test_topic_buttons_191
+    tools.dev_tests._test_ui_160
+    tools.dev_tests._test_window_size_184
+
+src.core.llm_client  (8)
+    src.core.data_pipeline
+    src.core.idle_talker
+    src.core.session
+    src.core.user_profile
+    src.ui.main_window
+    tools.dev_tests._test_a190
+    tools.file_view
+    tools.long_term_memory_tool
+
+tools.long_term_memory_tool  (8)
+    src.core.data_pipeline
+    src.core.tool_manager
+    src.ui.main_window
+    tools.dev_tests._test_dataflow_170
+    tools.dev_tests._test_ltm_171
+    tools.dev_tests._test_ltm_171_live
+    tools.dev_tests._test_ltm_reasoning
+    tools.ltm_summarizer
+
+tools  (8)
+    src.ui.main_window
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_audit_fixes_1810
+    tools.dev_tests._test_download_192
+    tools.dev_tests._test_endfield
+    tools.endfield_tool
+    tools.jmcomic_tool
+    tools.pixiv_tool
+
+src.core.pet_manager  (7)
+    src.core.idle_talker
+    src.core.llm_client
+    src.ui.main_window
+    src.ui.settings_window
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_attach_persist_184
+    tools.dev_tests._test_ui_160
+
+src.core.tool_manager  (7)
+    src.core.session
+    src.ui.direct_dispatch_window
+    src.ui.main_window
+    src.ui.settings_window
+    tools.dev_tests._test_a190
+    tools.dev_tests._test_comfyui_191
+    tools.dev_tests._test_plugins
+
+src.genie_tts.Core.Resources  (7)
+    src.genie_tts
+    src.genie_tts.G2P.Chinese.ChineseG2P
+    src.genie_tts.G2P.Chinese.CorrectPronunciation
+    src.genie_tts.G2P.English.EnglishG2P
+    src.genie_tts.G2P.English.WordSegment
+    src.genie_tts.Internal
+    src.genie_tts.ModelManager

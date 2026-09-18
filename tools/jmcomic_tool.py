@@ -90,9 +90,22 @@ TOOL_PARAMETERS = {
 # 下载目录（懒加载）
 _download_dir: Optional[Path] = None
 
-# 下载进度追踪
-_download_tasks: dict[str, dict] = {}
-_download_lock = threading.Lock()
+# ★ 1.9.2（解耦调研的产物，与终末地 D1 同一类问题）：
+#   本工具是 LAZY 策略，空闲 30 秒被 ToolManager 卸载 → 模块级变量全部重建。
+#   而"下载中"是**长流程**：卸载后
+#     · `_download_tasks` 变成空的新 dict → 进度查询/去重失效；
+#     · `_download_lock` 变成另一把锁 → 临界区形同虚设。
+#   所以任务表与锁都放进 tools 包级会话（包只导入一次，不随工具重载重建）。
+#   详见 tools/__init__.py 里 get_session 与 LOGIN_SESSIONS 的说明。
+try:
+    from tools import get_session as _get_session
+    _SESSION = _get_session("jmcomic")
+except Exception:                                   # 兜底：退回模块级
+    _SESSION = {"state": {}, "lock": threading.Lock()}
+
+# 下载进度追踪（★ 包级单例，卸载重载后仍是同一份）
+_download_tasks: dict[str, dict] = _SESSION.setdefault("tasks", {})
+_download_lock = _SESSION["lock"]
 
 # jmcomic 库（懒加载）
 _jm = None

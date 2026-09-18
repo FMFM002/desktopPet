@@ -33,9 +33,44 @@ ENDFIELD_API_BASE = os.getenv("ENDFIELD_API_BASEURL", "https://end-api.shallow.i
 TOKEN_FILE = BASE_DIR / "data" / "桌宠私有data" / "endfield_login.json"
 
 _UA = "PRTS-Desktop-Pet/1.6.0"
-# 扫码登录的轮询状态（进程内单例）
-_login_state: dict = {}
-_login_lock = threading.Lock()
+
+
+# ★ 1.9.2（解耦调研的产物，对应遗留项 D1）：扫码登录状态**不能放模块级**。
+#
+# 原因：本工具是 LAZY 策略，空闲 30 秒就被 ToolManager 卸载
+# （src/core/tool_manager.py 的 IDLE_UNLOAD_TIMEOUT），卸载时会把
+# `_prts_tool_endfield` 从 sys.modules 里删掉；下次调用重新 import 出**一份
+# 全新的模块**，于是模块级的 `_login_state = {}` 也变成一个新的空 dict。
+#
+# 而扫码登录会开后台轮询线程（下面 _poll_login，deadline 长达几分钟），
+# 用户慢慢扫码很容易超过 30 秒 —— 那时：
+#     · 轮询线程还在往【旧 dict】写结果；
+#     · 新的 `action=login` / `action=status` 读到的是【空的新 dict】；
+#   → "明明扫了码，却还说我未登录"，正是你报的"登录状态机不稳定"。
+#
+# 机械复现（旧写法）：
+#     加载后 _login_state id=2144863097088 {'running': True, ...}
+#     卸载 → 重载后 id=2144863095680 {}      ← 换了对象，状态全丢
+#
+# 修法：状态与锁都放进 **tools 包级登记表**（包只被导入一次，不随工具重载重建），
+# 和已有的 LOGIN_CALLBACKS 是同一个套路。下面两行拿到的是稳定对象，
+# 全文其它地方照旧写 `_login_state[...]` / `with _login_lock:`，不用改。
+def _session() -> dict:
+    """取（或首次创建）本工具的包级长流程会话：{"state": {...}, "lock": Lock}"""
+    try:
+        from tools import get_session
+        return get_session("endfield")
+    except Exception:
+        # 极端情况下拿不到包登记表 → 退回模块级（至少不比旧行为差）
+        globals().setdefault("_fallback_session",
+                             {"state": {}, "lock": threading.Lock()})
+        return _fallback_session
+
+
+_SESSION = _session()
+# 扫码登录的轮询状态（★ 包级单例，卸载重载后仍是同一份）
+_login_state: dict = _SESSION["state"]
+_login_lock = _SESSION["lock"]
 # 登录成功后回调（由 MainWindow 注册，用于把结果发到聊天窗口）
 _on_login_done = None
 

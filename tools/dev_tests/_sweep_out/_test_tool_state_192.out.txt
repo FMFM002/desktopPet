@@ -1,0 +1,47 @@
+
+== A. 包级会话登记表本身 ==
+  [PASS] ★tools 包有 LOGIN_SESSIONS 登记表
+  [PASS] ★tools 包有 LOGIN_SESSIONS_LOCK
+  [PASS] ★tools 包导出 get_session()
+  [PASS] ★1.8.10 的回调登记表还在（没被改动破坏）
+  [PASS] ★同一个名字永远拿到同一份会话
+  [PASS] ★会话里有 state 和 lock
+  [PASS] ★不同名字拿到不同会话
+
+== B. 两个工具都还是 LAZY（否则本问题不成立，测试也就没意义） ==
+  [PASS] ★空闲卸载超时确实是 30 秒
+  [PASS] ★endfield 扫到了且策略=lazy
+  [PASS] ★jmcomic 扫到了且策略=lazy
+
+== C. ★终末地：登录状态跨卸载保活（D1 的根因修复） ==
+  [PASS] ★★卸载重载后 _login_state 还是同一个 dict
+  [PASS] ★★卸载重载后登录状态没丢（D1 根因已修）
+  [PASS] ★连续两次卸载重载仍然同一对象（不是偶然）
+  [PASS] ★★登录锁跨卸载也是同一把（否则临界区失效）
+  [PASS] ★endfield 里 _login_state 指向包级会话的 state
+  [PASS] ★endfield 里 _login_lock 指向包级会话的 lock
+
+== D. ★jmcomic：下载任务表与锁跨卸载保活（同类问题） ==
+  [PASS] ★★卸载重载后 _download_tasks 还是同一个 dict
+  [PASS] ★★卸载重载后下载任务记录没丢
+  [PASS] ★★下载锁跨卸载也是同一把
+
+== E. 不变量：tools 包本身不会被 ToolManager 卸载 ==
+  [PASS] ★卸载工具后 tools 包仍在 sys.modules 里
+  [PASS] ★包级登记表内容仍在（卸载工具不影响它）
+  [PASS] ★卸载只会删掉 _prts_tool_<name> 私有模块
+
+== F. 同类隐患清单（调研结论：还有哪些 LAZY 工具持有未保护的模块级状态） ==
+  [PASS] ★endfield_tool 用了包级 get_session（不再裸放模块级可变状态）
+  [PASS] ★endfield_tool._login_lock 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★endfield_tool._login_state 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★jmcomic_tool 用了包级 get_session（不再裸放模块级可变状态）
+  [PASS] ★jmcomic_tool._download_tasks 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★jmcomic_tool._download_lock 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★tools/__init__.py 的注释里留了复现记录（id 对照）
+  [PASS] ★tools/__init__.py 注释里点名了遗留项 D1
+  [PASS] ★endfield 注释里也留了复现记录与原因
+
+============================================================
+★ 1.9.2 任务9 LAZY 工具长流程状态保活：31 PASS / 0 FAIL
+============================================================

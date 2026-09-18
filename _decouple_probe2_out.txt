@@ -1,0 +1,11 @@
+﻿1) LAZY 扫描结果: name=jmcomic policy=lazy  _module=None  _func=None
+   → 扫描时 exec_module 已完整执行该模块，但对象被丢弃（_module=None）
+2) RESIDENT 扫描结果: _module=_scan_long_term_memory_tool (被保留下来当执行路径用)
+
+3) 卸载前 sys.modules 中含 jmcomic 的 key: []
+4) UI 直接 import 后                    : ['tools.jmcomic_tool']
+5) ToolManager._load_module() 后        : ['_prts_tool_jmcomic', 'tools.jmcomic_tool']
+   _prts_tool_jmcomic is tools.jmcomic_tool ? False
+6) ToolInfo._unload_module() 后         : ['tools.jmcomic_tool']
+   'tools.jmcomic_tool' 还在 sys.modules 吗 ? True
+   '_prts_tool_jmcomic' 还在 sys.modules 吗 ? False

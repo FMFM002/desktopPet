@@ -199,15 +199,46 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
         用户下次说"启动QQ"第一次就能成
       · 新套件 _test_app_launch_192.py：61 PASS / 0 FAIL
 
-  [8] 升级 download 工具（参考 Motrix） ............... ⬜ 未开始
+  [8] 升级 download 工具（参考 Motrix） ............... ✅ 完成
+      · Motrix 本体是 Electron + aria2 的完整下载器（种子/DHT/限速面板…），
+        整体搬过来没意义。只取它对**单 URL 下载**真正有用的四件事，
+        每条都对着 Motrix 源码文件抄的：
+        ① 分段并发下载 ← src/core/download/segment-downloader.ts
+           探 Content-Length + Accept-Ranges → 切 N 段多线程各写偏移区间；
+           小于 1MB 不分段（开销不划算）；并发按大小自动 1/2/4/6，上限 8
+        ② 断点续传 ← src/core/task/final-name-picker.ts 的
+           INCOMPLETE_SUFFIX / .aria2 控制文件思路
+           写进 xxx.part（不完整标记，Motrix 用 .motrix）→ 完成才改名；
+           配 xxx.part.aria2 控制文件记 URL/总长/已完成分段
+           ★ 实测：先下好一半（1572864B），再下一次**只发另外 1572864B**
+        ③ 重试 + 指数退避 ← aria2 的 max-tries / retry-wait
+           每段独立重试 3 次，等 1.5s → 3s → 6s；单段失败不毁整次下载
+        ④ 文件名确定与去重 ← final-name-picker.ts
+           Content-Disposition（含 RFC 5987 的 filename*=UTF-8''…）→ URL 路径
+           → Content-Type 推断扩展名；重名按 Motrix 的 ` (n)` 格式加序号
+      · 新参数：threads / resume / max_mb / referer
+      · 大小上限从写死的 50MB 改成 max_mb 可调，默认 512MB
+      · 服务器不支持 Range 时自动退化成单流（不会失败）
+      · 新套件 _test_download_192.py：92 PASS / 0 FAIL
+        ★ 测试自带一个**支持 Range 的本地 HTTP 服务器**（Python 自带的
+          http.server 不支持 Range，用它根本测不出分段），还能切换
+          "忽略 Range"/"中途断流"/"前 N 次 500" 三种故障来测退化/续传/重试。
 
-  [9] 解耦调研 + 内存优化调研 ........................ ⬜ 未开始
+  [9] 解耦调研 + 内存优化调研 ........................ ⬜ 进行中
 
   ── 已完成任务的提交记录 ──
     883d659  任务1 建立 git 版本控制
     1411b01  任务2 清理无用 .bak 与临时文件
     5c5d2bf  任务5+6 查IP给全字段 / get_time 合并 get_date
     8704cd6  任务3+7 表情包描述 / 启动应用写长期记忆
+    cc16769  任务4+8 思考子窗口 / download 按 Motrix 升级
+
+  ── 回归现状（每完成一批都跑全量）──
+    35 个套件，全绿。1.9.2 新增 4 个套件：
+      _test_app_launch_192    61 PASS
+      _test_meme_desc_192     38 PASS
+      _test_think_panel_192   67 PASS
+      _test_download_192      92 PASS
 
 ==================================================================
 六、用户原始批注（★ 存档，逐字保留，勿改）

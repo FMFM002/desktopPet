@@ -1,0 +1,18 @@
+﻿1) 扫描得到的 module.__name__      = _scan_long_term_memory_tool
+2) 该 module 在 sys.modules 里吗?   = False
+3) 该 module 的 sys.modules key 列表 = []
+4) name 解析为                      = long_term_memory | policy = resident
+5) tool._module is tool._func.__globals__ 所属模块? = True
+
+6) `import tools.long_term_memory_tool` 的对象 is 扫描对象? = False
+7) sys.modules['tools.long_term_memory_tool'] 存在?       = True
+8) 两个 get_long_term_memory_tool() 返回值 is 同一个实例? = False
+9) 扫描副本的 _tool_instance is 正式模块的 _tool_instance?  = False
+
+10) 按 tool_manager._sync_ltm_disabled 的写法(改正式模块)置 disabled=True
+    · 正式模块单例 is_disabled()      = True
+    · 执行路径(扫描副本)单例 is_disabled() = False
+    → execute() 走的是扫描副本，禁用开关没生效: True
+
+11) meme_tool 扫描 module 名 = _scan_meme_tool | 在 sys.modules? []
+12) `import tools.meme_tool` is 扫描对象? = False
