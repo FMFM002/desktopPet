@@ -39,6 +39,13 @@ _log = logging.getLogger("Torrent")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARIA2_LOCAL_DIR = PROJECT_ROOT / "data" / "tools"
+# ★ 1.9.2：CA 证书包（随 aria2c 一起放在 data/tools/，项目自带一份）
+#   为什么必须带：换用的 motif 构建是 **OpenSSL** 版，没给它 CA bundle 时
+#   HTTPS 一律失败 ——
+#       [SocketCore.cc:1022] SSL/TLS handshake failure:
+#                            unable to get local issuer certificate
+#   BT 里大量 tracker 是 https://，所以这不是可选项。
+CA_BUNDLE = ARIA2_LOCAL_DIR / "cacert.pem"
 
 # ── BT 识别 ──────────────────────────────────────────────────
 _MAGNET_RE = re.compile(r"^magnet:\?", re.I)
@@ -149,6 +156,9 @@ def build_bt_args(aria2: str, target: str, save_dir: Path,
       · `--no-file-allocation-limit=64M`：小文件跳过预分配（预分配开销反而更大）。
       · `--max-file-not-found=10`：连续 404 到 10 次才判死，
         既能容忍暂时性故障、又不会对已失效的种子无限重试。
+      · `--ca-certificate=<项目自带 cacert.pem>`：★ 1.9.2 实测必须带 ——
+        本机换用的是 OpenSSL 版 aria2（见 aria2c.SOURCE.txt），不给 CA bundle
+        时所有 https:// tracker 都握手失败，BT 就一个 peer 都找不到。
     """
     args = [
         aria2, "--enable-rpc=false", "--continue=true",
@@ -158,6 +168,11 @@ def build_bt_args(aria2: str, target: str, save_dir: Path,
         "--no-file-allocation-limit=64M",
         "--max-file-not-found=10",
         "--content-disposition-default-utf8=true",
+    ]
+    # ★ CA 证书包（有就带，没有不硬报错 —— 也许用户用的是别的 TLS 后端构建）
+    if CA_BUNDLE.exists():
+        args.append(f"--ca-certificate={CA_BUNDLE}")
+    args += [
         # ---- BT 段 ----
         f"--seed-time={int(seed_time)}",
         "--bt-detach-seed-only=true",

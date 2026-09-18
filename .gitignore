@@ -57,6 +57,21 @@ _test_tmp_dbs/
 # ---- 本机应用路径记忆（★ 1.9.2 app_launcher，因机器而异，不进版本库）----
 data/app_paths.json
 
+# ---- ★ 1.9.2 BT 引擎（aria2c，11MB 第三方二进制，不进版本库）----
+#   为什么忽略：11MB 的第三方 exe 进 git 历史不划算，而它**可校验复原** ——
+#   来源、tag、压缩包与二进制的两个 sha256 都记在
+#   data/tools/aria2c.SOURCE.txt 里（取自参考项目 Motrix 的
+#   scripts/engine.lock.json，不是我算的）。
+#   复原办法：python tools/fetch_aria2.py  （会下载 + 双校验 + 装到位）
+#   ★ 注意：官方 aria2-1.37.0-win-64bit-build1 **不能用** —— 它是
+#     mingw+WinTLS 构建，在本机上所有 HTTPS 都失败
+#     （[WinTLSContext.cc:188] Failed to initialize WinTLS context handle），
+#     导致 https tracker 全废。必须用 Motrix 那个 OpenSSL 构建。
+data/tools/*.exe
+#   CA 证书包（236KB）**要入库**：OpenSSL 版 aria2 没它连不上 https tracker
+!data/tools/cacert.pem
+!data/tools/aria2c.SOURCE.txt
+
 # ---- 系统 ----
 Thumbs.db
 desktop.ini

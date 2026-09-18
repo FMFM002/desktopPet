@@ -170,6 +170,63 @@ check("★注释保留了 Motrix 原话理由（私有 tracker 封冒充 / 50-tr
       "私有 tracker" in _src and "50-tracker" in _src)
 
 # ══════════════════════════════════════════════════════════════
+head("B2. ★ 引擎来源与 CA 证书（官方 mingw 构建在本机 HTTPS 全废）")
+#
+# 实测（2026-09-18）：官方 aria2-1.37.0-win-64bit-build1 是 mingw + WinTLS 构建，
+# 本机所有 HTTPS 请求都失败：
+#     [WinTLSContext.cc:188] Failed to initialize WinTLS context handle
+# （默认 / --check-certificate=false / --ca-certificate / --min-tls-version
+#  四种写法全试过都不行）→ https tracker 全连不上、BT 零 peer。
+# 所以换用 **Motrix 自己维护的 OpenSSL 构建**，来源与校验和照抄它的
+# scripts/engine.lock.json（repo=motrixapp/aria2, tag=v1.37.0-motrix.14）。
+check("★有 CA 证书包常量 CA_BUNDLE", hasattr(BT, "CA_BUNDLE"))
+_ca = BT.CA_BUNDLE
+print(f"        CA 证书包: {_ca}（存在={_ca.exists()}）")
+check("★CA 证书包在项目里（data/tools/cacert.pem）",
+      _ca.exists() and _ca.stat().st_size > 10000,
+      f"{_ca} size={_ca.stat().st_size if _ca.exists() else 0}")
+check("★★build_bt_args 会带上 --ca-certificate（OpenSSL 版没它 https tracker 全废）",
+      any(a.startswith("--ca-certificate=") for a in BT.build_bt_args(
+          "aria2c", "m.torrent", Path("/d"))))
+check("★没 CA 文件时不硬报错（也许用户用的是别的 TLS 后端构建）",
+      "if CA_BUNDLE.exists():" in _src)
+_note = BT.ARIA2_LOCAL_DIR / "aria2c.SOURCE.txt"
+check("★有 aria2c.SOURCE.txt 记来源与两个 sha256",
+      _note.exists() and "motrix" in _note.read_text(encoding="utf-8").lower())
+_nt = _note.read_text(encoding="utf-8") if _note.exists() else ""
+check("★★SOURCE 里写明了为什么不用官方版（WinTLS 那个错）",
+      "WinTLSContext" in _nt)
+check("★★SOURCE 里带了两个校验和（压缩包 + 二进制）",
+      "archiveSha256" in _nt and "binarySha256" in _nt)
+check("★有复原脚本 tools/fetch_aria2.py",
+      (BASE / "tools" / "fetch_aria2.py").exists())
+_fa = (BASE / "tools" / "fetch_aria2.py").read_text(encoding="utf-8")
+check("★★复原脚本会**双重校验**（压缩包 + 二进制 sha256）",
+      "archiveSha256" in _fa and "binarySha256" in _fa
+      and _fa.count("_sha256(") >= 2)
+check("★复原脚本顺带准备 CA 证书包", "_ensure_cacert" in _fa)
+_found_now = BT.find_aria2()
+check("★本机现在能找到引擎（已装进 data/tools）", bool(_found_now), _found_now)
+if _found_now:
+    import subprocess as _sp
+    try:
+        _v = _sp.run([_found_now, "--version"], capture_output=True, text=True,
+                     timeout=20).stdout
+    except Exception as e:
+        _v = f"ERR {e}"
+    check("★★装的是 OpenSSL 构建（不是那个 HTTPS 全废的 WinTLS 版）",
+          "OpenSSL" in _v, _v.splitlines()[0] if _v else "")
+    check("★版本是 Motrix 那个 tag", "motrix" in _v, _v.splitlines()[0] if _v else "")
+    # ★ 注意：Motrix 这个构建**同样是 mingw 编译的**（Compiler 行会写 mingw-w64），
+    #   区别在 TLS 后端 —— Libraries 里是 OpenSSL 而不是 WinTLS。
+    #   所以判据必须是 "OpenSSL 在"，不是 "mingw 不在"（第一版断言就写错了）。
+    check("★判据是 TLS 后端而非编译器（mingw 不是问题）",
+          "OpenSSL" in _v and "WinTLS" not in _v)
+check("★.gitignore 忽略了 exe 但保留了 cacert.pem 与 SOURCE",
+      "data/tools/*.exe" in (BASE / ".gitignore").read_text(encoding="utf-8")
+      and "!data/tools/cacert.pem" in (BASE / ".gitignore").read_text(encoding="utf-8"))
+
+# ══════════════════════════════════════════════════════════════
 head("D. ★★ 找不到引擎时：明确报错 + 可操作提示 + 不擅自下载")
 _hint = BT.aria2_hint()
 check("★提示里给了 3 种可操作办法", "①" in _hint and "②" in _hint and "③" in _hint)
@@ -178,26 +235,33 @@ check("★★提示点名了推荐做法（放进 data/tools）",
 check("★★明说不会自己联网装（安装新依赖要先问用户）",
       "要先问你" in _hint or "我不会自己联网" in _hint)
 check("★提示里给了环境变量这条路", "PRTS_ARIA2C" in _hint)
+check("★提示里还告诉了「放哪」的具体目录", str(BT.ARIA2_LOCAL_DIR) in _hint)
 _src_all = _src
-check("★★源码里没有任何「自动下载 aria2c」的代码",
+check("★★torrent_engine 里没有任何「自动下载 aria2c」的代码",
       "aria2c.exe\").write" not in _src_all
       and "urlretrieve" not in _src_all
       and "wget" not in _src_all)
 
-if not BT.find_aria2():
+# ★ 用 monkeypatch 来测"没引擎"分支 —— 不能依赖本机到底装没装
+_orig_find = BT.find_aria2
+BT.find_aria2 = lambda: ""
+try:
     _r = BT.start_bt(f"magnet:?xt=urn:btih:{_BTIH40}", Path("data/downloads/_t"))
-    check("★★没有引擎时 start_bt 返回失败（不是假装成功）",
+    check("★★没引擎时 start_bt 返回失败（不是假装成功）",
           _r.get("success") is False, str(_r)[:120])
     check("★★失败原因里带可操作提示", "aria2c" in _r.get("error", ""),
           _r.get("error", "")[:80])
     check("★标了 bt=True（让调用方能区分）", _r.get("bt") is True)
-else:
-    check("★本机有 aria2c，跳过「找不到」分支", True)
+    # 工具层：BT 链接 + 没引擎
+    import json as _json
+    _r2 = _json.loads(DL.execute(url=f"magnet:?xt=urn:btih:{_BTIH40}"))
+    check("★★download 工具收到磁力链：没引擎时明确报错，不吞掉",
+          _r2.get("success") is False and _r2.get("bt") is True, str(_r2)[:120])
+    check("★没引擎时**不会**启动任何进程（没有 job）",
+          BT.job_status()["jobs"] == [], str(BT.job_status())[:80])
+finally:
+    BT.find_aria2 = _orig_find
 
-# 工具层面对 BT 链接的反应
-_r2 = json.loads(DL.execute(url=f"magnet:?xt=urn:btih:{_BTIH40}"))
-check("★★download 工具收到磁力链：没引擎时明确报错，不吞掉",
-      _r2.get("success") is False and _r2.get("bt") is True, str(_r2)[:120])
 _r3 = json.loads(DL.execute(url="https://x/a.jpg.torrent.jpg",
                             bucket="_test_bt_192"))
 check("★类似但非种子的链接仍走普通下载（不误判成 BT）",

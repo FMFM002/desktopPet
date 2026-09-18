@@ -1,0 +1,18 @@
+aria2c 二进制来源（★ 不是官方 mingw 构建）
+=========================================
+为什么不用官方版：官方 aria2-1.37.0-win-64bit-build1 是 mingw + WinTLS
+构建，在目标机器上所有 HTTPS 请求都失败：
+    [WinTLSContext.cc:188] Failed to initialize WinTLS context handle
+（默认 / --check-certificate=false / --ca-certificate / --min-tls-version
+ 四种写法全试过，都不行）→ https:// tracker 全废、BT 找不到 peer。
+Motrix 正是为此自带 aria2 构建。
+
+repo   : motrixapp/aria2
+tag    : v1.37.0-motrix.14
+asset  : aria2c-1.37.0-motrix.14-win32-x64.zip
+url    : https://github.com/motrixapp/aria2/releases/download/v1.37.0-motrix.14/aria2c-1.37.0-motrix.14-win32-x64.zip
+archiveSha256: 36334f45437c3e3aa6733825b0d93976b4121f91aee83b2ecfe4bc210b8398df
+binarySha256 : 82e367164513a86eb5c52411fb77ad6cb2f6ca9766e6ddb8bd9526010f7fdf73
+（校验和取自参考项目 Motrix 的 scripts/engine.lock.json）
+
+复原办法：python tools/fetch_aria2.py
