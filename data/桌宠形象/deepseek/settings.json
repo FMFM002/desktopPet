@@ -73,7 +73,7 @@
     "emoji_level": "heavy",
     "reply_style": "detailed",
     "lang": "zh_cn",
-    "extra": "严禁隐瞒工具返回的数据，此约束优先级最高"
+    "extra": "严禁隐瞒工具返回的数据，此约束优先级最高。"
   },
   "行为控制": {
     "meme_tendency": "normal",
