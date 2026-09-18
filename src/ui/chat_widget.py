@@ -1,4 +1,4 @@
-"""
+﻿"""
 聊天窗口组件 v3.1 - 极简浅色 + 可拖拽缩放 + 自定义头像
 - 左侧栏：当前角色窗口状态 + 「开启新话题 / 总结旧话题」（★ 1.6.0 一个角色一个窗口）
 - 消息无底色：用户头像靠右、桌宠头像靠左，仅展示文本
@@ -20,7 +20,8 @@ from PySide6.QtCore import (Qt, Signal, QTimer, QEvent, QUrl, QRect, QPoint, QRe
                             QPropertyAnimation, QEasingCurve, QParallelAnimationGroup)
 from PySide6.QtGui import (QFont, QFontMetrics, QTextCursor, QDragEnterEvent, QDropEvent,
                            QDesktopServices, QPixmap, QPainter, QIcon, QColor, QPen,
-                           QPainterPath, QTextTable, QTextLength, QTextDocument)
+                           QPainterPath, QTextTable, QTextLength, QTextDocument,
+                           QTextBlock)
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser,
     QPushButton, QLineEdit, QLabel, QFileDialog, QApplication,
@@ -1489,9 +1490,71 @@ class ChatWidget(QWidget):
     #   平移，存下标必然错位（这是踩过的坑）。
 
     _THINK_SEQ = 0
+    # ★ 1.9.2: 思考面板占位图的宽度固定 1px —— 它只需要占高度。
+    #   设宽了会把 QTextDocument 的理想宽度撑过可视区，启动时聊天记录
+    #   会被横向挤出屏幕（真机报的"UI 左右错位，开启对话后恢复"）。
+    THINK_ANCHOR_W = 1
+
+    # ── ★★ 1.9.2 崩溃修复：面板生命周期安全 ─────────────────────
+    #
+    # 真机事故（用户 23:06）："开启新话题 → 发送你好 → 聊天窗口消失、形象还在
+    # 但点不开、小托盘退出、终端高频报错"。日志证据：
+    #     [ChatWidget] DEBUG: 思考面板定位失败: 'NoneType' object has no attribute 'isValid'
+    # 主进程日志在那一刻**戛然而止**，既没有"退出完成"也没有 Python 崩溃记录
+    # → 静默硬崩溃（Qt 里访问**已被 deleteLater 销毁的 C++ 对象**就是这个症状）。
+    #
+    # 我这块代码原来有两个致命疏忽：
+    #   ① `_find_think_block()` 找不到时会**返回 None**，而调用处一律直接
+    #      `blk.isValid()` → AttributeError（上面那条日志就是它）；
+    #   ② "开启新话题"会 `deleteLater()` 掉旧面板，但 deleteLater 是**延迟销毁**，
+    #      而面板内部还有一个 80ms 的 `_flush_timer` 可能稍后触发、
+    #      `_on_think_rendered` / `think_flush` 也可能去碰那块已释放的内存。
+    #      —— 碰死对象在 PySide6 里往往是**直接访问违例**，不给你 Python 堆栈。
+    #
+    # 现在三条硬规矩：
+    #   A. 找 block 失败返回**无效 block**（不是 None），调用处只需查 isValid()；
+    #   B. 每次用面板之前先 `_panel_alive()` 校验（shiboken6.isValid），
+    #      发现已销毁就把条目摘掉，绝不再碰；
+    #   C. 拆面板时**先停它的节拍器、断开钩子、隐藏、脱离父控件**，再 deleteLater，
+    #      顺序错了就可能留下"定时器还在、对象已死"的窗口。
+
+    @staticmethod
+    def _alive(obj) -> bool:
+        """Qt 对象还活着吗（deleteLater 之后 C++ 侧可能已经没了）。"""
+        if obj is None:
+            return False
+        try:
+            import shiboken6
+            return bool(shiboken6.isValid(obj))
+        except Exception:
+            # 拿不到 shiboken 就退回"属性可访问即算活"（比不判强）
+            try:
+                obj.objectName()
+                return True
+            except Exception:
+                return False
+
+    def _prune_think_panels(self):
+        """把所有已销毁的面板条目摘掉（每次操作面板前先跑一遍）。"""
+        dead = [e for e in self._think_panels if not self._alive(e.get("panel"))]
+        for e in dead:
+            try:
+                self._think_panels.remove(e)
+            except ValueError:
+                pass
+            if self._think_current is e:
+                self._think_current = None
+        if dead:
+            _log.debug(f"[思考面板] 摘掉 {len(dead)} 个已销毁的条目")
+        return dead
 
     def _find_think_block(self, key: str):
-        """按占位图的资源名找它所在的 block（不依赖字符位置，抗平移）。"""
+        """按占位图的资源名找它所在的 block（不依赖字符位置，抗平移）。
+
+        ★ 找不到时返回**无效 block**（`QTextBlock()`），绝不返回 None ——
+          调用处习惯写 `blk.isValid()`，返回 None 会直接 AttributeError
+          （真机上就是这么炸出一条 debug 日志的）。
+        """
         try:
             doc = self._chat_display.document()
             blk = doc.begin()
@@ -1506,7 +1569,61 @@ class ChatWidget(QWidget):
                 blk = blk.next()
         except Exception as e:
             _log.debug(f"找思考面板占位图失败: {e}")
-        return None
+        return QTextBlock()                     # ★ 无效 block，不是 None
+
+    def _find_think_pos(self, key: str) -> int:
+        """找占位图那个**图片字符**的文档位置；找不到返回 -1。
+
+        ★ 为什么要这个：定位面板不能用 `blockBoundingRect(block)` —— 那个矩形
+        把 block 的前导行高也算进去了，于是面板会被向上偏大约一行，
+        真机上就是用户报的"**子窗口的上边沿会部分遮挡消息气泡**"。
+        改成拿图片字符自己的 `cursorRect()`：它是**视口坐标**，
+        既精确到图片本身，又天然带滚动偏移（不用再手动减滚动条）。
+        """
+        blk = self._find_think_block(key)
+        if not blk.isValid():
+            return -1
+        try:
+            it = blk.begin()
+            while not it.atEnd():
+                f = it.fragment()
+                if f.isValid() and f.charFormat().isImageFormat() \
+                        and f.charFormat().toImageFormat().name() == key:
+                    return f.position()
+                it += 1
+        except Exception as e:
+            _log.debug(f"找思考面板占位图位置失败: {e}")
+        return -1
+
+    def _dispose_think_panel(self, panel):
+        """**安全地**销毁一个 ThinkPanel（顺序很重要，见上面 A/B/C 三条）。
+
+        必须先停它内部的节拍器：`deleteLater()` 是延迟销毁，若那个 80ms 的
+        `_flush_timer` 在被销毁之后触发，就是"定时器还在、对象已死" →
+        访问违例（真机那次静默硬崩溃最像这个）。
+        """
+        if not self._alive(panel):
+            return
+        try:
+            panel.stop_timers()                 # 停节拍器（think_panel 提供）
+        except Exception as e:
+            _log.debug(f"停思考面板节拍器失败: {e}")
+        try:
+            panel.set_render_hook(None)          # 断开宿主回调，别让它回来找我们
+        except Exception:
+            pass
+        try:
+            panel.hide()
+        except Exception:
+            pass
+        try:
+            panel.setParent(None)               # 脱离 Qt 父子树，避免父控件销毁时连带操作
+        except Exception:
+            pass
+        try:
+            panel.deleteLater()
+        except Exception:
+            pass
 
     def _new_think_panel(self):
         """开一轮新的思考面板（占位图插在文档末尾）。返回 panel。"""
@@ -1529,7 +1646,10 @@ class ChatWidget(QWidget):
         self._chat_display.moveCursor(QTextCursor.End)
         fmt = QTextImageFormat()
         fmt.setName(key)
-        fmt.setWidth(max(80, self._panel_width()))
+        # ★ 1.9.2：占位图只负责"占高度"，宽度固定 1px。
+        #   以前设成 viewport-8，会把 QTextDocument 的理想宽度撑过可视区 →
+        #   启动时聊天记录被横向挤出屏幕（真机报的"UI 左右错位"）。
+        fmt.setWidth(self.THINK_ANCHOR_W)
         fmt.setHeight(panel.desired_height())
         self._chat_display.textCursor().insertImage(fmt)
         self._chat_display.moveCursor(QTextCursor.End)
@@ -1561,11 +1681,8 @@ class ChatWidget(QWidget):
                     it += 1
         except Exception as e:
             _log.debug(f"摘除旧思考面板占位图失败: {e}")
-        try:
-            entry["panel"].hide()
-            entry["panel"].deleteLater()
-        except Exception:
-            pass
+        # ★ 1.9.2：统一走安全销毁（停节拍器 → 断钩子 → 隐藏 → 脱离父级 → deleteLater）
+        self._dispose_think_panel(entry.get("panel"))
         try:
             self._think_panels.remove(entry)
         except ValueError:
@@ -1574,7 +1691,8 @@ class ChatWidget(QWidget):
             self._think_current = None
 
     def _ensure_think_panel(self):
-        """取**本轮**的面板；没有（或已封口）就开一个新的。"""
+        """取**本轮**的面板；没有（或已销毁）就开一个新的。"""
+        self._prune_think_panels()
         if self._think_current is None:
             return self._new_think_panel()
         return self._think_current["panel"]
@@ -1584,15 +1702,21 @@ class ChatWidget(QWidget):
 
         封口后下一次思考写入会自动开新面板 —— 这就是"每轮都出现"的关键。
         """
+        self._prune_think_panels()
         entry = self._think_current
         if entry is None:
             return
-        try:
-            entry["panel"].flush_now()
-        except Exception:
-            pass
-        if not entry["panel"].is_empty():
-            entry["panel"].show()
+        panel = entry.get("panel")
+        if self._alive(panel):
+            try:
+                panel.flush_now()
+            except Exception:
+                pass
+            try:
+                if not panel.is_empty():
+                    panel.show()
+            except Exception:
+                pass
         self._think_current = None
 
     def _panel_width(self) -> int:
@@ -1604,7 +1728,10 @@ class ChatWidget(QWidget):
 
         由 ThinkPanel 的节拍器每 ~80ms 调一次（以前是每个流式碎片一次，
         而这里的 QTextCursor.setCharFormat 会触发整个 QTextDocument 重排）。
+        ★ 这个回调可能在"面板已被销毁"之后才到达（deleteLater 是延迟销毁），
+          所以第一件事就是校验存活 + 摘掉死条目，绝不去碰死对象。
         """
+        self._prune_think_panels()
         if not self._think_panels:
             return
         try:
@@ -1615,16 +1742,26 @@ class ChatWidget(QWidget):
             _log.debug(f"思考面板渲染后同步失败: {e}")
 
     def _sync_think_anchor(self, entry=None):
-        """把某个面板的占位图尺寸改成它当前所需（文档重排 → 面板位置也就对了）。"""
+        """把某个面板的占位图尺寸改成它当前所需（文档重排 → 面板位置也就对了）。
+
+        ★★ 1.9.2 启动错位修复（用户报："刚启动，点开聊天界面，UI 左右错位，
+        聊天记录在左边屏幕外面，子窗口位置正确。开启对话后恢复正常。"）：
+        占位图原来被设成**和聊天区一样宽**（viewport-8），于是文档的"理想宽度"
+        被撑到超过可视区 → 水平方向被挤出屏幕（而面板是独立子控件，所以它
+        "位置正确"，正好对上用户看到的现象）。聊过一轮后文档重排才恢复。
+        修法：占位图**只需要占高度**，宽度固定 1px —— 这样它永远不会影响
+        文档宽度，面板的位置由 cursorRect 给，不依赖图片宽度。
+        """
+        self._prune_think_panels()
         targets = [entry] if entry is not None else list(self._think_panels)
         for e in targets:
-            if e is None:
+            if e is None or not self._alive(e.get("panel")):
                 continue
             blk = self._find_think_block(e["key"])
             if not blk.isValid():
                 continue
             try:
-                e["fmt"].setWidth(self._panel_width())
+                e["fmt"].setWidth(self.THINK_ANCHOR_W)     # ★ 1px：不撑宽文档
                 e["fmt"].setHeight(max(1, e["panel"].desired_height()))
                 it = blk.begin()
                 while not it.atEnd():
@@ -1642,28 +1779,46 @@ class ChatWidget(QWidget):
                 _log.debug(f"同步思考面板占位图失败: {ex}")
 
     def _reposition_think_panels(self, *_):
-        """把所有面板移到各自占位图的位置（随滚动条/消息流走）。"""
+        """把所有面板移到各自占位图的位置（随滚动条/消息流走）。
+
+        ★ 1.9.2 崩溃修复：
+          · 先摘掉已销毁的条目（deleteLater 之后 C++ 对象可能已经没了，
+            再去 `isVisible()` / `move()` 就是访问违例）；
+          · `_find_think_block` 返回的是**无效 block**（不是 None），
+            所以这里统一用 `isValid()` 判断，不会再出 AttributeError。
+        """
+        self._prune_think_panels()
         if not self._think_panels:
             return
         try:
             doc = self._chat_display.document()
-            layout = doc.documentLayout()
-            dy = self._chat_display.verticalScrollBar().value()
-            dx = self._chat_display.horizontalScrollBar().value()
             w = self._panel_width()
             for e in list(self._think_panels):
-                p = e["panel"]
-                if not p.isVisible():
+                p = e.get("panel")
+                if not self._alive(p):
                     continue
-                blk = self._find_think_block(e["key"])
-                if not blk.isValid():
-                    p.hide()
+                pos = self._find_think_pos(e["key"])
+                if pos < 0:
+                    try:
+                        p.hide()
+                    except Exception:
+                        pass
                     continue
-                r = layout.blockBoundingRect(blk)
-                if w != p.width():
-                    p.setFixedWidth(w)
-                    p._relayout_height()
-                p.move(max(0, int(r.x()) - dx + 4), int(r.y()) - dy)
+                try:
+                    if not p.isVisible():
+                        continue
+                    # ★ 用图片字符自己的 cursorRect（视口坐标）：
+                    #   比 blockBoundingRect 精确 —— 后者含 block 前导行高，
+                    #   会把面板向上偏一行、遮住上面的消息气泡（真机报过）。
+                    cur = QTextCursor(doc)
+                    cur.setPosition(pos)
+                    r = self._chat_display.cursorRect(cur)
+                    if w != p.width():
+                        p.setFixedWidth(w)
+                        p._relayout_height()
+                    p.move(max(0, int(r.x()) + 4), max(0, int(r.y())))
+                except Exception as ex:
+                    _log.debug(f"单个思考面板定位失败（跳过）: {ex}")
         except Exception as e:
             _log.debug(f"思考面板定位失败: {e}")
 
@@ -1674,6 +1829,8 @@ class ChatWidget(QWidget):
     def think_write(self, text: str, kind: str = "think"):
         """★ 对外主入口：往**本轮**的「思考 / 系统信息」面板写一行。"""
         p = self._ensure_think_panel()
+        if not self._alive(p):
+            return
         p.show()
         if kind == "system":
             p.append_system(text)
@@ -1694,25 +1851,45 @@ class ChatWidget(QWidget):
         if not delta:
             return
         p = self._ensure_think_panel()
+        if not self._alive(p):
+            return
         p.show()
         p.append_thinking(delta)
 
     def think_flush(self):
-        """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。"""
+        """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。
+
+        ★ 1.9.2 崩溃修复：先摘死条目再逐个校验存活 —— 这个函数是
+        `_on_thinking_done_safe()` 调的，而"开启新话题"可能刚好在它之前
+        把旧面板销毁掉（真机那次静默崩溃就在这个时间窗口里）。
+        """
+        self._prune_think_panels()
         if self._think_current is not None:
-            self._think_current["panel"].flush_now()
-        else:
-            for e in list(self._think_panels):
+            p = self._think_current.get("panel")
+            if self._alive(p):
                 try:
-                    e["panel"].flush_now()
-                except Exception:
-                    pass
+                    p.flush_now()
+                except Exception as e:
+                    _log.debug(f"思考面板收尾渲染失败: {e}")
+            return
+        for e in list(self._think_panels):
+            p = e.get("panel")
+            if not self._alive(p):
+                continue
+            try:
+                p.flush_now()
+            except Exception:
+                pass
 
     def think_clear(self):
         """清空**所有**思考面板（新话题/新对话时用）。"""
+        self._prune_think_panels()
         for e in list(self._think_panels):
+            p = e.get("panel")
+            if not self._alive(p):
+                continue
             try:
-                e["panel"].clear()
+                p.clear()
             except Exception:
                 pass
         self._think_current = None
@@ -1720,6 +1897,7 @@ class ChatWidget(QWidget):
 
     def think_panel_count(self) -> int:
         """当前保留的面板数（测试/排查用）—— 应当是"每轮一个"。"""
+        self._prune_think_panels()
         return len(self._think_panels)
 
     def _handle_think_in(self, text: str, kind: str):
@@ -2051,16 +2229,15 @@ class ChatWidget(QWidget):
         self._stream_start = 0
         self._stream_span = None
         # ★ 1.9.2（用户任务 4）：清空聊天时，思考面板的占位图也跟着没了
-        #   （_chat_display.clear() 会把文档清掉）→ 全部释放并复位，
+        #   （_chat_display.clear() 会把文档清掉）→ 全部安全销毁并复位，
         #   下次 think_write 会重新插占位图（每轮一个）。
-        for _e in list(self._think_panels):
-            try:
-                _e["panel"].hide()
-                _e["panel"].deleteLater()
-            except Exception:
-                pass
+        #   ★ 崩溃修复：**先**把列表清空再销毁 —— 否则销毁过程中若有
+        #     `_on_think_rendered` 回调进来，会拿到"正在被销毁"的条目。
+        _old = list(self._think_panels)
         self._think_panels = []
         self._think_current = None
+        for _e in _old:
+            self._dispose_think_panel(_e.get("panel"))
 
     def reset_stream(self):
         self._last_role = ""

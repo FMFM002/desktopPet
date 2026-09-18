@@ -253,9 +253,9 @@ check("★占位图已插进文档（锚点有效）",
 check("★占位图高度 == 面板高度（两者对齐才不重叠）",
       int(_anchors(cw)[0].height()) == _cur(cw).desired_height(),
       f"{_anchors(cw)[0].height()} vs {_cur(cw).desired_height()}")
-check("★占位图宽度 == 面板宽度",
-      int(_anchors(cw)[0].width()) == cw._panel_width(),
-      f"{_anchors(cw)[0].width()} vs {cw._panel_width()}")
+check("★占位图**不**按面板宽度设（只占高度，避免撑宽文档）",
+      int(_anchors(cw)[0].width()) == cw.THINK_ANCHOR_W,
+      f"{_anchors(cw)[0].width()} vs THINK_ANCHOR_W={cw.THINK_ANCHOR_W}")
 
 cw.think_write("思考一行", "think")
 for _ in range(4):
@@ -359,7 +359,9 @@ check(f"★★超过上界后只保留 MAX_THINK_PANELS({cw.MAX_THINK_PANELS}) �
       cw.think_panel_count() == cw.MAX_THINK_PANELS,
       str(cw.think_panel_count()))
 check("★★被摘掉的最旧占位图真的从文档里删了",
-      cw._find_think_block("prts-think-1") is None)
+      # ★ 1.9.2: _find_think_block 现在返回「无效 block」而不是 None（崩溃修复），
+      #   所以这里要用 isValid() 判断，不能再写 `is None`。
+      not cw._find_think_block("prts-think-1").isValid())
 check("★最近那一轮的面板还在、且有内容",
       cw._think_panels[-1]["panel"].text().strip().endswith(
           f"压思考{cw.MAX_THINK_PANELS + 2}"),
@@ -654,6 +656,168 @@ check("★注释里引了用户原话（灰底白字/所有的系统信息）",
 check("★注释说明了做法是「只改去向不改方法名」（35 处调用免改）",
       "35" in _cw3)
 _cw4.close()
+
+# ══════════════════════════════════════════════════════════════
+head("J. ★★★ 崩溃修复：开启新话题后再对话（真机 23:06 静默硬崩溃）")
+#
+# 真机事故：用户"开启新话题 → 发送你好"→ 聊天窗口消失、形象变孤儿（管道关闭）、
+# 小托盘退出、终端高频报错。日志证据只有一条：
+#     [ChatWidget] DEBUG: 思考面板定位失败: 'NoneType' object has no attribute 'isValid'
+#   主进程日志戛然而止、无 Python 堆栈、无 faulthandler 输出
+#   → Qt 里访问**已 deleteLater 销毁的 C++ 对象**的典型症状。
+#
+# 我这块代码的两个致命疏忽：
+#   ① `_find_think_block()` 找不到时返回 None，调用处一律直接 `blk.isValid()`
+#      → AttributeError（上面那条日志就是它）；
+#   ② "开启新话题"会 deleteLater 旧面板，而面板内部有 80ms 节拍器、
+#      宿主还有 _on_think_rendered / think_flush 两条回调路径 →
+#      都会去碰那块延迟销毁的内存。
+_cw5 = ChatWidget()
+_cw5.resize(420, 640)
+_cw5.show()
+for _ in range(6):
+    app.processEvents()
+
+# ① 找不到时必须是「无效 block」而不是 None
+check("★★★_find_think_block 找不到时返回无效 block（不是 None）",
+      _cw5._find_think_block("绝不存在的key") is not None)
+check("★★★返回的 block 的 isValid() 是 False（调用处可安全判断）",
+      _cw5._find_think_block("绝不存在的key").isValid() is False)
+check("★★_find_think_pos 找不到时返回 -1",
+      _cw5._find_think_pos("绝不存在的key") == -1)
+_src_cw2 = (BASE / "src" / "ui" / "chat_widget.py").read_text(encoding="utf-8")
+check("★源码里不再有 `return None` 跟着 _find_think_block",
+      "return QTextBlock()" in _src_cw2)
+
+# ② 真机路径：写面板 → 开新话题(clear_chat) → 再写 → 反复触发回调
+_cw5.think_write("第一轮系统信息", "system")
+for _ in range(4):
+    app.processEvents()
+check("★先有一个面板", _cw5.think_panel_count() == 1)
+_cw5.clear_chat()
+app.processEvents()
+check("★开启新话题后旧面板被清空", _cw5.think_panel_count() == 0
+      and _cw5._think_current is None)
+_ok = True
+try:
+    # 销毁之后把三条回调路径都跑一遍（真机上就是这些在碰死对象）
+    for _ in range(6):
+        app.processEvents()
+        _cw5._reposition_think_panels()
+        _cw5.think_flush()
+        _cw5._on_think_rendered()
+        _cw5._seal_think_panel()
+except Exception as e:
+    _ok = False
+    print("    ", type(e).__name__, e)
+check("★★★清空后反复触发三条回调路径都不抛异常（原来在这里静默崩溃）", _ok)
+_cw5.think_write("新话题的系统信息", "system")
+for _ in range(4):
+    app.processEvents()
+check("★★★开启新话题后还能正常新建面板并写入",
+      _cw5.think_panel_count() == 1
+      and "新话题的系统信息" in _cw5._think_panels[-1]["panel"].text(),
+      str(_cw5.think_panel_count()))
+
+# ③ 存活校验与死条目清理
+check("★有 _alive() 存活校验（shiboken6.isValid）", callable(_cw5._alive)
+      and _cw5._alive(_cw5._think_panels[-1]["panel"]) is True)
+check("★_alive(None) 是 False", _cw5._alive(None) is False)
+check("★有 _prune_think_panels()", callable(_cw5._prune_think_panels))
+# 造一个"已销毁"的条目，确认会被摘掉而不是被继续使用
+_dead = _cw5._think_panels[-1]
+_dead_panel = _dead["panel"]
+_dead_panel.setParent(None)
+_dead_panel.deleteLater()
+for _ in range(4):
+    app.processEvents()
+_n_before = len(_cw5._think_panels)
+_cw5._prune_think_panels()
+check("★★已销毁的面板条目会被自动摘掉（不再被继续碰）",
+      len(_cw5._think_panels) <= _n_before
+      and all(_cw5._alive(e["panel"]) for e in _cw5._think_panels),
+      f"{_n_before} → {len(_cw5._think_panels)}")
+
+# ④ 销毁顺序：必须先停节拍器再 deleteLater
+check("★★ThinkPanel 提供了 stop_timers()", hasattr(ThinkPanel, "stop_timers"))
+check("★★_dispose_think_panel 先 stop_timers 再 deleteLater（顺序不能反）",
+      _src_cw2.index("panel.stop_timers()")
+      < _src_cw2.index("panel.deleteLater()"))
+_tp = ThinkPanel()
+_tp._dirty = True
+_tp.stop_timers()
+check("★stop_timers 真的停了节拍器并清了脏标记",
+      not _tp._flush_timer.isActive() and _tp._dirty is False)
+check("★set_render_hook(None) 能断开回调",
+      (_tp.set_render_hook(None) or True) and _tp._render_hook is None)
+check("★think_panel 里 _flush 只定义一次（我加 stop_timers 时重复过一次）",
+      (BASE / "src" / "ui" / "think_panel.py").read_text(encoding="utf-8")
+      .count("def _flush(self)") == 1)
+
+# ⑤ 定位改用 cursorRect（修"子面板上边沿遮挡气泡"）
+check("★★定位用 cursorRect（blockBoundingRect 会含前导行高、把面板顶上去）",
+      "self._chat_display.cursorRect(cur)" in _src_cw2)
+check("★不再用 documentLayout().blockBoundingRect 定位面板",
+      # 注意两点：① 气泡绘制那条老代码（_painted_box）也用 blockBoundingRect，
+      # 与面板定位无关；② 我在函数注释里提到了这个词 —— 所以判据是
+      # **实际调用** `blockBoundingRect(blk)` 不在 _reposition_think_panels 里。
+      "blockBoundingRect(blk)" not in
+      _src_cw2.split("def _reposition_think_panels")[1].split("def ")[0])
+_cw5.clear_chat()
+app.processEvents()
+_cw5._append_message("user", "上面一条用户消息")
+_cw5.think_write("系统信息", "system")
+for _ in range(4):
+    app.processEvents()
+if _cw5._think_panels:
+    _e = _cw5._think_panels[-1]
+    _pos = _cw5._find_think_pos(_e["key"])
+    from PySide6.QtGui import QTextCursor as _QTC
+    _cur = _QTC(_cw5._chat_display.document())
+    _cur.setPosition(_pos)
+    _r = _cw5._chat_display.cursorRect(_cur)
+    check("★★★面板 y 与占位图 cursorRect.y 完全贴合（不再偏一行去遮气泡）",
+          abs(_e["panel"].y() - _r.y()) <= 2,
+          f"面板y={_e['panel'].y()} 图y={_r.y()}")
+else:
+    check("★★★面板 y 与占位图 cursorRect.y 完全贴合", False, "没建出面板")
+_cw5.close()
+
+# ⑦ 启动错位修复：占位图不能撑宽文档
+_cw6 = ChatWidget()
+_cw6.resize(420, 640)
+_cw6.show()
+for _ in range(6):
+    app.processEvents()
+check("★★THINK_ANCHOR_W 是 1（占位图只占高度、不占宽度）",
+      _cw6.THINK_ANCHOR_W == 1, str(_cw6.THINK_ANCHOR_W))
+_cw6.think_write("系统信息", "system")
+for _ in range(4):
+    app.processEvents()
+_doc6 = _cw6._chat_display.document()
+check("★★占位图实际宽度是 1px",
+      int(_cw6._think_panels[-1]["fmt"].width()) == 1,
+      str(_cw6._think_panels[-1]["fmt"].width()))
+check("★★★文档没有被占位图撑宽（真机「UI 左右错位、聊天记录跑到屏幕外」的根因）",
+      _doc6.idealWidth() <= _cw6._chat_display.viewport().width(),
+      f"idealWidth={_doc6.idealWidth()} viewport={_cw6._chat_display.viewport().width()}")
+check("★★没有产生水平滚动（内容不会被横向挤出可视区）",
+      _cw6._chat_display.horizontalScrollBar().maximum() == 0,
+      str(_cw6._chat_display.horizontalScrollBar().maximum()))
+check("★面板仍在可视区内（x 不为负、不至于贴出屏幕）",
+      _cw6._think_panels[-1]["panel"].x() >= 0,
+      str(_cw6._think_panels[-1]["panel"].x()))
+check("★源码里两处 setWidth 都用 THINK_ANCHOR_W（不是 _panel_width）",
+      "setWidth(self.THINK_ANCHOR_W)" in _src_cw2
+      and "fmt.setWidth(self._panel_width())" not in _src_cw2)
+_cw6.close()
+
+# ⑥ 主进程要有 faulthandler（这次静默崩溃没留下堆栈）
+_mn = (BASE / "main.py").read_text(encoding="utf-8")
+check("★★main.py 开了 faulthandler 且写独立文件（下次硬崩溃能留 C 级堆栈）",
+      "faulthandler" in _mn and "main_faulthandler.log" in _mn)
+check("★注册了 SIGABRT/SIGSEGV 等信号的 dump", "SIGABRT" in _mn)
+check("★all_threads=True（崩溃时能看到所有线程）", "all_threads=True" in _mn)
 
 print("\n" + "=" * 60)
 print(f"★ 1.9.2 任务4 思考/系统信息子窗口：{PASS} PASS / {FAIL} FAIL")

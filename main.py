@@ -35,6 +35,35 @@ from src.utils.logger import (setup_logging, get_logger, install_crash_hooks,
 if _is_main_process():
     redirect_stderr_to_file("main")
 
+# ★★ 1.9.2（真机静默崩溃后补的诊断）：
+#   用户 23:06 遇到"聊天窗口消失 + 小托盘退出 + 形象变孤儿（管道关闭）"，
+#   但**既没有 Python 堆栈、也没有 faulthandler 输出** —— 主进程是静默硬崩溃
+#   （在 Qt 里访问已销毁的 C++ 对象就是这个症状）。
+#   为了让"下次再崩"一定能留下证据，这里开 faulthandler 并写到独立文件：
+#     · 段错误 / 访问违例 / abort 都会把**当前所有线程的 C 级堆栈**落盘；
+#     · 独立文件，不会被形象进程的刷屏淹掉；
+#     · 顺手加一个 SIGTERM/abort 的兜底 dump。
+try:
+    import faulthandler as _fh
+    try:
+        from src.utils.logger import LOG_DIR as _LOGDIR
+    except Exception:
+        from pathlib import Path as _P
+        _LOGDIR = _P(__file__).resolve().parent / "logs"
+    _LOGDIR.mkdir(parents=True, exist_ok=True)
+    _fh_log = open(_LOGDIR / "main_faulthandler.log", "a", buffering=1,
+                   encoding="utf-8", errors="replace")
+    _fh.enable(file=_fh_log, all_threads=True)
+    try:
+        import signal as _sig
+        for _s in ("SIGABRT", "SIGSEGV", "SIGFPE", "SIGILL", "SIGBUS"):
+            if hasattr(_sig, _s):
+                _fh.register(getattr(_sig, _s), file=_fh_log, all_threads=True)
+    except Exception:
+        pass
+except Exception:
+    pass
+
 log = setup_logging(verbose=_is_main_process())
 # ★ 崩溃钩子：任何未捕获异常都会落盘到 logs/crash_main_*.log（含子线程）
 install_crash_hooks("main")

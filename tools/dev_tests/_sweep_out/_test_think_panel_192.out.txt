@@ -48,7 +48,7 @@
   [PASS] ★面板可见
   [PASS] ★占位图已插进文档（锚点有效）
   [PASS] ★占位图高度 == 面板高度（两者对齐才不重叠）
-  [PASS] ★占位图宽度 == 面板宽度
+  [PASS] ★占位图**不**按面板宽度设（只占高度，避免撑宽文档）
   [PASS] ★混写思考+系统都在面板里
   [PASS] ★think_delta 走流式拼接
   [PASS] ★★大量内容后占位图高度更新（文档留出正确空间）
@@ -133,6 +133,37 @@
   [PASS] ★注释里引了用户原话（灰底白字/所有的系统信息）
   [PASS] ★注释说明了做法是「只改去向不改方法名」（35 处调用免改）
 
+== J. ★★★ 崩溃修复：开启新话题后再对话（真机 23:06 静默硬崩溃） ==
+  [PASS] ★★★_find_think_block 找不到时返回无效 block（不是 None）
+  [PASS] ★★★返回的 block 的 isValid() 是 False（调用处可安全判断）
+  [PASS] ★★_find_think_pos 找不到时返回 -1
+  [PASS] ★源码里不再有 `return None` 跟着 _find_think_block
+  [PASS] ★先有一个面板
+  [PASS] ★开启新话题后旧面板被清空
+  [PASS] ★★★清空后反复触发三条回调路径都不抛异常（原来在这里静默崩溃）
+  [PASS] ★★★开启新话题后还能正常新建面板并写入
+  [PASS] ★有 _alive() 存活校验（shiboken6.isValid）
+  [PASS] ★_alive(None) 是 False
+  [PASS] ★有 _prune_think_panels()
+  [PASS] ★★已销毁的面板条目会被自动摘掉（不再被继续碰）
+  [PASS] ★★ThinkPanel 提供了 stop_timers()
+  [PASS] ★★_dispose_think_panel 先 stop_timers 再 deleteLater（顺序不能反）
+  [PASS] ★stop_timers 真的停了节拍器并清了脏标记
+  [PASS] ★set_render_hook(None) 能断开回调
+  [PASS] ★think_panel 里 _flush 只定义一次（我加 stop_timers 时重复过一次）
+  [PASS] ★★定位用 cursorRect（blockBoundingRect 会含前导行高、把面板顶上去）
+  [PASS] ★不再用 documentLayout().blockBoundingRect 定位面板
+  [PASS] ★★★面板 y 与占位图 cursorRect.y 完全贴合（不再偏一行去遮气泡）
+  [PASS] ★★THINK_ANCHOR_W 是 1（占位图只占高度、不占宽度）
+  [PASS] ★★占位图实际宽度是 1px
+  [PASS] ★★★文档没有被占位图撑宽（真机「UI 左右错位、聊天记录跑到屏幕外」的根因）
+  [PASS] ★★没有产生水平滚动（内容不会被横向挤出可视区）
+  [PASS] ★面板仍在可视区内（x 不为负、不至于贴出屏幕）
+  [PASS] ★源码里两处 setWidth 都用 THINK_ANCHOR_W（不是 _panel_width）
+  [PASS] ★★main.py 开了 faulthandler 且写独立文件（下次硬崩溃能留 C 级堆栈）
+  [PASS] ★注册了 SIGABRT/SIGSEGV 等信号的 dump
+  [PASS] ★all_threads=True（崩溃时能看到所有线程）
+
 ============================================================
-★ 1.9.2 任务4 思考/系统信息子窗口：113 PASS / 0 FAIL
+★ 1.9.2 任务4 思考/系统信息子窗口：142 PASS / 0 FAIL
 ============================================================

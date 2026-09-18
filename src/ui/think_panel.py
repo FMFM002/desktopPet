@@ -433,8 +433,25 @@ class ThinkPanel(QFrame):
                 pass
 
     def set_render_hook(self, cb):
-        """渲染完成后回调（宿主用来同步"占位图尺寸 + 面板位置"）。"""
+        """渲染完成后回调（宿主用来同步"占位图尺寸 + 面板位置"）。
+
+        ★ 1.9.2：宿主销毁面板前会传 None 把它断掉 —— 否则"节拍器刚好在这一刻
+        触发 → 回调进到已经 deleteLater 的宿主路径"就是潜在的访问违例。
+        """
         self._render_hook = cb
+
+    def stop_timers(self):
+        """★ 1.9.2：停掉内部节拍器。
+
+        宿主销毁本控件前**必须**先调它。因为 `deleteLater()` 是延迟销毁：
+        若那个 80ms 的 `_flush_timer` 在对象被销毁之后才触发，回调会去碰
+        已经释放的 C++ 对象 → PySide6 下就是静默硬崩溃（真机踩过一次）。
+        """
+        try:
+            self._flush_timer.stop()
+        except Exception:
+            pass
+        self._dirty = False
 
     def _scroll_to_bottom(self):
         sb = self._scroll.verticalScrollBar()
