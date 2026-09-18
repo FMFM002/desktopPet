@@ -10,7 +10,7 @@ This plugin does not support raise()
   [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
   [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
   [+] shell_exec: 执行终端/shell命令并返回stdout和stderr。Windows用cmd [lazy]
-  [+] system_command: 执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日 [lazy]
+  [+] system_command: 执行快捷系统操作。支持: 查本机/公网IP、打开应用、查询系统信息、进程管理、时 [lazy]
   [+] weather_query: 查询指定城市的天气。传入城市名称(中文)即可，只有国内城市。
 参数 days：不 [lazy]
   [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]

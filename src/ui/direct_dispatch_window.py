@@ -199,18 +199,20 @@ _TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── system_command：execute(action, param="") ──
     "system_command": {
-        "actions": ["get_ip_info", "get_local_ip", "open_calc", "open_notepad",
-                    "open_explorer", "open_browser", "system_info", "get_time",
+        "actions": ["get_ip_info", "get_local_ip", "open_app", "open_calc",
+                    "open_notepad", "open_explorer", "open_browser",
+                    "system_info", "get_time",
                     "list_processes", "disk_usage", "memory_usage",
                     "kill_process", "open_url"],
         "fields": [
             _FieldSpec("param", "param", "string",
-                       placeholder="只对 open_url / open_explorer / kill_process 有意义",
-                       help="其余 action 留空即可"),
+                       placeholder="应用名/exe完整路径、网址、目录、进程名",
+                       help="open_app 填应用名或 exe 路径；其余 action 留空即可"),
         ],
         "intro": (
             "系统预注册命令。真实参数只有 action / param："
-            "open_url 填网址、open_explorer 填目录、kill_process 填进程名/IP。"
+            "open_app 填应用名或 exe 完整路径（成功启动会自动记住路径）、"
+            "open_url 填网址、open_explorer 填目录、kill_process 填进程名/PID。"
         ),
     },
     # ── meme：execute(tag, name, reason) —— 无 action ──

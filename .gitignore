@@ -54,6 +54,9 @@ _test_tmp_dbs/
 .vscode/
 *.swp
 
+# ---- 本机应用路径记忆（★ 1.9.2 app_launcher，因机器而异，不进版本库）----
+data/app_paths.json
+
 # ---- 系统 ----
 Thumbs.db
 desktop.ini

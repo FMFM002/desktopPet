@@ -227,3 +227,31 @@ def find_meme(name: str):
             return m
     return {"file": p.name, "path": p, "pack": "", "pack_name": "",
             "tag": "", "caption": "", "keywords": ""}
+
+
+def describe(meme_or_path) -> str:
+    """★ 1.9.2（用户要求，任务 3）：返回这张表情包的**人话描述**。
+
+    用户原话："传回数据时，增加参数'表情包描述'"。
+    为什么需要：模型挑的时候只看得到文件名（009.webp），它并不知道这张图画的是
+    什么；把描述回传给它，它才能①核对自己挑的图是否跟这轮情绪对得上、
+    ②在需要时把图意说进回复里。日志里排查"发了张莫名其妙的图"也有据可查。
+
+    取值优先级：caption（人工/拼音补的）→ keywords（索引关键词）→
+    包名 pack_name → 兜底空串。
+    """
+    m = None
+    if isinstance(meme_or_path, dict):
+        m = meme_or_path
+    elif meme_or_path:
+        try:
+            m = find_meme(str(meme_or_path))
+        except Exception:
+            m = None
+    if not m:
+        return ""
+    for k in ("caption", "keywords", "pack_name"):
+        v = (m.get(k) or "").strip()
+        if v:
+            return v
+    return ""

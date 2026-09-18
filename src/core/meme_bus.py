@@ -39,15 +39,21 @@ def was_picked_this_turn() -> bool:
     return _picked_this_turn
 
 
-def pick(path, name: str = "", tag: str = "", reason: str = "") -> dict:
-    """工具侧：把挑好的表情包放进待发送"""
+def pick(path, name: str = "", tag: str = "", reason: str = "",
+         desc: str = "") -> dict:
+    """工具侧：把挑好的表情包放进待发送
+
+    ★ 1.9.2：多带一个 desc（表情包描述）—— 主窗口日志里能看出"这次发的图
+    画的是什么"，排查"发了张莫名其妙的图"时有据可查。
+    """
     global _pending, _picked_this_turn
     if _picked_this_turn:
         return {}
     _pending = {"path": str(path), "name": name or str(path).rsplit("\\", 1)[-1].rsplit("/", 1)[-1],
-                "tag": tag or "", "reason": reason or ""}
+                "tag": tag or "", "reason": reason or "", "desc": desc or ""}
     _picked_this_turn = True
-    _log.info(f"[表情包信箱] 待发送: {_pending['name']} (tag={tag or '-'})")
+    _log.info(f"[表情包信箱] 待发送: {_pending['name']} (tag={tag or '-'}"
+              f"{', 描述=' + desc if desc else ''})")
     return dict(_pending)
 
 

@@ -23,7 +23,14 @@
 
 【返回】
   {"success": true, "meme": "009.webp", "path": "...", "tag": "happy",
+   "表情包描述": "比心，甜甜的笑", "description": "（同上，英文别名）",
    "text": "已把表情包 009.webp 放进待发送队列（回复之后单独发一条）"}
+  ★ 1.9.2（用户要求，任务 3）：返回值里多了 **表情包描述** ——
+    挑图时模型只看得见文件名（009.webp），根本不知道这张图画的是什么；
+    把描述回传给它，它才能①核对这张图跟这轮情绪对不对得上、
+    ②需要时把图意写进文字回复里。描述取值优先级：
+    caption（人工补的）→ keywords（索引关键词）→ 包名。
+    没有 caption/keywords 的老素材会退化成包名；都取不到时是空串（不会报错）。
   失败：{"success": false, "error": "..."}
     · tag 空着调用 → 拒绝并列出可选标签（让它重挑，不随机兜底）
     · tag 库里不存在 → 先模糊匹配，仍不行则拒绝并列出可选标签
@@ -51,7 +58,9 @@ TOOL_DESCRIPTION = (
     "shy（害羞/被撩到）；另有 like/see/cpu/color/sleep/work/meow/sigh/"
     "surprised/fool/baka/givemoney/morning 等少量专用标签。\n"
     "name 可选：直接指定文件名（如 009.webp），一般不用。\n"
-    "reason 可选：一句话说明为什么发这张（只记日志）。"
+    "reason 可选：一句话说明为什么发这张（只记日志）。\n"
+    "★ 返回里带「表情包描述」——挑完之后你能看到这张图到底画的是什么，"
+    "可以据此在文字回复里呼应一下，或确认自己没挑错。"
 )
 TOOL_POLICY = "lazy"
 
@@ -222,14 +231,30 @@ def execute(tag: str = "", name: str = "", reason: str = "", **kwargs) -> str:
                                     "请先跑 tools/fetch_memes.py 抓素材。"},
                           ensure_ascii=False)
 
-    _bus.pick(path, name=path.name, tag=picked_tag or "", reason=(reason or "").strip())
+    # ★ 1.9.2（用户要求，任务 3）：先把「表情包描述」取出来，再进信箱、再回传。
+    #   模型挑图时只看得见文件名（009.webp），拿到描述才能核对
+    #   "这张图跟我这轮想表达的情绪对不对得上"。
+    _meme_desc = ""
+    try:
+        _meme_desc = ml.describe(path.name)
+    except Exception as e:
+        _log.debug(f"[表情包工具] 取描述失败（不影响发送）: {e}")
+
+    _bus.pick(path, name=path.name, tag=picked_tag or "",
+              reason=(reason or "").strip(), desc=_meme_desc)
     _log.info(f"[表情包工具] 已选: {path.name} (tag={picked_tag or '-'}"
-              f"{', 理由=' + reason if reason else ''}) → 待回复结束后发送")
+              f"{', 理由=' + reason if reason else ''})"
+              f"{' 描述=' + _meme_desc if _meme_desc else ''} → 待回复结束后发送")
+    _txt = (f"已把表情包 {path.name} 放进待发送队列（tag={picked_tag or '-'}）。"
+            f"你正常输出文字回复即可，回复结束后它会单独发一条。")
+    if _meme_desc:
+        _txt += f" 这张图的描述：{_meme_desc}。"
     return json.dumps({
         "success": True, "action": "meme", "meme": path.name,
         "path": str(path), "tag": picked_tag or "",
-        "text": (f"已把表情包 {path.name} 放进待发送队列（tag={picked_tag or '-'}）。"
-                 f"你正常输出文字回复即可，回复结束后它会单独发一条。"),
+        # ★ 用户点名要的字段：中文名 "表情包描述" 原样给，同时给英文别名 description
+        "表情包描述": _meme_desc, "description": _meme_desc,
+        "text": _txt,
     }, ensure_ascii=False)
 
 

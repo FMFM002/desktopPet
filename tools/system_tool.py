@@ -14,7 +14,7 @@ TOOL_PARAMETERS = {
         "action": {
             "type": "string",
             "enum": [
-                "get_ip_info", "get_local_ip",
+                "get_ip_info", "get_local_ip", "open_app",
                 "open_calc", "open_notepad", "open_explorer", "open_browser",
                 "system_info", "get_time",
                 "list_processes", "disk_usage", "memory_usage",
@@ -25,6 +25,8 @@ TOOL_PARAMETERS = {
                 "- get_ip_info: ★推荐。本机内网IP + 公网IP + 归属地"
                 "（国家/省份/城市/运营商/ASN/时区/经纬度）\n"
                 "- get_local_ip: 只要局域网IPv4（ipconfig里那个）\n"
+                "- open_app: ★启动应用(需param=应用名或exe完整路径)。"
+                "会先查长期记忆/注册表/开始菜单，成功启动后自动把exe路径写进长期记忆\n"
                 "- open_calc / open_notepad / open_explorer / open_browser: 打开对应程序\n"
                 "- system_info: 系统信息\n"
                 "- get_time: 当前日期+时间（含星期与周数）\n"
@@ -37,7 +39,7 @@ TOOL_PARAMETERS = {
         },
         "param": {
             "type": "string",
-            "description": "[open_url/open_explorer/kill_process] 额外参数",
+            "description": "[open_app/open_url/open_explorer/kill_process] 额外参数",
         },
     },
     "required": ["action"],
@@ -118,6 +120,23 @@ def _public_ip_info() -> dict:
 
 def execute(action: str, param: str = "") -> str:
     """执行系统操作"""
+
+    if action == "open_app":
+        # ★ 1.9.2（用户要求）：启动任意应用，成功一次就记住 exe 路径。
+        if not param:
+            return ("[错误] open_app 需要 param=应用名或exe完整路径。"
+                    "例如 param=\"QQ\" 或 param=\"D:\\\\Apps\\\\QQ\\\\QQ.exe\"")
+        try:
+            from src.core.app_launcher import launch, known_apps
+        except Exception as e:
+            return f"[错误] 启动器不可用: {e}"
+        ok, text, _proc = launch(param)
+        if not ok:
+            apps = known_apps()
+            if apps:
+                names = ", ".join(a["name"] for a in apps[:15])
+                text += f"\n（长期记忆里已有这些应用：{names}）"
+        return text
 
     if action == "get_ip_info":
         # ★ 1.9.2（用户要求）：一次查全 —— 内网IP + 公网IP + 完整归属地

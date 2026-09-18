@@ -2494,11 +2494,17 @@ _sw3 = _SW3()
 _sw3.show()
 for _ in range(10):
     app.processEvents()
+# ★ 1.9.2：system_command 的 action 数改成**从真实 schema 读**，不再写死 13。
+#   写死的代价：1.9.2 加了 open_app（13→14）就假红一次，而这条断言真正想查的
+#   是「设置页读的是 ToolManager 的 schema」而不是具体几个。
+import tools.system_tool as _st_mod                                  # noqa: E402
+_st_n = len(_st_mod.TOOL_PARAMETERS["properties"]["action"]["enum"])
 _expect = {"bilibili_video": 3, "file_ops": 8, "knowledge_graph": 8,
-           "system_command": 13, "pixiv": 5, "office": 8}
+           "system_command": _st_n, "pixiv": 5, "office": 8}
 _bad = {n: len(_sw3._tool_actions(n)) for n, k in _expect.items()
         if len(_sw3._tool_actions(n)) != k}
 check("★文件名对不上的那 6 个工具也能列出 action 了", not _bad, str(_bad))
+check("★system_command 的 action 数取自真实 schema（不写死）", _st_n >= 13, str(_st_n))
 check("★_tool_actions 改成读 ToolManager 的 schema（不再猜文件名）",
       "self._tool_manager.get_tool(name)" in _sws)
 check("★没有 action 参数的工具会说明原因（不再像出 bug）",
