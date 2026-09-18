@@ -286,11 +286,11 @@
   PASS  ★待机计时器也走同一个入口（「范围内随机」那条来源）
 
 == ★主动说话（带性格 + 进程上下文 + 注入同一会话）==
-  PASS  ★进程上下文：最近启动 + 占内存最多 各 3 个（psutil，独立实现在本模块）   【用户当前在用什么】 - 最近启动的程序: python.exe(892MB)、powershell.exe(91MB)、node.exe(
+  PASS  ★进程上下文：最近启动 + 占内存最多 各 3 个（psutil，独立实现在本模块）   【用户当前在用什么】 - 最近启动的程序: python.exe(892MB)、powershell.exe(84MB)、node.exe(
   PASS  ★性格取自**当前角色**（不再是硬编码「铃兰」）   你的名字是「deepseek」，下面是你的性格设定（照着说话）：
 你是 deep seek，蓝色大肥
   PASS  ★主动说话改成注入会话（on_idle_trigger），老的单次调用保留为兜底
-  PASS  ★触发语带「自动工具触发」+ 进程背景（一行，不再塞性格）   165 字符
+  PASS  ★触发语带「自动工具触发」+ 进程背景（一行，不再塞性格）   167 字符
   PASS  ★主窗口把主动说话接进会话（idle_trigger 信号回主线程 + 工具条目注入）
 
 == ★tools功能.txt（你说的「写一份 tools 功能说明」）==
@@ -364,7 +364,7 @@
   PASS  ★【行为控制】也进了提示词（表情包倾向 + 优先情绪）
 
 == ★表情包改成 tool（你说的方案：调用一次 → 待发送 → 回复后发）==
-  PASS  ★meme 工具能挑一张并进入待发送状态   {'success': True, 'action': 'meme', 'meme': '154.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS
+  PASS  ★meme 工具能挑一张并进入待发送状态   {'success': True, 'action': 'meme', 'meme': '112.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS
   PASS  ★一轮只生效一次（重复调用被拒，不会来回换）
   PASS  ★take_pending 取走后就空了（主窗口回复结束后取）
   PASS  ★可以按文件名直接指定
@@ -378,7 +378,7 @@
   PASS  ★空参调用 `meme({})` 被拒（不再随机兜底 → 图和回复脱钩）   {'success': False, 'error': 'tag 是必填的，不能空着调用。请根据你这次回复想表达的情绪选一个标签后再调用一次。可选：happy/daily/angry/confused/sad/shy/b
   PASS  ★拒绝时会列出真实存在的标签（模型才知道重挑什么）
   PASS  ★自己编的标签被拒（不退化成全库随机）   {'success': False, 'error': '没有「绝不存在的标签xyz」这个标签的表情包，别自己造标签。请换成这些里的一个再调用：happy/daily/angry/confused/sad/shy/bak
-  PASS  ★标签大小写不敏感 / 能模糊匹配到真实标签   {'success': True, 'action': 'meme', 'meme': '083.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\dat
+  PASS  ★标签大小写不敏感 / 能模糊匹配到真实标签   {'success': True, 'action': 'meme', 'meme': '097.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\dat
   PASS  ★available_tags 读的是真实索引（不是硬编码）   ['happy', 'daily', 'angry', 'confused', 'sad', 'shy', 'baka', 'color']
   PASS  ★工具被 ToolManager 扫到（14 个工具，含 meme）
   PASS  ★主窗口：回复结束后优先发 meme 工具选的，老协议留作兜底
@@ -386,7 +386,7 @@
   PASS  ★提示词改成让 LLM 调 meme 工具（不再靠 JSON 协议）
 
 == ★主动说话：不再注入一大段（性格交给系统提示词）==
-  PASS  ★触发语很短（以前把整套性格设定都塞进去，聊天里像用户发了一大段）   165 字符
+  PASS  ★触发语很短（以前把整套性格设定都塞进去，聊天里像用户发了一大段）   167 字符
   PASS  ★仍带三要素：自动工具触发 / 没理你 / 进程背景（一行）
   PASS  ★不再把整段 persona 塞进消息（交给会话的系统提示词）
 

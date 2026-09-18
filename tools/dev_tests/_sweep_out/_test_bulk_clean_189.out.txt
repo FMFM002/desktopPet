@@ -39,9 +39,9 @@
   PASS  机械清洗 < 重复合并 < LLM   1001 < 1395 < 2182
 
 == 10. 真实库上跑一遍取数（只读）==
-  真实积压 = 47 条
-  _fetch_uncleaned(limit=100) -> 47 条
-  _fetch_uncleaned(limit=500) -> 47 条
-  PASS  真实库取数不丢行（返回 = min(积压, limit)）   积压 47
+  真实积压 = 10 条
+  _fetch_uncleaned(limit=100) -> 10 条
+  _fetch_uncleaned(limit=500) -> 10 条
+  PASS  真实库取数不丢行（返回 = min(积压, limit)）   积压 10
 
 ==== 结果: 21 PASS / 0 FAIL ====

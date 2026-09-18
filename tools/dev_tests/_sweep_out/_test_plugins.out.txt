@@ -1,14 +1,14 @@
 == office 工具 ==
-  [PASS] create xlsx  已创建文档: 自检表格_4448_1789744770.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_444
-  [PASS] create docx  已创建文档: 自检文档_4448_1789744770.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_444
-  [PASS] create pptx  已创建文档: 自检幻灯_4448_1789744770.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_444
-  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_4448_1789744770.docx', '自检幻灯_4448_1789744770.pptx', '自检表格_4448_1789744770.xlsx']
-  [PASS] view pptx  文档 自检幻灯_4448_1789744770.pptx 的 outline:
+  [PASS] create xlsx  已创建文档: 自检表格_24844_1789746510.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_24
+  [PASS] create docx  已创建文档: 自检文档_24844_1789746510.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_24
+  [PASS] create pptx  已创建文档: 自检幻灯_24844_1789746510.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_24
+  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_24844_1789746510.docx', '自检幻灯_24844_1789746510.pptx', '自检表格_24844_1789746510.xlsx']
+  [PASS] view pptx  文档 自检幻灯_24844_1789746510.pptx 的 outline:
 {
   "success": true,
   "data": {
-    "fileName": "自检幻灯_4448_1789744770
-  [PASS] add slide  已添加到 自检幻灯_4448_1789744770.pptx: /
+    "fileName": "自检幻灯_24844_17897465
+  [PASS] add slide  已添加到 自检幻灯_24844_1789746510.pptx: /
 路径: N/A
 == file_ops 工具 ==
   [PASS] write  ✅ 已写入 data\桌宠私有data\自检文件.txt (22 字节)
@@ -39,7 +39,7 @@ gen_pdf.py:10:     "(Hello FM, this is a test
   [PASS] system get_local_ip  本机IP: 10.35.173.200
 主机名: FMs
 说明: 这是局域网IPv4地址（ipconfig里那个）
-  [PASS] weather 离线不崩（可能报网络错误）  重庆天气: 小雨, 温度22°C, 体感22°C, 湿度92%, 风力2级
+  [PASS] weather 离线不崩（可能报网络错误）  重庆天气: 阴, 温度21°C, 体感22°C, 湿度94%, 风力2级
   [PASS] web_search 不崩（可能无 key）  搜索'测试':
 1. 测试- 维基百科，自由的百科全书
    跳转到内容
@@ -67,7 +67,7 @@ gen_pdf.py:10:     "(Hello FM, this is a test
   [PASS] shell 正常命令  命令: echo prts_ok
 工作目录: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0
 退出码: 0
-耗时: 15ms
+耗时: 18ms
 
 --- STDOUT ---
   [PASS] shell 拦截破坏性命令  [拒绝] 沙箱限制：禁止向只读区域写入/修改: C:\Windows\Temp\x.txt

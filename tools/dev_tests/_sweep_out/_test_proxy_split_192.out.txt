@@ -1,0 +1,45 @@
+
+== A. 代理配置读取 ==
+  [PASS] ★有 proxy_url / proxies_dict / mode / clean_env / advice
+        当前读到: http://127.0.0.1:7897  mode=app-proxy
+  [PASS] ★能读到 .env 里的代理（本机 .env 有 PIXIV_PROXY=127.0.0.1:7897）
+  [PASS] ★proxies_dict 结构与 requests/jmcomic 期望一致
+  [PASS] ★mode() 与是否配了代理一致
+  [PASS] ★PRTS_PROXY 优先于 PIXIV_PROXY
+  [PASS] ★自己兜底读 .env（不依赖别处的 load_dotenv 时机）
+  [PASS] ★★显式设 PRTS_PROXY 时以它为准
+
+== B. ★ aria2c 被强制直连（这是 BT 能用的前提） ==
+  [PASS] ★★clean_env 摘掉了所有代理环境变量
+  [PASS] ★clean_env 保留了其它环境变量（不是清空 os.environ）
+  [PASS] ★★参数里有 --all-proxy=（显式置空 = 直连）
+  [PASS] ★★参数里有 --no-proxy=*
+  [PASS] ★★start_bt 用 clean_env() 启动 aria2c（不继承宿主代理）
+  [PASS] ★注释写明了「aria2 会读 http_proxy 环境变量」这个坑
+  [PASS] ★注释写明了 BT peer 不支持代理（协议层限制）
+
+== C. ★ jmcomic：从「硬编码不走代理」改成「可配」 ==
+  [PASS] ★★旧的无条件硬编码已去掉（原注释「禁用系统代理，避免走本地代理导致下载失败」）
+  [PASS] ★★改成读 net_proxy.proxies_dict()
+  [PASS] ★仍保留兜底（读配置失败才退回 None，不是把保护彻底删掉）
+  [PASS] ★注释说明了这就是「必须靠系统 VPN」的根因
+  [PASS] ★★实际加载后 DEFAULT_PROXIES 反映配置（配了就带 http/https）
+
+== D. 状态查询会把方案一并回报 ==
+  [PASS] ★engine_info 带 app_proxy
+  [PASS] ★engine_info 带 bt_direct_forced=True
+  [PASS] ★★engine_info 带 advice（用户一问状态就能看到怎么办）
+  [PASS] ★advice 给出了规则分流的具体写法
+  [PASS] ★advice 解释了「为什么 BT 不能走代理」
+  [PASS] ★advice 会在检测到系统代理环境变量时提醒
+  [PASS] ★download(action=bt_engine) 也能拿到这些字段
+
+== E. 文档与注释 ==
+  [PASS] ★.env.example 里新增了 PRTS_PROXY 并解释了分流
+  [PASS] ★.env.example 说明了 BT 必须直连的原因
+  [PASS] ★net_proxy 模块头写清了完整方案（含 Clash 规则示例）
+  [PASS] ★注明了那条限制的来源（aria2 issue #1401）
+
+============================================================
+★ 1.9.2 任务11 代理分流：30 PASS / 0 FAIL
+============================================================

@@ -33,11 +33,11 @@
 
 == F. 同类隐患清单（调研结论：还有哪些 LAZY 工具持有未保护的模块级状态） ==
   [PASS] ★endfield_tool 用了包级 get_session（不再裸放模块级可变状态）
-  [PASS] ★endfield_tool._login_lock 的值来自会话（不是裸的字面量或新建 Lock）
   [PASS] ★endfield_tool._login_state 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★endfield_tool._login_lock 的值来自会话（不是裸的字面量或新建 Lock）
   [PASS] ★jmcomic_tool 用了包级 get_session（不再裸放模块级可变状态）
-  [PASS] ★jmcomic_tool._download_tasks 的值来自会话（不是裸的字面量或新建 Lock）
   [PASS] ★jmcomic_tool._download_lock 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★jmcomic_tool._download_tasks 的值来自会话（不是裸的字面量或新建 Lock）
 
 == G. ★★ RESIDENT 工具必须绑「正式模块」，不能绑「扫描副本」 ==
   [PASS] ★能读到 long_term_memory 工具（不管当前策略是什么）

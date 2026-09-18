@@ -168,6 +168,14 @@ def build_bt_args(aria2: str, target: str, save_dir: Path,
         "--no-file-allocation-limit=64M",
         "--max-file-not-found=10",
         "--content-disposition-default-utf8=true",
+        # ★★ 1.9.2 任务 11（VPN 冲突方案）：**强制直连**。
+        #   原因：aria2 会读 `http_proxy`/`all_proxy` 环境变量；如果宿主的代理
+        #   客户端设了全局代理，aria2 会把 tracker 请求塞进代理 —— 而 BT 的
+        #   peer 连接**协议层不支持代理**（aria2 的代理选项只管 HTTP/HTTPS/FTP），
+        #   且代理出口是机房 IP、tracker 会拒 → 结果"tracker 能连、peer 全连不上"，
+        #   极难排查。这里显式清空，配合 start_bt() 里的 clean_env()。
+        "--all-proxy=",
+        "--no-proxy=*",
     ]
     # ★ CA 证书包（有就带，没有不硬报错 —— 也许用户用的是别的 TLS 后端构建）
     if CA_BUNDLE.exists():
@@ -225,6 +233,12 @@ def start_bt(target: str, save_dir: Path, seed_time: int = 0,
     kwargs = {}
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # ★ 1.9.2 任务 11：用「摘掉代理」的环境启动 aria2c（强制直连，见上方说明）
+    try:
+        from src.core.net_proxy import clean_env as _clean_env
+        kwargs["env"] = _clean_env()
+    except Exception as e:
+        _log.debug(f"清理 aria2c 代理环境失败（继续）: {e}")
     try:
         proc = subprocess.Popen(args, cwd=str(save_dir), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True,
@@ -329,8 +343,21 @@ def stop_bt(jid: str) -> dict:
 
 
 def engine_info() -> dict:
-    """给状态查询/排查用：引擎在不在、参数长什么样。"""
+    """给状态查询/排查用：引擎在不在、参数长什么样、代理怎么分流。"""
     a = find_aria2()
+    # ★ 1.9.2 任务 11：把"BT 与 P站/JM 的 VPN 冲突"方案一并回报，
+    #   用户一问进度/状态就能看到该怎么办（不用翻日志）。
+    try:
+        from src.core import net_proxy as _np
+        _proxy = _np.proxy_url()
+        _sysp = _np.system_proxy_env()
+        _advice = _np.advice()
+    except Exception:
+        _proxy, _sysp, _advice = "", {}, ""
     return {"found": bool(a), "path": a,
             "local_dir": str(ARIA2_LOCAL_DIR),
+            "app_proxy": _proxy,
+            "system_proxy_env": list(_sysp.keys()),
+            "bt_direct_forced": True,
+            "advice": _advice,
             "hint": "" if a else aria2_hint()}

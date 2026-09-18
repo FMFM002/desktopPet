@@ -122,8 +122,24 @@ def _ensure_jmcomic():
         from jmcomic import JmModuleConfig
         # 自动更新域名（内置域名可能过期）
         JmModuleConfig.FLAG_API_CLIENT_AUTO_UPDATE_DOMAIN = True
-        # 禁用系统代理，避免走本地代理导致下载失败
-        JmModuleConfig.DEFAULT_PROXIES = None
+        # ★ 1.9.2 任务 11（用户批注："下载BT和P站JM工具因为VPN冲突，有没有便捷的方案"）：
+        #   这里原来是硬编码的 `DEFAULT_PROXIES = None`（注释写"禁用系统代理，
+        #   避免走本地代理导致下载失败"）。后果是 JM **只能**靠系统级 VPN 才能上 ——
+        #   而系统级 VPN 一开，BT 就完了（BT 的 peer 连接协议层不支持代理，
+        #   且代理出口是机房 IP、tracker 会拒），这就是你遇到的冲突。
+        #
+        #   现在改成**可配置的应用级代理**：读 .env 的 PRTS_PROXY（兼容
+        #   PIXIV_PROXY），配了就只让 JM 自己走这个本地代理端口，
+        #   于是**不用开系统 VPN**，BT 也能直连。原理见 src/core/net_proxy.py。
+        try:
+            from src.core.net_proxy import proxies_dict as _pd
+            _proxies = _pd()
+            JmModuleConfig.DEFAULT_PROXIES = _proxies or None
+            _log.info("JMComic 代理: %s",
+                      _proxies.get("http") if _proxies else "直连（未配 PRTS_PROXY）")
+        except Exception as _e:
+            JmModuleConfig.DEFAULT_PROXIES = None
+            _log.debug("读代理配置失败，JM 走直连: %s", _e)
         _log.info("JMComic 加载成功 (v%s)", getattr(_jm, '__version__', 'unknown'))
         return _jm
     except ImportError as e:
