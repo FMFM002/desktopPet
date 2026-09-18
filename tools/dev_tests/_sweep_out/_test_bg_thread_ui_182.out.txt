@@ -2,9 +2,9 @@
   PASS  QTimer.singleShot（后台线程）确实不触发 —— 这就是老 bug   fired=[]
 
 == 2. _TaskSignalRelay：跨线程 Signal 回主线程 ==
-  PASS  system_msg 已送达   [('[文档读取完成] 探针.pptx (123 字符)', 9396)]
-  PASS  user_msg 已送达   [('[用户上传了文档 探针.pptx]\n内容如下:\n你好世界', 9396)]
-  PASS  回调确实跑在主线程   main=9396 worker=[16640] got=[9396, 9396]
+  PASS  system_msg 已送达   [('[文档读取完成] 探针.pptx (123 字符)', 25520)]
+  PASS  user_msg 已送达   [('[用户上传了文档 探针.pptx]\n内容如下:\n你好世界', 25520)]
+  PASS  回调确实跑在主线程   main=25520 worker=[29008] got=[25520, 25520]
   PASS  回调内容与发送内容一致
 
 == 3. 源码静态检查 ==
@@ -26,11 +26,11 @@
 
 == 4. 真实 pptx 端到端：抽取 → 回主线程 → 拿到内容 ==
   PASS  测试用 pptx 存在   D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\deepseek_intro.pptx
-  PASS  文档抽取发出了 system_msg   [('[deepseek_intro.pptx 读取完成：text]', 9396)]
+  PASS  文档抽取发出了 system_msg   [('[deepseek_intro.pptx 读取完成：text]', 25520)]
   PASS  文档抽取发出了 user_msg（内容送进对话）   1 条
   注入对话的正文长度: 776 字符
   前 120 字: '[[FILE:D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\data\\桌宠私有data\\office\\pptx\\deepseek_intro.pptx|15.0KB|用户上传]]\n[用户上传了文件 deepseek'
-  PASS  回调跑在主线程   got=9396 main=9396
+  PASS  回调跑在主线程   got=25520 main=25520
   PASS  消息里带绝对路径
   PASS  确实是文档内容（非空）   776 字符
   PASS  内容来自后台线程

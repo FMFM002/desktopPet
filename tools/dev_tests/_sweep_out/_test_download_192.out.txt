@@ -1,0 +1,116 @@
+  测试服务器: http://127.0.0.1:53920/testfile.bin  (3MB, sha256=2aaf7ee362f5…)
+
+== A. 模块结构与参数（对 LLM 暴露的新能力） ==
+  [PASS] ★导出 download_url()
+  [PASS] ★导出 execute()
+  [PASS] ★导出 _probe()
+  [PASS] ★导出 _plan_segments()
+  [PASS] ★导出 _auto_threads()
+  [PASS] ★导出 _from_content_disposition()
+  [PASS] ★导出 _load_ctrl()
+  [PASS] ★导出 _save_ctrl()
+  [PASS] ★导出 _seg_worker()
+  [PASS] ★导出 _unique()
+  [PASS] ★导出 _ctrl_path()
+  [PASS] ★新增 threads 参数（分段并发）
+  [PASS] ★新增 resume 参数（断点续传）
+  [PASS] ★新增 max_mb 参数（大小上限）
+  [PASS] ★保留原有 url/filename/bucket/referer
+  [PASS] ★url 仍是唯一必填
+  [PASS] ★TOOL_DESCRIPTION 说明了分段/续传
+  [PASS] ★说明里点名参考了 Motrix
+  [PASS] ★沿用 .part 不完整标记（Motrix 是 .motrix）
+  [PASS] ★沿用 .aria2 控制文件命名（照 Motrix）
+  [PASS] ★重试/退避常量照 aria2 的 max-tries / retry-wait
+
+== B. 分段规划（照 segment-downloader 的均分思路） ==
+  [PASS] ★3MB 分 4 段 → 4 段
+  [PASS] ★各段首尾相接、不重叠
+  [PASS] ★最后一段正好到文件末尾
+  [PASS] ★覆盖全部字节
+  [PASS] ★小于 1MB 不分段（分段开销不划算）
+  [PASS] ★总长未知 → 不分段
+  [PASS] ★并发数被 MAX_THREADS 夹住
+  [PASS] ★小文件自动单线程
+  [PASS] ★中等文件自动 2 线程
+  [PASS] ★大文件自动多线程
+  [PASS] ★大小未知自动单线程
+
+== C. 文件名：Content-Disposition（照 final-name-picker 的取名规则） ==
+  [PASS] ★RFC 5987 的 filename*=UTF-8''… 能解码
+  [PASS] ★普通 filename="…" 能取
+  [PASS] ★不带引号的 filename 能取
+  [PASS] ★没有 Content-Disposition → 空串
+  [PASS] ★只有 attachment 没 filename → 空串
+  [PASS] ★服务端给了文件名 → 就用它
+  [PASS] ★下载内容正确（sha256 一致）
+
+== D. ★分段并发下载真的生效（不是单流） ==
+  [PASS] ★分段下载成功
+  [PASS] ★★确实切成了 4 段并发
+  [PASS] ★★走的是分段模式（不是单流）
+  [PASS] ★★服务端收到多个 Range 请求（证明是分段拉的）
+  [PASS] ★★下载内容与源文件逐字节一致（sha256 校验）
+  [PASS] ★文件大小正确
+  [PASS] ★返回里有速度与耗时（照 Motrix 的进度信息）
+  [PASS] ★完成后不留 .part
+  [PASS] ★完成后不留 .aria2 控制文件
+  [PASS] ★★分段写入的偏移没串（每字节都对）
+  [PASS] ★threads=1 时不分段（1 段）
+  [PASS] ★单段下载内容仍正确
+
+== E. ★断点续传（.part + .aria2 控制文件） ==
+  [PASS] ★★续传后成功
+  [PASS] ★★续传后内容完整（sha256 一致，说明复用的一半是对的）
+  [PASS] ★★只请求了缺的那 2 段（服务端发出的字节 = 全量 − 已下的一半）
+  [PASS] ★★没有重新请求已完成的分段
+        续传实测: 已下 1572864B，本轮只发 1572864B，全量 3145728B
+  [PASS] ★★中断时返回失败（不是假装成功）
+  [PASS] ★★明确告知可续传
+  [PASS] ★★留下了 .part 文件（不完整标记）
+  [PASS] ★★控制文件 .aria2 也留下了
+  [PASS] ★提示里告诉模型「再调用一次即可续传」
+  [PASS] ★★控制文件记了 URL / 总长 / 分段
+  [PASS] ★★控制文件记了已完成的分段下标
+  [PASS] ★★断流后续传成功
+  [PASS] ★★续传后内容完整（sha256 一致）
+  [PASS] ★★续传后 .part 已清掉
+  [PASS] ★★续传后控制文件也清掉
+  [PASS] ★先造一个不完整的 .part
+  [PASS] ★resume=False 时不续传但也必须下对（从零重来）
+  [PASS] ★★控制文件 URL 对不上时作废（不会拿错文件的进度续）
+
+== F. ★重试 + 退避（照 aria2 max-tries / retry-wait） ==
+  [PASS] ★★服务端前 2 次返回 500，重试后仍然成功
+  [PASS] ★★重试后内容正确
+  [PASS] ★一直失败 → 有限次后返回失败（不死循环）
+  [PASS] ★失败返回里有原因
+  [PASS] ★退避是等过的（retries=1 至少要等 RETRY_WAIT）
+
+== G. 服务器不支持 Range → 自动退化成单流 ==
+  [PASS] ★不支持 Range 时仍能下成功
+  [PASS] ★走的是单流模式
+  [PASS] ★单流内容正确（不是半个文件）
+
+== H. 文件名去重 / 上限 / 参数校验 ==
+  [PASS] ★★重名不覆盖，按 Motrix 的 ` (n)` 格式加序号
+  [PASS] ★超过 max_mb 时拒绝并说明
+  [PASS] ★拒绝时不给假文件路径
+  [PASS] ★非 http/https 被拒
+  [PASS] ★空 url 被拒
+  [PASS] ★404 时返回失败而不是空文件
+  [PASS] ★文件名里的路径分隔符被清掉
+  [PASS] ★execute() 返回可解析的 JSON
+  [PASS] ★execute() 结果字段齐全（file_path/is_image/message…）
+
+== I. 源码约束（防止以后被改回单流） ==
+  [PASS] ★用 ThreadPoolExecutor 并发
+  [PASS] ★发 Range 头
+  [PASS] ★处理 206 Partial Content
+  [PASS] ★有指数退避
+  [PASS] ★完成后 .part → 正式名（replace）
+  [PASS] ★注释里写明了对着 Motrix 的哪个文件抄的
+
+============================================================
+★ 1.9.2 任务8 download 升级（参考 Motrix）：92 PASS / 0 FAIL
+============================================================

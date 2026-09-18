@@ -1101,8 +1101,16 @@ class MainWindow:
         self._last_assistant_text += text
 
     def _on_thinking_safe(self, text: str):
-        """★ 1.5.0: LLM 思考流增量 → 形象线程（思考 GIF）"""
+        """★ 1.5.0: LLM 思考流增量 → 形象线程（思考 GIF）
+
+        ★ 1.9.2（用户任务 4）：同时喂给聊天窗口里那个「思考 / 系统信息」子窗口。
+        走 Signal（跨线程安全），面板高度自适应、5 排字封顶。
+        """
         self.pet_mgr.on_thinking_delta(text)
+        try:
+            self.chat.think_delta_in.emit(text)
+        except Exception as e:
+            _log.debug(f"[思考面板] 写入增量失败: {e}")
 
     def _on_thinking_done_safe(self):
         """★ 1.5.0: 思考结束 → 形象线程立刻按思考内容切换 GIF"""
@@ -1133,17 +1141,31 @@ class MainWindow:
         arg_short = arg_str[:120] + ("..." if len(arg_str) > 120 else "")
         # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg （不可用 QTimer，非 Qt 线程无事件循环）
         self.chat.system_msg_in.emit(f"[调用: {tool_name}({arg_short})]")
+        # ★ 1.9.2（用户任务 4）：系统信息也进「思考 / 系统信息」子窗口
+        try:
+            self.chat.think_in.emit(f"[系统] 调用 {tool_name}({arg_short})", "system")
+        except Exception as e:
+            _log.debug(f"[思考面板] 写入工具调用失败: {e}")
 
     def _on_tool_display(self, tool_name: str, arg_short: str):
         _log.info(f"工具调用: {tool_name}({arg_short[:80]})")
         self.tool_log.add_log(f"调用: {tool_name}({arg_short[:100]})", "tool_call")
         self.chat.append_system_msg(f"[调用: {tool_name}({arg_short})]")
+        try:
+            self.chat.think_write(f"[系统] 调用 {tool_name}({arg_short})", "system")
+        except Exception as e:
+            _log.debug(f"[思考面板] 写入工具调用失败: {e}")
         self._reposition_windows()
 
     def _on_tool_result_safe(self, tool_name: str, result: str):
         short = result[:120] + ("..." if len(result) > 120 else "")
         # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg
         self.chat.system_msg_in.emit(f"[{tool_name} 返回]: {short}")
+        # ★ 1.9.2（用户任务 4）：工具返回也进「思考 / 系统信息」子窗口
+        try:
+            self.chat.think_in.emit(f"[系统] {tool_name} 返回: {short}", "system")
+        except Exception as e:
+            _log.debug(f"[思考面板] 写入工具结果失败: {e}")
 
         # ★ file_ops 的 send_file 操作 — 自动显示文件卡片（优先处理，避免双重触发）
         if tool_name == "file_ops":
@@ -1182,6 +1204,10 @@ class MainWindow:
         self.tool_log.add_log(f"结果 [{tool_name}]: {result[:200]}", "tool_result")
         short = result[:120] + ("..." if len(result) > 120 else "")
         self.chat.append_system_msg(f"[{tool_name} 返回]: {short}")
+        try:
+            self.chat.think_write(f"[系统] {tool_name} 返回: {short}", "system")
+        except Exception as e:
+            _log.debug(f"[思考面板] 写入工具结果失败: {e}")
 
     def _on_endfield_login_done(self, ok: bool, message: str, role: dict):
         """★ 1.6.0: 终末地扫码登录结果 → 聊天窗口（回调来自后台线程，走信号）"""

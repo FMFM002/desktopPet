@@ -21,7 +21,7 @@
   [PASS] 登录码已落盘为 PNG  D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\endfield\login_qrcode.png
   [PASS] 是合法 PNG（魔数）  b'\x89PNG\r\n\x1a\n'
   [PASS] 二维码尺寸合理（≥128 且为正方形）  256×256
-  [PASS] 二维码不是空白图（深浅比例 10%~70%）  深色占比 34.7%
+  [PASS] 二维码不是空白图（深浅比例 10%~70%）  深色占比 34.3%
   [PASS] 登录会话进行中  {'logged_in': False, 'role': {}, 'login_running': True, 'login_status': 'pending', 'last_result': ''}
   [PASS] 重复发起时复用同一会话  {'success': True, 'already_running': True, 'qrcode': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA
 == 5. 退出登录清理 ==
