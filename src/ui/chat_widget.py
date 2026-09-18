@@ -297,6 +297,9 @@ class ChatWidget(QWidget):
     # ★ 鼠标缩放结束（新宽度, 新高度）
     resized = Signal(int, int)
 
+    # ★ 1.9.2: 保留最近多少个思考面板（用户只看得到最近几轮 → 有界，不随会话增长）
+    MAX_THINK_PANELS = 12
+
     DEFAULT_WIDTH = 420
     DEFAULT_HEIGHT = 640
     MIN_WIDTH = 340
@@ -484,11 +487,11 @@ class ChatWidget(QWidget):
         #   它是 _chat_display.viewport() 的**真子控件**（不是画在富文本里），
         #   位置由文档里的一张占位图决定 → 跟着消息流一起滚；
         #   内部有自己的 QScrollArea → 内层能独立滚（富文本做不到这个）。
-        self._think_panel = None
-        self._think_anchor_pos = -1
-        self._think_img_fmt = None
+        #   ★ 用户 22:05 修订：**每轮一个**（不是全程共用一个）。
+        self._think_panels: list = []      # [{"key","panel","fmt"}]
+        self._think_current = None         # 本轮正在写的那一个
         self._chat_display.verticalScrollBar().valueChanged.connect(
-            self._reposition_think_panel)
+            self._reposition_think_panels)
         self._chat_display.installEventFilter(self)
 
         # 输入区
@@ -774,12 +777,12 @@ class ChatWidget(QWidget):
         # ★ 1.9.2（用户任务 4）：聊天区尺寸变了 → 思考面板的宽度/位置也跟着算一遍
         elif obj is getattr(self, "_chat_display", None) and event.type() == QEvent.Resize:
             try:
-                if self._think_panel is not None:
+                if self._think_panels:
                     w = self._panel_width()
-                    self._think_panel.setFixedWidth(w)
-                    self._think_panel._relayout_height()
-                    self._sync_think_anchor()
-                    self._reposition_think_panel()
+                    for _e in list(self._think_panels):
+                        _e["panel"].setFixedWidth(w)
+                        _e["panel"]._relayout_height()
+                    self._on_think_rendered()
             except Exception as e:
                 _log.debug(f"思考面板随聊天区重排失败: {e}")
         return super().eventFilter(obj, event)
@@ -1328,6 +1331,10 @@ class ChatWidget(QWidget):
 
     def _append_message(self, role: str, text: str):
         """插入一条消息（★ 1.9.0: 同时登记气泡区间）"""
+        # ★ 1.9.2: 桌宠正文出现 = 本轮结束 → 把本轮的思考面板封口，
+        #   下一轮第一次思考写入时会自动开一个新面板（"每轮都出现"的关键）
+        if role == "assistant":
+            self._seal_think_panel()
         self._chat_display.moveCursor(QTextCursor.End)
         _start = self._chat_display.textCursor().position()
         self._chat_display.insertHtml(self._render_message_html(role, text))
@@ -1339,6 +1346,8 @@ class ChatWidget(QWidget):
         self._stream_buffer += text
         if self._last_role != "assistant":
             self._last_role = "assistant"
+            # ★ 1.9.2: 正文开始流式输出 = 本轮思考结束 → 封口，下一轮另开一个面板
+            self._seal_think_panel()
             self._chat_display.moveCursor(QTextCursor.End)
             self._stream_start = self._chat_display.textCursor().position()
             # ★ 1.9.0: 流式这条只登记一次区间，之后每帧更新 end
@@ -1417,37 +1426,132 @@ class ChatWidget(QWidget):
     #
     # 高度变化时改占位图的 height（QTextImageFormat），文档会自动重排，
     # 不需要重画整段 HTML。
+    #
+    # ★★ 1.9.2 修订（用户 22:05 的批注）：「我要的不是只有一个，是每次
+    #    "用户信息" + "思考/系统信息子窗口" + "LLM回复（包括文件，表情包）"，
+    #    如果没做完，那么后面继续 + "思考/系统信息子窗口" + "LLM回复"」
+    #    —— 原实现在整个会话里**只建了一个面板**并一直复用（永远停在文档末尾），
+    #    所以用户"只看到一眼，后面就再也每出现过了"。
+    #    现在改成**每轮一个**：
+    #        用户消息 → [本轮面板 A] → LLM 回复
+    #                  → [下一轮面板 B] → LLM 回复 …
+    #    · 新面板在"本轮第一次思考/系统写入"时按需创建，插在当前文档末尾；
+    #    · LLM 的**正文**开始流式输出 = 本轮结束 → 封口（seal）；下一次思考
+    #      写入会自动开一个新面板；
+    #    · 于是"没做完就继续"天然成立（工具轮之间会再开一个面板）；
+    #    · 只保留最近 MAX_THINK_PANELS 个（旧的连占位图一起摘掉），
+    #      不让它随会话无限增长。
+    #
+    # ★ 命名而不是存"位置"：每个占位图用**唯一资源名** prts-think-<seq>，
+    #   找 anchor 时按名字扫文档。因为一旦摘掉旧占位图，后面所有字符位置都会
+    #   平移，存下标必然错位（这是踩过的坑）。
 
-    def _ensure_think_panel(self):
-        """按需创建面板 + 占位图；返回面板。"""
-        if self._think_panel is not None:
-            return self._think_panel
+    _THINK_SEQ = 0
+
+    def _find_think_block(self, key: str):
+        """按占位图的资源名找它所在的 block（不依赖字符位置，抗平移）。"""
+        try:
+            doc = self._chat_display.document()
+            blk = doc.begin()
+            while blk.isValid():
+                it = blk.begin()
+                while not it.atEnd():
+                    f = it.fragment()
+                    if f.isValid() and f.charFormat().isImageFormat():
+                        if f.charFormat().toImageFormat().name() == key:
+                            return blk
+                    it += 1
+                blk = blk.next()
+        except Exception as e:
+            _log.debug(f"找思考面板占位图失败: {e}")
+        return None
+
+    def _new_think_panel(self):
+        """开一轮新的思考面板（占位图插在文档末尾）。返回 panel。"""
         from src.ui.think_panel import ThinkPanel
-        self._think_panel = ThinkPanel(self._chat_display.viewport())
-        self._think_panel.hide()
-        # ★ 1.9.2：渲染完成后统一做"占位图尺寸 + 位置"同步（不再是每个碎片一次）
-        self._think_panel.set_render_hook(self._on_think_rendered)
-
-        # 占位图：1×1 全透明 PNG（内联 base64，不落盘）
         from PySide6.QtGui import QImage, QTextImageFormat
-        _doc = self._chat_display.document()
+
+        ChatWidget._THINK_SEQ += 1
+        key = f"prts-think-{ChatWidget._THINK_SEQ}"
+        panel = ThinkPanel(self._chat_display.viewport())
+        panel.hide()
+        panel.set_render_hook(self._on_think_rendered)
+
+        doc = self._chat_display.document()
         pm = QImage(1, 1, QImage.Format_ARGB32)
         pm.fill(0)
-        _doc.addResource(QTextDocument.ImageResource, QUrl("prts-think-anchor"), pm)
+        doc.addResource(QTextDocument.ImageResource, QUrl(key), pm)
 
         self._chat_display.moveCursor(QTextCursor.End)
         self._chat_display.insertHtml("<br>")
         self._chat_display.moveCursor(QTextCursor.End)
-        self._think_anchor_pos = self._chat_display.textCursor().position()
         fmt = QTextImageFormat()
-        fmt.setName("prts-think-anchor")
+        fmt.setName(key)
         fmt.setWidth(max(80, self._panel_width()))
-        fmt.setHeight(self._think_panel.desired_height())
-        self._think_img_fmt = fmt
-        cur = self._chat_display.textCursor()
-        cur.insertImage(fmt)
+        fmt.setHeight(panel.desired_height())
+        self._chat_display.textCursor().insertImage(fmt)
         self._chat_display.moveCursor(QTextCursor.End)
-        return self._think_panel
+
+        entry = {"key": key, "panel": panel, "fmt": fmt}
+        self._think_panels.append(entry)
+        self._think_current = entry
+        # 超量 → 把最旧的连占位图一起摘掉（用户只看得到最近几轮）
+        while len(self._think_panels) > self.MAX_THINK_PANELS:
+            self._drop_think_panel(self._think_panels[0])
+        return panel
+
+    def _drop_think_panel(self, entry):
+        """摘掉一个旧面板：删占位图字符 + 销毁控件。"""
+        try:
+            blk = self._find_think_block(entry["key"])
+            if blk.isValid():
+                cur = QTextCursor(blk)
+                it = blk.begin()
+                while not it.atEnd():
+                    f = it.fragment()
+                    if f.isValid() and f.charFormat().isImageFormat() \
+                            and f.charFormat().toImageFormat().name() == entry["key"]:
+                        cur.setPosition(f.position())
+                        cur.setPosition(f.position() + f.length(),
+                                        QTextCursor.KeepAnchor)
+                        cur.removeSelectedText()
+                        break
+                    it += 1
+        except Exception as e:
+            _log.debug(f"摘除旧思考面板占位图失败: {e}")
+        try:
+            entry["panel"].hide()
+            entry["panel"].deleteLater()
+        except Exception:
+            pass
+        try:
+            self._think_panels.remove(entry)
+        except ValueError:
+            pass
+        if self._think_current is entry:
+            self._think_current = None
+
+    def _ensure_think_panel(self):
+        """取**本轮**的面板；没有（或已封口）就开一个新的。"""
+        if self._think_current is None:
+            return self._new_think_panel()
+        return self._think_current["panel"]
+
+    def _seal_think_panel(self):
+        """本轮结束（LLM 开始输出正文 / 用户发新消息）→ 封口。
+
+        封口后下一次思考写入会自动开新面板 —— 这就是"每轮都出现"的关键。
+        """
+        entry = self._think_current
+        if entry is None:
+            return
+        try:
+            entry["panel"].flush_now()
+        except Exception:
+            pass
+        if not entry["panel"].is_empty():
+            entry["panel"].show()
+        self._think_current = None
 
     def _panel_width(self) -> int:
         vp = self._chat_display.viewport().width()
@@ -1459,63 +1563,74 @@ class ChatWidget(QWidget):
         由 ThinkPanel 的节拍器每 ~80ms 调一次（以前是每个流式碎片一次，
         而这里的 QTextCursor.setCharFormat 会触发整个 QTextDocument 重排）。
         """
-        if self._think_panel is None:
+        if not self._think_panels:
             return
         try:
-            self._sync_think_anchor()
-            self._reposition_think_panel()
+            for e in list(self._think_panels):
+                self._sync_think_anchor(e)
+            self._reposition_think_panels()
         except Exception as e:
             _log.debug(f"思考面板渲染后同步失败: {e}")
 
-    def _sync_think_anchor(self):
-        """把占位图的尺寸改成面板当前所需（文档重排 → 面板位置也就跟着对）。"""
-        if self._think_panel is None or self._think_img_fmt is None:
-            return
-        self._think_img_fmt.setWidth(self._panel_width())
-        self._think_img_fmt.setHeight(max(1, self._think_panel.desired_height()))
-        doc = self._chat_display.document()
-        blk = doc.findBlock(self._think_anchor_pos)
-        if not blk.isValid():
-            return
-        cur = QTextCursor(blk)
-        # 该 block 里只有一个图片字符（外加可能的块尾）→ 选中它再刷格式
-        it = blk.begin()
-        while not it.atEnd():
-            f = it.fragment()
-            if f.isValid() and f.charFormat().isImageFormat():
-                c = QTextCursor(doc)
-                c.setPosition(f.position())
-                c.setPosition(f.position() + f.length(), QTextCursor.KeepAnchor)
-                c.setCharFormat(self._think_img_fmt)
-                break
-            it += 1
+    def _sync_think_anchor(self, entry=None):
+        """把某个面板的占位图尺寸改成它当前所需（文档重排 → 面板位置也就对了）。"""
+        targets = [entry] if entry is not None else list(self._think_panels)
+        for e in targets:
+            if e is None:
+                continue
+            blk = self._find_think_block(e["key"])
+            if not blk.isValid():
+                continue
+            try:
+                e["fmt"].setWidth(self._panel_width())
+                e["fmt"].setHeight(max(1, e["panel"].desired_height()))
+                it = blk.begin()
+                while not it.atEnd():
+                    f = it.fragment()
+                    if f.isValid() and f.charFormat().isImageFormat() \
+                            and f.charFormat().toImageFormat().name() == e["key"]:
+                        c = QTextCursor(self._chat_display.document())
+                        c.setPosition(f.position())
+                        c.setPosition(f.position() + f.length(),
+                                      QTextCursor.KeepAnchor)
+                        c.setCharFormat(e["fmt"])
+                        break
+                    it += 1
+            except Exception as ex:
+                _log.debug(f"同步思考面板占位图失败: {ex}")
 
-    def _reposition_think_panel(self, *_):
-        p = self._think_panel
-        if p is None or self._think_img_fmt is None or self._think_anchor_pos < 0:
-            return
-        if not p.isVisible():
+    def _reposition_think_panels(self, *_):
+        """把所有面板移到各自占位图的位置（随滚动条/消息流走）。"""
+        if not self._think_panels:
             return
         try:
             doc = self._chat_display.document()
-            blk = doc.findBlock(self._think_anchor_pos)
-            if not blk.isValid():
-                p.hide()
-                return
-            r = doc.documentLayout().blockBoundingRect(blk)
-            x = int(r.x()) - self._chat_display.horizontalScrollBar().value()
-            y = int(r.y()) - self._chat_display.verticalScrollBar().value()
+            layout = doc.documentLayout()
+            dy = self._chat_display.verticalScrollBar().value()
+            dx = self._chat_display.horizontalScrollBar().value()
             w = self._panel_width()
-            if w != p.width():
-                p.setFixedWidth(w)
-                p._relayout_height()
-                self._sync_think_anchor()
-            p.move(max(0, x + 4), y)
+            for e in list(self._think_panels):
+                p = e["panel"]
+                if not p.isVisible():
+                    continue
+                blk = self._find_think_block(e["key"])
+                if not blk.isValid():
+                    p.hide()
+                    continue
+                r = layout.blockBoundingRect(blk)
+                if w != p.width():
+                    p.setFixedWidth(w)
+                    p._relayout_height()
+                p.move(max(0, int(r.x()) - dx + 4), int(r.y()) - dy)
         except Exception as e:
             _log.debug(f"思考面板定位失败: {e}")
 
+    # 兼容旧名（外部/测试仍在调）
+    def _reposition_think_panel(self, *a):
+        self._reposition_think_panels(*a)
+
     def think_write(self, text: str, kind: str = "think"):
-        """★ 对外主入口：往「思考 / 系统信息」面板写一行（跨线程也安全，走信号）。"""
+        """★ 对外主入口：往**本轮**的「思考 / 系统信息」面板写一行。"""
         p = self._ensure_think_panel()
         p.show()
         if kind == "system":
@@ -1542,15 +1657,28 @@ class ChatWidget(QWidget):
 
     def think_flush(self):
         """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。"""
-        if self._think_panel is not None:
-            self._think_panel.flush_now()
+        if self._think_current is not None:
+            self._think_current["panel"].flush_now()
+        else:
+            for e in list(self._think_panels):
+                try:
+                    e["panel"].flush_now()
+                except Exception:
+                    pass
 
     def think_clear(self):
-        """清空面板内容（新话题/新对话时用）；面板本身留着继续用。"""
-        if self._think_panel is not None:
-            self._think_panel.clear()
-            self._sync_think_anchor()
-            self._reposition_think_panel()
+        """清空**所有**思考面板（新话题/新对话时用）。"""
+        for e in list(self._think_panels):
+            try:
+                e["panel"].clear()
+            except Exception:
+                pass
+        self._think_current = None
+        self._reposition_think_panels()
+
+    def think_panel_count(self) -> int:
+        """当前保留的面板数（测试/排查用）—— 应当是"每轮一个"。"""
+        return len(self._think_panels)
 
     def _handle_think_in(self, text: str, kind: str):
         self.think_write(text, kind)
@@ -1881,17 +2009,16 @@ class ChatWidget(QWidget):
         self._stream_start = 0
         self._stream_span = None
         # ★ 1.9.2（用户任务 4）：清空聊天时，思考面板的占位图也跟着没了
-        #   （_chat_display.clear() 会把文档清掉）→ 释放面板并复位锚点，
-        #   下次 think_write 会重新插一张占位图。
-        try:
-            if self._think_panel is not None:
-                self._think_panel.hide()
-                self._think_panel.deleteLater()
-        except Exception:
-            pass
-        self._think_panel = None
-        self._think_img_fmt = None
-        self._think_anchor_pos = -1
+        #   （_chat_display.clear() 会把文档清掉）→ 全部释放并复位，
+        #   下次 think_write 会重新插占位图（每轮一个）。
+        for _e in list(self._think_panels):
+            try:
+                _e["panel"].hide()
+                _e["panel"].deleteLater()
+            except Exception:
+                pass
+        self._think_panels = []
+        self._think_current = None
 
     def reset_stream(self):
         self._last_role = ""

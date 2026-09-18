@@ -2,3 +2,20 @@ QFontDatabase: Cannot find font directory C:/Users/farma/AppData/Local/Programs/
 Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
 This plugin does not support propagateSizeHints()
 This plugin does not support raise()
+[窗口] 触发自愈（全屏程序进/出（前台窗口铺满屏幕），重度）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 130x130 foreground_title= exstyle=0x0 foreground=198056
+        内容快照: gif=在播 当前帧空=False 标签pixmap=130x130 窗口=130x130 上一文件='D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\data\\桌宠形象\\deepseek\\GIF\\启动.gif'
+[窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
+[窗口] 重建分层表面（hide→show，原因：全屏程序进/出（前台窗口铺满屏幕））
+This plugin does not support raise()
+This plugin does not support raise()
+[窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
+[窗口] 自愈完成: gif=在播 当前帧空=False 标签pixmap=130x130 窗口=130x130 上一文件='D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\data\\桌宠形象\\deepseek\\GIF\\启动.gif'
+[窗口] 检测到刚从全屏退出 → 准备强制重显形象
+[窗口] 触发自愈（刚从全屏程序退出（轮询发现），重度）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 130x130 foreground_title=查看两版开发日志并讨论 — DeepSeek Harness 和另外 2 个页面 - 个人 - Microsoft​ Edge exstyle=0x0 foreground=263522
+        内容快照: gif=在播 当前帧空=False 标签pixmap=130x130 窗口=130x130 上一文件='D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\data\\桌宠形象\\deepseek\\GIF\\吃爆米花悠闲.gif'
+[窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
+[窗口] 重建分层表面（hide→show，原因：刚从全屏程序退出（轮询发现））
+This plugin does not support raise()
+This plugin does not support raise()
+[窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
+[窗口] 自愈完成: gif=在播 当前帧空=False 标签pixmap=130x130 窗口=130x130 上一文件='D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\data\\桌宠形象\\deepseek\\GIF\\吃爆米花悠闲.gif'

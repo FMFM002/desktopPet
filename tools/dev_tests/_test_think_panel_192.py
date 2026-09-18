@@ -226,94 +226,176 @@ cw.show()
 for _ in range(6):
     app.processEvents()
 
-check("★初始没有面板（按需创建，不占资源）", cw._think_panel is None)
+
+def _cur(c):
+    """本轮面板（每轮一个之后，取"正在写"的那个）。"""
+    return c._think_current["panel"] if c._think_current else None
+
+
+def _anchors(c):
+    return [e["fmt"] for e in c._think_panels]
+
+
+check("★初始没有面板（按需创建，不占资源）", cw.think_panel_count() == 0)
 check("★聊天区还是 QTextBrowser（没被大改）",
       cw._chat_display.__class__.__name__ == "_RoundedBubbleBrowser")
 
 cw.think_write("[系统] 测试系统信息", "system")
 for _ in range(6):
     app.processEvents()
-check("★think_write 之后面板被创建", cw._think_panel is not None)
+check("★think_write 之后面板被创建", cw.think_panel_count() == 1)
 check("★面板是聊天区 viewport 的子控件（→ 能跟着消息流走）",
-      cw._think_panel.parent() is cw._chat_display.viewport(),
-      str(cw._think_panel.parent()))
-check("★面板可见", cw._think_panel.isVisible())
+      _cur(cw).parent() is cw._chat_display.viewport(),
+      str(_cur(cw).parent()))
+check("★面板可见", _cur(cw).isVisible())
 check("★占位图已插进文档（锚点有效）",
-      cw._think_anchor_pos >= 0 and cw._think_img_fmt is not None)
-check("★锚点位置能找到对应 block（文档里真有这张图）",
-      cw._chat_display.document().findBlock(cw._think_anchor_pos).isValid())
+      _anchors(cw) and cw._find_think_block(cw._think_panels[0]["key"]) is not None)
 check("★占位图高度 == 面板高度（两者对齐才不重叠）",
-      int(cw._think_img_fmt.height()) == cw._think_panel.desired_height(),
-      f"{cw._think_img_fmt.height()} vs {cw._think_panel.desired_height()}")
+      int(_anchors(cw)[0].height()) == _cur(cw).desired_height(),
+      f"{_anchors(cw)[0].height()} vs {_cur(cw).desired_height()}")
 check("★占位图宽度 == 面板宽度",
-      int(cw._think_img_fmt.width()) == cw._panel_width(),
-      f"{cw._think_img_fmt.width()} vs {cw._panel_width()}")
+      int(_anchors(cw)[0].width()) == cw._panel_width(),
+      f"{_anchors(cw)[0].width()} vs {cw._panel_width()}")
 
 cw.think_write("思考一行", "think")
 for _ in range(4):
     app.processEvents()
 check("★混写思考+系统都在面板里",
-      any(k == "think" for k, _ in cw._think_panel.lines())
-      and any(k == "system" for k, _ in cw._think_panel.lines()),
-      str(cw._think_panel.lines()))
+      any(k == "think" for k, _ in _cur(cw).lines())
+      and any(k == "system" for k, _ in _cur(cw).lines()),
+      str(_cur(cw).lines()))
 
 cw.think_delta("流式")
 cw.think_delta("增量")
 for _ in range(4):
     app.processEvents()
-check("★think_delta 走流式拼接", "流式增量" in cw._think_panel.text(),
-      cw._think_panel.text())
+check("★think_delta 走流式拼接", "流式增量" in _cur(cw).text(),
+      _cur(cw).text())
 
 # 高度变化后占位图跟着变
-_before = int(cw._think_img_fmt.height())
+_before = int(_anchors(cw)[0].height())
 for i in range(30):
     cw.think_write(f"[系统] 刷屏 {i}", "system")
 for _ in range(6):
     app.processEvents()
-_after = int(cw._think_img_fmt.height())
+_after = int(_anchors(cw)[0].height())
 check("★★大量内容后占位图高度更新（文档留出正确空间）", _after >= _before,
       f"{_before} → {_after}")
 check("★★面板封顶在「能装 5 排」",
-      cw._think_panel.visible_lines() == 5.0,
-      str(cw._think_panel.visible_lines()))
+      _cur(cw).visible_lines() == 5.0, str(_cur(cw).visible_lines()))
 
-_x = cw._think_panel.x()
 cw._chat_display.verticalScrollBar().setValue(0)
 app.processEvents()
-check("★滚到顶后仍在可视区内（定位没算飞）", cw._think_panel.y() > -500,
-      str(cw._think_panel.y()))
+check("★滚到顶后仍在可视区内（定位没算飞）", _cur(cw).y() > -500,
+      str(_cur(cw).y()))
 
 cw.think_clear()
 app.processEvents()
-check("★think_clear 清空内容但保留面板", cw._think_panel is not None
-      and cw._think_panel.is_empty())
+check("★think_clear 清空内容但保留面板",
+      cw.think_panel_count() >= 1 and all(
+          e["panel"].is_empty() for e in cw._think_panels))
 
 cw.clear_chat()
 app.processEvents()
-check("★★clear_chat 后锚点复位（否则下次插图会飘到旧位置）",
-      cw._think_panel is None and cw._think_anchor_pos == -1
-      and cw._think_img_fmt is None)
+check("★★clear_chat 后全部释放（否则下次插图会飘到旧位置）",
+      cw.think_panel_count() == 0 and cw._think_current is None)
 cw.think_write("清空后重新写", "think")
 app.processEvents()
 check("★★清空后能重新创建面板并正常工作",
-      cw._think_panel is not None and "清空后重新写" in cw._think_panel.text(),
-      str(cw._think_panel and cw._think_panel.text()))
+      cw.think_panel_count() == 1 and "清空后重新写" in _cur(cw).text(),
+      str(_cur(cw) and _cur(cw).text()))
+
+# ══════════════════════════════════════════════════════════════
+head("D2. ★★★ 每轮一个面板（用户 22:05 的核心要求）")
+#
+# 用户原话："我要的不是只有一个，是每次'用户信息'+'思考/系统信息子窗口'+
+#           'LLM回复（包括文件，表情包）'，如果没做完，那么后面继续+…"
+# 旧实现全程只建一个面板并一直复用 → 用户"只看到一眼，后面就再也每出现过了"。
+cw.clear_chat()
+app.processEvents()
+
+
+def _round(c, user_text, think_text, reply_text):
+    """模拟一轮：用户消息 → 思考 → LLM 回复。"""
+    c._append_message("user", user_text)
+    c.think_write(f"[系统] {think_text}", "system")
+    c.append_streaming_text(reply_text)
+    c.on_stream_done()
+    for _ in range(3):
+        app.processEvents()
+
+
+_round(cw, "第一轮问题", "第一轮思考", "第一轮回复")
+check("★★第 1 轮后有 1 个面板", cw.think_panel_count() == 1,
+      str(cw.think_panel_count()))
+check("★★回复开始后面板已封口（下一轮才会开新的）",
+      cw._think_current is None)
+
+_round(cw, "第二轮问题", "第二轮思考", "第二轮回复")
+check("★★★第 2 轮后有 2 个面板（每轮一个，不再是全程一个）",
+      cw.think_panel_count() == 2, str(cw.think_panel_count()))
+_round(cw, "第三轮问题", "第三轮思考", "第三轮回复")
+check("★★★第 3 轮后有 3 个面板", cw.think_panel_count() == 3,
+      str(cw.think_panel_count()))
+
+_texts = [e["panel"].text() for e in cw._think_panels]
+check("★★每轮面板各自装的是**自己那轮**的思考（不串台）",
+      _texts[0].strip().endswith("第一轮思考")
+      and _texts[1].strip().endswith("第二轮思考")
+      and _texts[2].strip().endswith("第三轮思考"), str(_texts))
+check("★★三个面板在文档里各有各的占位图（都在）",
+      all(cw._find_think_block(e["key"]) is not None
+          for e in cw._think_panels))
+check("★★三个占位图的资源名互不相同（不是共用一张图）",
+      len({e["key"] for e in cw._think_panels}) == 3,
+      str([e["key"] for e in cw._think_panels]))
+check("★★面板数量上界 = MAX_THINK_PANELS（不随会话无限增长）",
+      cw.MAX_THINK_PANELS >= 3, str(cw.MAX_THINK_PANELS))
+
+# 超量后旧的被摘掉
+for _i in range(cw.MAX_THINK_PANELS + 3):
+    _round(cw, f"压{_i}", f"压思考{_i}", f"压回复{_i}")
+check(f"★★超过上界后只保留 MAX_THINK_PANELS({cw.MAX_THINK_PANELS}) 个",
+      cw.think_panel_count() == cw.MAX_THINK_PANELS,
+      str(cw.think_panel_count()))
+check("★★被摘掉的最旧占位图真的从文档里删了",
+      cw._find_think_block("prts-think-1") is None)
+check("★最近那一轮的面板还在、且有内容",
+      cw._think_panels[-1]["panel"].text().strip().endswith(
+          f"压思考{cw.MAX_THINK_PANELS + 2}"),
+      cw._think_panels[-1]["panel"].text()[-30:])
+
+# "没做完就继续"：一轮里出现多次思考段 → 每段一个面板
+cw.clear_chat()
+app.processEvents()
+cw._append_message("user", "多步任务")
+cw.think_write("[系统] 第1段思考", "system")
+cw.append_streaming_text("先做第一步")
+cw.on_stream_done()
+cw.think_write("[系统] 第2段思考", "system")     # 工具轮之后又思考
+cw.append_streaming_text("再做第二步")
+cw.on_stream_done()
+for _ in range(3):
+    app.processEvents()
+check("★★「没做完就继续」→ 同一轮里出现 2 个面板",
+      cw.think_panel_count() == 2, str(cw.think_panel_count()))
 
 # ══════════════════════════════════════════════════════════════
 head("E. 信号接线 + 主窗口喂数据")
 check("★ChatWidget 有 think_in / think_delta_in 两个跨线程信号",
       hasattr(cw, "think_in") and hasattr(cw, "think_delta_in"))
-cw.think_clear()
+cw.clear_chat()
+app.processEvents()
 cw.think_in.emit("[系统] 走信号", "system")
 for _ in range(4):
     app.processEvents()
-check("★think_in 信号能写进面板", "走信号" in cw._think_panel.text(),
-      cw._think_panel.text())
+check("★think_in 信号能写进面板", "走信号" in _cur(cw).text(),
+      _cur(cw).text())
 cw.think_delta_in.emit("信号增量")
 for _ in range(4):
     app.processEvents()
-check("★think_delta_in 信号能写进面板", "信号增量" in cw._think_panel.text(),
-      cw._think_panel.text())
+check("★think_delta_in 信号能写进面板", "信号增量" in _cur(cw).text(),
+      _cur(cw).text())
 
 _mw = (BASE / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
 check("★主窗口思考流喂给面板（_on_thinking_safe）",
@@ -471,7 +553,7 @@ def _counting_sync():
 
 
 _cw2._sync_think_anchor = _counting_sync
-_cw2._think_panel._render_hook = _cw2._on_think_rendered
+_cw2._think_panels[-1]["panel"]._render_hook = _cw2._on_think_rendered
 for i in range(2000):
     _cw2.think_delta(f"增量{i} ")
 check("★★★宿主侧 2000 个碎片也不逐个同步占位图（<20 次）",

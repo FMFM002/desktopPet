@@ -240,42 +240,63 @@ from src.core.tool_manager import ToolLoadPolicy as _TLP       # noqa: E402
 _tm2 = _tm_mod.get_tool_manager()
 _res = [t for t in _tm2._tools.values()
         if t.load_policy == _TLP.RESIDENT]
-check("★确实存在 RESIDENT 工具（否则本节无对象）", len(_res) >= 1,
-      str([t.name for t in _res]))
+# ★ 不要假设"一定有 RESIDENT 工具"：用户在设置里禁用长期记忆后，策略会存进
+#   config.json，新进程里 long_term_memory 就是 disabled（本机 2026-09-18 21:53
+#   起就是这样）。所以下面**临时把策略当 RESIDENT 直接跑那条代码路径**，
+#   这样测的是"修复本身"，而不是"用户当前的配置"。
+check("★能读到 long_term_memory 工具（不管当前策略是什么）",
+      "long_term_memory" in _tm2._tools,
+      str(sorted(_tm2._tools.keys()))[:120])
+print(f"        当前 RESIDENT 工具：{ [t.name for t in _res] or '（无 —— 用户可能在设置里禁用了长期记忆）' }")
 
+_LTM_PY = BASE / "tools" / "long_term_memory_tool.py"
+_old_policy = _tm2._tool_policies.get("long_term_memory")
+_tm2._tool_policies["long_term_memory"] = _TLP.RESIDENT
+try:
+    _ti2 = _tm2._load_tool_from_py(_LTM_PY)
+finally:
+    if _old_policy is None:
+        _tm2._tool_policies.pop("long_term_memory", None)
+    else:
+        _tm2._tool_policies["long_term_memory"] = _old_policy
+
+check("★按 RESIDENT 路径能拿到 ToolInfo", _ti2 is not None)
+_off = importlib.import_module("tools.long_term_memory_tool")
+check("★★tool._module 就是正式模块（不是扫描副本）",
+      _ti2._module is _off,
+      f"_module={getattr(_ti2._module, '__name__', None)} vs tools.long_term_memory_tool")
+check("★★tool._func 的 globals 属于正式模块",
+      getattr(_ti2._func, "__globals__", None) is _off.__dict__,
+      "执行路径用的是扫描副本的 globals → 会出现两份单例")
+check("★扫描副本不会被塞进 sys.modules 当顶层别名",
+      "_scan_long_term_memory_tool" not in sys.modules)
+
+# 功能层面的证明：按设置界面的写法改正式模块的单例，执行路径必须认
+_E = _off.get_long_term_memory_tool()
+_was = _E.is_disabled()
+try:
+    _E.set_disabled(True)
+    _via = _ti2._func.__globals__.get("_tool_instance")
+    check("★★★「禁用长期记忆」能被执行路径看到（D 级真 bug 已修）",
+          _via is _E and _E.is_disabled() is True,
+          f"执行路径单例 is 正式单例={_via is _E}")
+    check("★★执行路径读到的是同一个单例对象（不是第二份）", _via is _E)
+finally:
+    _E.set_disabled(_was)
+
+# 若本机确实有 RESIDENT 工具，再对真的那个也验一遍
 for _t in _res:
     _official_name = f"tools.{Path(_t.module_path).stem}"
     try:
-        _off = importlib.import_module(_official_name)
+        _off2 = importlib.import_module(_official_name)
     except Exception as e:
         check(f"★{_t.name}: 正式模块 {_official_name} 可 import", False, str(e))
         continue
     check(f"★★{_t.name}: tool._module 就是正式模块（不是扫描副本）",
-          _t._module is _off,
+          _t._module is _off2,
           f"_module={getattr(_t._module, '__name__', None)} vs {_official_name}")
     check(f"★★{_t.name}: tool._func 的 globals 属于正式模块",
-          getattr(_t._func, "__globals__", None) is _off.__dict__,
-          "执行路径用的是扫描副本的 globals → 会出现两份单例")
-    check(f"★{_t.name}: 扫描副本没被塞进 sys.modules 顶层别名",
-          "_scan_" + Path(_t.module_path).stem not in sys.modules
-          or sys.modules.get("_scan_" + Path(_t.module_path).stem) is _t._module)
-
-# 功能层面的证明：按设置界面的写法改正式模块的单例，执行路径必须认
-_ltm_off = importlib.import_module("tools.long_term_memory_tool")
-_E = _ltm_off.get_long_term_memory_tool()
-_was = _E.is_disabled()
-try:
-    _E.set_disabled(True)
-    _scan_singleton = _tm2._tools["long_term_memory"]._func.__globals__.get(
-        "_tool_instance")
-    check("★★★「禁用长期记忆」能被执行路径看到（D 级真 bug 已修）",
-          _scan_singleton is _E and _E.is_disabled() is True,
-          f"执行路径单例 is 正式单例={_scan_singleton is _E}, "
-          f"disabled={getattr(_scan_singleton, 'is_disabled', lambda: '?')()}")
-    check("★★执行路径读到的是同一个单例对象（不是第二份）",
-          _scan_singleton is _E)
-finally:
-    _E.set_disabled(_was)
+          getattr(_t._func, "__globals__", None) is _off2.__dict__)
 
 # 源码层面的钉子：防止以后又把 _func 绑回扫描副本
 _tm_src = (BASE / "src" / "core" / "tool_manager.py").read_text(encoding="utf-8")

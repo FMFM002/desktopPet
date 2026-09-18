@@ -36,14 +36,16 @@
   [PASS] ★endfield_tool._login_lock 的值来自会话（不是裸的字面量或新建 Lock）
   [PASS] ★endfield_tool._login_state 的值来自会话（不是裸的字面量或新建 Lock）
   [PASS] ★jmcomic_tool 用了包级 get_session（不再裸放模块级可变状态）
-  [PASS] ★jmcomic_tool._download_tasks 的值来自会话（不是裸的字面量或新建 Lock）
   [PASS] ★jmcomic_tool._download_lock 的值来自会话（不是裸的字面量或新建 Lock）
+  [PASS] ★jmcomic_tool._download_tasks 的值来自会话（不是裸的字面量或新建 Lock）
 
 == G. ★★ RESIDENT 工具必须绑「正式模块」，不能绑「扫描副本」 ==
-  [PASS] ★确实存在 RESIDENT 工具（否则本节无对象）
-  [PASS] ★★long_term_memory: tool._module 就是正式模块（不是扫描副本）
-  [PASS] ★★long_term_memory: tool._func 的 globals 属于正式模块
-  [PASS] ★long_term_memory: 扫描副本没被塞进 sys.modules 顶层别名
+  [PASS] ★能读到 long_term_memory 工具（不管当前策略是什么）
+        当前 RESIDENT 工具：（无 —— 用户可能在设置里禁用了长期记忆）
+  [PASS] ★按 RESIDENT 路径能拿到 ToolInfo
+  [PASS] ★★tool._module 就是正式模块（不是扫描副本）
+  [PASS] ★★tool._func 的 globals 属于正式模块
+  [PASS] ★扫描副本不会被塞进 sys.modules 当顶层别名
   [PASS] ★★★「禁用长期记忆」能被执行路径看到（D 级真 bug 已修）
   [PASS] ★★执行路径读到的是同一个单例对象（不是第二份）
   [PASS] ★源码注释里留了这个坑的复现记录
@@ -54,5 +56,5 @@
   [PASS] ★endfield 注释里也留了复现记录与原因
 
 ============================================================
-★ 1.9.2 任务9 LAZY 工具长流程状态保活：40 PASS / 0 FAIL
+★ 1.9.2 任务9 LAZY 工具长流程状态保活：41 PASS / 0 FAIL
 ============================================================

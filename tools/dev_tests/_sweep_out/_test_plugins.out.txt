@@ -1,14 +1,14 @@
 == office 工具 ==
-  [PASS] create xlsx  已创建文档: 自检表格_21272_1789738282.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_21
-  [PASS] create docx  已创建文档: 自检文档_21272_1789738282.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_21
-  [PASS] create pptx  已创建文档: 自检幻灯_21272_1789738282.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_21
-  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_21272_1789738282.docx', '自检幻灯_21272_1789738282.pptx', '自检表格_21272_1789738282.xlsx']
-  [PASS] view pptx  文档 自检幻灯_21272_1789738282.pptx 的 outline:
+  [PASS] create xlsx  已创建文档: 自检表格_22704_1789740648.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_22
+  [PASS] create docx  已创建文档: 自检文档_22704_1789740648.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_22
+  [PASS] create pptx  已创建文档: 自检幻灯_22704_1789740648.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_22
+  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_22704_1789740648.docx', '自检幻灯_22704_1789740648.pptx', '自检表格_22704_1789740648.xlsx']
+  [PASS] view pptx  文档 自检幻灯_22704_1789740648.pptx 的 outline:
 {
   "success": true,
   "data": {
-    "fileName": "自检幻灯_21272_17897382
-  [PASS] add slide  已添加到 自检幻灯_21272_1789738282.pptx: /
+    "fileName": "自检幻灯_22704_17897406
+  [PASS] add slide  已添加到 自检幻灯_22704_1789740648.pptx: /
 路径: N/A
 == file_ops 工具 ==
   [PASS] write  ✅ 已写入 data\桌宠私有data\自检文件.txt (22 字节)
@@ -22,13 +22,13 @@ Diff:
 +++ b/data\桌宠私有data\自检文件.txt
 @@ -1,
   [PASS] edit 生效
-  [PASS] list  [data\桌宠私有data] — 6 目录, 49 文件
+  [PASS] list  [data\桌宠私有data] — 6 目录, 54 文件
 
 --- 目录 ---
 📁 comfyui/
 📁 endfield/
 📁 endfield_unzi
-  [PASS] search  搜索 'hello' — 找到 6 个匹配 (搜索了66个文件)
+  [PASS] search  搜索 'hello' — 找到 6 个匹配 (搜索了71个文件)
 
 gen_pdf.py:10:     "(Hello FM, this is a test 
   [PASS] 沙箱拒绝写系统盘（可读文案）  [拒绝] 沙箱限制：当前为只读模式，仅允许写入
@@ -39,7 +39,7 @@ gen_pdf.py:10:     "(Hello FM, this is a test
   [PASS] system get_local_ip  本机IP: 10.35.173.200
 主机名: FMs
 说明: 这是局域网IPv4地址（ipconfig里那个）
-  [PASS] weather 离线不崩（可能报网络错误）  重庆天气: 阴, 温度22°C, 体感23°C, 湿度91%, 风力2级
+  [PASS] weather 离线不崩（可能报网络错误）  重庆天气: 阴, 温度22°C, 体感23°C, 湿度90%, 风力2级
   [PASS] web_search 不崩（可能无 key）  搜索'测试':
 1. 测试- 维基百科，自由的百科全书
    跳转到内容
