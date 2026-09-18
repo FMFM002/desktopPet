@@ -13,6 +13,12 @@ from PySide6.QtWidgets import (
 
 _log = logging.getLogger("ToolLog")
 
+# ★ 1.9.2: 工具日志最多保留多少行（超出自动丢最旧）。
+#   内存调研实测：原来 maximumBlockCount=0（无上限），每条 811 B，
+#   而 clear_logs() 零调用点 → 是全项目唯一随进程寿命单调增长的 UI 结构。
+#   这个窗口只是给人瞄最近几十条，500 行足够。
+MAX_LOG_BLOCKS = 500
+
 
 class ToolLogWidget(QWidget):
     """工具日志窗口"""
@@ -55,6 +61,14 @@ class ToolLogWidget(QWidget):
 
         self._log_text = QTextEdit()
         self._log_text.setReadOnly(True)
+        # ★ 1.9.2（内存调研结论）：这里是**唯一随进程寿命单调增长**的 UI 结构 ——
+        #   实测 `maximumBlockCount=0`（无上限）、每条 811 B，
+        #   而 `clear_logs()` 全项目零调用点，所以只增不减。
+        #   日志窗口本来只用来瞄最近几十条，给个上限即可（超出自动丢最旧）。
+        #   ⚠ `setMaximumBlockCount` 是 QPlainTextEdit 的 API；QTextEdit 要设在
+        #     `document()` 上（第一版写成 self._log_text.setMaximumBlockCount
+        #     直接 AttributeError）。
+        self._log_text.document().setMaximumBlockCount(MAX_LOG_BLOCKS)
         self._log_text.setFont(QFont("Consolas", 10))
         self._log_text.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         layout.addWidget(self._log_text)

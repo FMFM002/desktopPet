@@ -496,11 +496,24 @@ class MainWindow:
             _log.warning(f"[指令直传] 打开窗口失败: {e}", exc_info=True)
 
     def _on_direct_dispatch_closed(self):
-        """DirectDispatchWindow 被用户关闭 → 清掉引用，下次重新建。"""
+        """DirectDispatchWindow 被用户关闭 → 清掉引用，下次重新建。
+
+        ★ 1.9.2（内存调研结论）：原来只把引用置 None，**没有 deleteLater()** ——
+        那个窗口（1056 行、一堆控件）就一直挂在 Qt 对象树上不释放，
+        每次开关一次就再新建一个。这里补上销毁。
+        """
         try:
+            win = self._direct_dispatch_win
             self._direct_dispatch_win = None
-        except Exception:
-            pass
+            if win is not None:
+                try:
+                    win.hide()
+                except Exception:
+                    pass
+                win.deleteLater()
+                _log.debug("[指令直传] 窗口已 deleteLater（不再每次开关都攒一个）")
+        except Exception as e:
+            _log.debug(f"[指令直传] 销毁窗口失败: {e}")
 
     def _on_direct_dispatch_exec(self, tool_name: str, action: str, params: dict):
         """DirectDispatchWindow 发来的"用户已点发送" → 同步跑工具 → 投递结果。
@@ -530,6 +543,11 @@ class MainWindow:
                 if key in self._direct_dispatch_seen:
                     continue
                 self._direct_dispatch_seen.add(key)
+                # ★ 1.9.2（内存调研结论）：这个 set 原先只增不减 ——
+                #   长时间闲聊会一直攒。给个上限（超了就整体清掉最省事，
+                #   它只是"同一次直传别重复发同一张图"的短期去重）。
+                if len(self._direct_dispatch_seen) > 200:
+                    self._direct_dispatch_seen.clear()
                 ext = Path(p).suffix.lower()
                 if ext in self._IMG_EXTS:
                     try:
@@ -1148,32 +1166,20 @@ class MainWindow:
         arg_str = str(args)
         arg_short = arg_str[:120] + ("..." if len(arg_str) > 120 else "")
         # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg （不可用 QTimer，非 Qt 线程无事件循环）
+        # ★ 1.9.2：append_system_msg 现在**改投思考面板**（用户要求删掉灰底白字气泡），
+        #   所以这里不再额外 emit 一次 think_in —— 那样面板里会出现两条。
         self.chat.system_msg_in.emit(f"[调用: {tool_name}({arg_short})]")
-        # ★ 1.9.2（用户任务 4）：系统信息也进「思考 / 系统信息」子窗口
-        try:
-            self.chat.think_in.emit(f"[系统] 调用 {tool_name}({arg_short})", "system")
-        except Exception as e:
-            _log.debug(f"[思考面板] 写入工具调用失败: {e}")
 
     def _on_tool_display(self, tool_name: str, arg_short: str):
         _log.info(f"工具调用: {tool_name}({arg_short[:80]})")
         self.tool_log.add_log(f"调用: {tool_name}({arg_short[:100]})", "tool_call")
         self.chat.append_system_msg(f"[调用: {tool_name}({arg_short})]")
-        try:
-            self.chat.think_write(f"[系统] 调用 {tool_name}({arg_short})", "system")
-        except Exception as e:
-            _log.debug(f"[思考面板] 写入工具调用失败: {e}")
         self._reposition_windows()
 
     def _on_tool_result_safe(self, tool_name: str, result: str):
         short = result[:120] + ("..." if len(result) > 120 else "")
-        # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg
+        # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg（同样会进面板）
         self.chat.system_msg_in.emit(f"[{tool_name} 返回]: {short}")
-        # ★ 1.9.2（用户任务 4）：工具返回也进「思考 / 系统信息」子窗口
-        try:
-            self.chat.think_in.emit(f"[系统] {tool_name} 返回: {short}", "system")
-        except Exception as e:
-            _log.debug(f"[思考面板] 写入工具结果失败: {e}")
 
         # ★ file_ops 的 send_file 操作 — 自动显示文件卡片（优先处理，避免双重触发）
         if tool_name == "file_ops":
@@ -1211,11 +1217,8 @@ class MainWindow:
     def _on_tool_result_ui(self, tool_name: str, result: str):
         self.tool_log.add_log(f"结果 [{tool_name}]: {result[:200]}", "tool_result")
         short = result[:120] + ("..." if len(result) > 120 else "")
+        # append_system_msg 现在改投思考面板（★ 1.9.2），不必再单独写一次
         self.chat.append_system_msg(f"[{tool_name} 返回]: {short}")
-        try:
-            self.chat.think_write(f"[系统] {tool_name} 返回: {short}", "system")
-        except Exception as e:
-            _log.debug(f"[思考面板] 写入工具结果失败: {e}")
 
     def _on_endfield_login_done(self, ok: bool, message: str, role: dict):
         """★ 1.6.0: 终末地扫码登录结果 → 聊天窗口（回调来自后台线程，走信号）"""

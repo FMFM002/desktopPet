@@ -98,9 +98,10 @@ TOOL_PARAMETERS = {
         "referer": {"type": "string",
                     "description": "防盗链站点需要（如 B站封面填 https://www.bilibili.com）"},
         "action": {"type": "string",
-                   "enum": ["", "bt_status", "bt_stop", "bt_engine"],
+                   "enum": ["", "bt_status", "bt_stop", "bt_engine", "cleanup"],
                    "description": "空=正常下载；bt_status=查 BT 任务进度；"
-                                  "bt_stop=停止某任务(配 job_id)；bt_engine=看 BT 引擎状态"},
+                                  "bt_stop=停止某任务(配 job_id)；bt_engine=看 BT 引擎状态；"
+                                  "cleanup=清理下载缓存(超 800MB 时删最旧的)"},
         "job_id": {"type": "string",
                    "description": "[action=bt_stop] 要停止的 BT 任务 id"},
     },
@@ -222,6 +223,94 @@ def download_dir(bucket: str = "websearch") -> Path:
     d = PROJECT_ROOT / "data" / "downloads" / b
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# ══════════════════════════════════════════════════════════════════
+# ★ 1.9.2（内存/磁盘调研结论）：data/downloads 清理策略
+# ══════════════════════════════════════════════════════════════════
+#
+# 调研实测：`data/downloads` 已经 509 MB / 840 个文件，而且**只增不减** ——
+# 网页配图、B站封面、P站图、下载的安装包全往里堆。
+#
+# 策略（保守，只动"我们自己下载的缓存"）：
+#   · 只在总量超过 MAX_DOWNLOADS_MB（默认 800，可用环境变量
+#     PRTS_DOWNLOADS_MAX_MB 调）时才开始清；
+#   · 按 mtime 从**最旧**开始删，直到降到上限的 80%（留点余量，别每下一次都清）；
+#   · **永远保留**：最新的 KEEP_RECENT 个文件、`tools/` 整个目录
+#     （BT 引擎 aria2c 与 CA 证书在那儿）、任何 `.part`/`.aria2`
+#     （那是断点续传的现场，删了等于让人重下）。
+#
+# ⚠ 这是**唯一一处会主动删文件**的逻辑，所以：只删 data/downloads 下、
+#   我们自己下载的东西；不碰用户的任何其他目录。
+MAX_DOWNLOADS_MB = 800
+KEEP_RECENT = 30
+_PURGE_THROTTLE = 600.0        # 同一进程内最多 10 分钟清一次（别每次下载都扫盘）
+_last_purge = 0.0
+_PURGE_EXCLUDE_DIRS = {"tools"}
+
+
+def cleanup_downloads(max_mb: int = 0, force: bool = False) -> dict:
+    """把 data/downloads 清到上限以内。返回统计（供日志/工具结果用）。"""
+    global _last_purge
+    now = time.time()
+    if not force and (now - _last_purge) < _PURGE_THROTTLE:
+        return {"skipped": "throttled"}
+    _last_purge = now
+
+    try:
+        cap_mb = int(max_mb or os.environ.get("PRTS_DOWNLOADS_MAX_MB")
+                     or MAX_DOWNLOADS_MB)
+    except Exception:
+        cap_mb = MAX_DOWNLOADS_MB
+    cap = cap_mb * 1024 * 1024
+    base = PROJECT_ROOT / "data" / "downloads"
+    if not base.is_dir():
+        return {"skipped": "no_dir"}
+
+    files = []
+    total = 0
+    for p in base.rglob("*"):
+        if not p.is_file():
+            continue
+        # 保护：BT 引擎目录、以及续传现场
+        if any(part in _PURGE_EXCLUDE_DIRS for part in
+               p.relative_to(base).parts[:-1]):
+            continue
+        if p.suffix.lower() in (".part", ".aria2"):
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        files.append((st.st_mtime, st.st_size, p))
+        total += st.st_size
+
+    if total <= cap:
+        return {"total_mb": round(total / 1024 / 1024, 1), "cap_mb": cap_mb,
+                "deleted": 0}
+
+    files.sort()                       # 最旧在前
+    protected = {p for _m, _s, p in files[-KEEP_RECENT:]}   # 最新 N 个不动
+    target = int(cap * 0.8)
+    deleted, freed = 0, 0
+    for _mtime, size, p in files:
+        if total <= target:
+            break
+        if p in protected:
+            continue
+        try:
+            p.unlink()
+            deleted += 1
+            freed += size
+            total -= size
+        except OSError:
+            continue
+    if deleted:
+        _log.info(f"[Download] 清理下载缓存：删了 {deleted} 个最旧文件、"
+                  f"释放 {_fmt_size(freed)}（现在 {_fmt_size(total)}，"
+                  f"上限 {cap_mb}MB）")
+    return {"total_mb": round(total / 1024 / 1024, 1), "cap_mb": cap_mb,
+            "deleted": deleted, "freed": _fmt_size(freed)}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -629,6 +718,11 @@ def download_url(url: str, filename: str = "", bucket: str = "websearch",
 
     dt = max(0.001, time.time() - t0)
     speed = got / dt
+    # ★ 1.9.2: 下载完顺手看一眼缓存总量（有 10 分钟节流，不会每次都扫盘）
+    try:
+        cleanup_downloads()
+    except Exception as e:
+        _log.debug(f"[Download] 缓存清理跳过: {e}")
     is_img = dest.suffix.lower() in _IMG_EXTS
     size_str = _fmt_size(got)
     _log.info(f"[Download] 完成: {dest} ({size_str}, {mode}, "
@@ -680,6 +774,15 @@ def execute(url: str, filename: str = "", bucket: str = "websearch",
         info["success"] = True
         info["message"] = (f"BT 引擎：{'已找到 ' + info['path'] if info['found'] else '未找到'}"
                            + ("" if info["found"] else "\n" + info["hint"]))
+        return json.dumps(info, ensure_ascii=False, indent=2)
+
+    if act == "cleanup":
+        info = cleanup_downloads(force=True)
+        info["success"] = True
+        info["message"] = (f"下载缓存：现在 {info.get('total_mb')} MB"
+                           f"（上限 {info.get('cap_mb')} MB），"
+                           f"本次删除 {info.get('deleted', 0)} 个最旧文件"
+                           f"、释放 {info.get('freed', '0 B')}。")
         return json.dumps(info, ensure_ascii=False, indent=2)
 
     if act == "bt_status":

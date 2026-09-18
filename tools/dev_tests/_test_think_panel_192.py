@@ -400,12 +400,19 @@ check("★think_delta_in 信号能写进面板", "信号增量" in _cur(cw).text
 _mw = (BASE / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
 check("★主窗口思考流喂给面板（_on_thinking_safe）",
       "think_delta_in.emit(text)" in _mw)
-check("★主窗口工具调用喂给面板（_on_tool_call_safe）",
-      "think_in.emit(f\"[系统] 调用" in _mw)
-check("★主窗口工具结果喂给面板（_on_tool_result_safe）",
-      'think_in.emit(f"[系统] {tool_name} 返回: {short}", "system")' in _mw)
-check("★主窗口主线程路径也喂（_on_tool_result_ui）",
-      'self.chat.think_write(f"[系统] {tool_name} 返回: {short}", "system")' in _mw)
+# ★ 1.9.2 修订：工具调用/返回**不再**单独 think_in.emit 一次 —— 因为它们走
+#   system_msg_in → append_system_msg，而后者现在本身就改投面板了。
+#   再 emit 一次会让面板里每条系统信息出现两遍（这是我改完立刻发现并去掉的）。
+check("★★工具调用/返回经 system_msg_in 进面板（不再重复 emit 到面板）",
+      'self.chat.system_msg_in.emit(f"[调用: {tool_name}({arg_short})]")' in _mw)
+check("★★工具返回也经 system_msg_in", 'system_msg_in.emit(f"[{tool_name} 返回]: {short}")' in _mw)
+check("★★没有重复投递：main_window 里不再有 think_in.emit",
+      "think_in.emit" not in _mw,
+      "还有 think_in.emit → 面板里会出现两条")
+check("★★append_system_msg 本身就是「进面板」的那一处（单一来源）",
+      "def append_system_msg" in (_cws := (BASE / "src" / "ui" / "chat_widget.py")
+                                  .read_text(encoding="utf-8"))
+      and "self.think_write(str(text), \"system\")" in _cws)
 check("★喂数据被 try/except 包着（面板挂了不能影响聊天主流程）",
       _mw.count("思考面板") >= 4, str(_mw.count("思考面板")))
 
@@ -589,6 +596,64 @@ check("★注释里记了这次事故（crash_main_29488.log）",
 
 _mw2 = (BASE / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
 check("★思考结束时收尾渲染一次（think_flush）", "think_flush()" in _mw2)
+
+# ══════════════════════════════════════════════════════════════
+head("I. ★★★ 系统消息不再在聊天区画「灰底白字」气泡（用户 22:34 批注）")
+#
+# 用户原话："成功了，但是我看见系统消息还在外面，哪些灰低白字可以全删了。
+# 另外，调用工具前的思考也要显示到这个窗口，所有的思考，所有的系统信息。"
+#
+# 做法：append_system_msg() 只改**去向**（聊天富文本 → 思考面板），不改方法名 ——
+# 全项目 35 处调用（工具调用/返回、转写、语音、图片识别、文件提示…）
+# 一行都不用动，所以不会漏掉某一类系统信息。
+_cw4 = ChatWidget()
+_cw4.resize(420, 640)
+_cw4.show()
+for _ in range(6):
+    app.processEvents()
+
+_MARK = "系统消息应当只在面板里_MARK42"
+_cw4.append_system_msg(_MARK)
+for _ in range(4):
+    app.processEvents()
+
+_chat_txt = _cw4._chat_display.toPlainText()
+_panel_txt = _cw4._think_panels[-1]["panel"].text() if _cw4._think_panels else ""
+check("★★★系统消息进了思考面板", _MARK in _panel_txt, _panel_txt[-60:])
+check("★★★系统消息**不再**出现在聊天区（灰底白字气泡已删）",
+      _MARK not in _chat_txt, _chat_txt[-120:])
+check("★面板里那一条标的是 system 类型",
+      any(k == "system" and _MARK in t
+          for k, t in _cw4._think_panels[-1]["panel"].lines()),
+      str(_cw4._think_panels[-1]["panel"].lines())[-100:])
+
+# 跨线程信号那条路（system_msg_in）也必须走面板
+_MARK2 = "走信号的系统消息_MARK43"
+_cw4.system_msg_in.emit(_MARK2)
+for _ in range(4):
+    app.processEvents()
+check("★★system_msg_in → 也进面板",
+      _MARK2 in _cw4._think_panels[-1]["panel"].text())
+check("★★system_msg_in → 也不进聊天区",
+      _MARK2 not in _cw4._chat_display.toPlainText())
+
+# 空消息不该造出空面板
+_n_panels = _cw4.think_panel_count()
+_cw4.append_system_msg("")
+_cw4.append_system_msg("   ")
+for _ in range(3):
+    app.processEvents()
+check("★空/空白系统消息不产生噪音面板", _cw4.think_panel_count() == _n_panels,
+      f"{_n_panels} → {_cw4.think_panel_count()}")
+
+check("★★append_system_msg 不再往聊天区 insertHtml",
+      "insertHtml" not in _cw3.split("def append_system_msg")[1].split("def ")[0],
+      "还在往聊天区插图 → 灰气泡没删干净")
+check("★注释里引了用户原话（灰底白字/所有的系统信息）",
+      "灰底白字" in _cw3 or "灰低白字" in _cw3)
+check("★注释说明了做法是「只改去向不改方法名」（35 处调用免改）",
+      "35" in _cw3)
+_cw4.close()
 
 print("\n" + "=" * 60)
 print(f"★ 1.9.2 任务4 思考/系统信息子窗口：{PASS} PASS / {FAIL} FAIL")

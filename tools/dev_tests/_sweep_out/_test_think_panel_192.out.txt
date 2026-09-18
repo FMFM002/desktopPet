@@ -77,9 +77,10 @@
   [PASS] ★think_in 信号能写进面板
   [PASS] ★think_delta_in 信号能写进面板
   [PASS] ★主窗口思考流喂给面板（_on_thinking_safe）
-  [PASS] ★主窗口工具调用喂给面板（_on_tool_call_safe）
-  [PASS] ★主窗口工具结果喂给面板（_on_tool_result_safe）
-  [PASS] ★主窗口主线程路径也喂（_on_tool_result_ui）
+  [PASS] ★★工具调用/返回经 system_msg_in 进面板（不再重复 emit 到面板）
+  [PASS] ★★工具返回也经 system_msg_in
+  [PASS] ★★没有重复投递：main_window 里不再有 think_in.emit
+  [PASS] ★★append_system_msg 本身就是「进面板」的那一处（单一来源）
   [PASS] ★喂数据被 try/except 包着（面板挂了不能影响聊天主流程）
 
 == F. 源码层面的设计约束（防止以后被改回演示稿的固定高度） ==
@@ -99,7 +100,7 @@
   [PASS] ★★★3000 个碎片期间渲染次数极少（合并成 <20 次，不是 3000 次）
   [PASS] ★★★3000 个碎片耗时 < 500ms（纯记账，不做布局）
   [PASS] ★节拍器已启动（等待后会真的渲染一次）
-        实测：3000 个碎片 → 渲染 0 次 / 3.2ms（THROTTLE_MS=80）
+        实测：3000 个碎片 → 渲染 0 次 / 4.1ms（THROTTLE_MS=80）
   [PASS] ★节拍器到点后内容上屏（没丢）
   [PASS] ★一次 flush 只渲染一次
   [PASS] ★清空后 _capped 复位
@@ -121,6 +122,17 @@
   [PASS] ★注释里记了这次事故（crash_main_29488.log）
   [PASS] ★思考结束时收尾渲染一次（think_flush）
 
+== I. ★★★ 系统消息不再在聊天区画「灰底白字」气泡（用户 22:34 批注） ==
+  [PASS] ★★★系统消息进了思考面板
+  [PASS] ★★★系统消息**不再**出现在聊天区（灰底白字气泡已删）
+  [PASS] ★面板里那一条标的是 system 类型
+  [PASS] ★★system_msg_in → 也进面板
+  [PASS] ★★system_msg_in → 也不进聊天区
+  [PASS] ★空/空白系统消息不产生噪音面板
+  [PASS] ★★append_system_msg 不再往聊天区 insertHtml
+  [PASS] ★注释里引了用户原话（灰底白字/所有的系统信息）
+  [PASS] ★注释说明了做法是「只改去向不改方法名」（35 处调用免改）
+
 ============================================================
-★ 1.9.2 任务4 思考/系统信息子窗口：103 PASS / 0 FAIL
+★ 1.9.2 任务4 思考/系统信息子窗口：113 PASS / 0 FAIL
 ============================================================

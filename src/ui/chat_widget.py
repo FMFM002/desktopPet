@@ -9,6 +9,7 @@
 - 用户 / 桌宠头像支持外部自定义（设置页上传）
 """
 import base64
+import itertools
 import logging
 import os
 import re
@@ -35,6 +36,12 @@ AVATAR_DISPLAY_SIZE = 34          # 聊天头像显示尺寸
 BUBBLE_PAD_X = 12                 # 气泡左右内边距
 BUBBLE_PAD_Y = 8                  # 气泡上下内边距
 BUBBLE_RADIUS = 12                # 圆角半径（Qt 富文本不支持，改由绘制层画）
+
+# ★ 1.9.2（内存调研结论）：聊天窗里"内存粘贴图"的两个上限
+#   实测背景：每张 1920×1080 的 QImage 约 6.5 MB，粘 10 张 = +64.7 MB；
+#   原来这个 dict 无上限、只在 clear_chat 清，key 还是毫秒时间戳（会撞车覆盖）。
+MAX_CLIP_IMAGES = 8               # 最多留最近 8 张（聊天里也只看得见最近几张）
+MAX_CLIP_SIDE = 1280              # 存前把长边缩到 ≤1280（单张 ~1.5 MB）
 
 
 # 自带形象头像（桌宠默认头像）★ 1.5.0: 迁移到 data/桌宠形象/<角色>/
@@ -336,6 +343,8 @@ class ChatWidget(QWidget):
         #   正文里放 [[CLIP:key|名字|尺寸]] 标记指向它，重启后像素没了，
         #   重画会显示占位提示（文字描述仍保留在历史里）。
         self._clip_images: dict = {}
+        # ★ 1.9.2: 粘贴图 key 的自增序号（配合毫秒时间戳，避免同毫秒撞车覆盖）
+        self._clip_seq = itertools.count(1)
         # ★ 1.9.1: 标题栏左上角那行信息（原来是侧栏按钮的位置）。
         #   你要求"换成「形象名字」+「tokens 计数」"。
         self._char_name = ""
@@ -1282,9 +1291,31 @@ class ChatWidget(QWidget):
 
         返回标记文本，调用方拼进要发给 LLM 的消息正文里。
         """
+        import itertools as _it
         import time as _time
-        key = str(int(_time.time() * 1000))
+        # ★ 1.9.2（内存调研结论）：三个问题一起修 ——
+        #   ① 原来 key 是 `int(time.time()*1000)`，实测 10 次粘贴只产生 8 个 key
+        #      （同一毫秒内撞车 → 后面的把前面的**覆盖**掉，图就丢了）。
+        #      改成"毫秒 + 自增序号"，保证唯一。
+        #   ② `_clip_images` 无上限：实测每张 1920×1080 的 QImage 约 6.5 MB，
+        #      粘 10 张就 +64.7 MB，且只在 clear_chat 才清 → 加 LRU 上限。
+        #   ③ 粘贴图按原分辨率存着太奢侈：聊天里最多显示 260px 宽，
+        #      存前先缩到 ≤MAX_CLIP_SIDE，单张从 6.5 MB 降到 ~1.5 MB。
+        key = f"{int(_time.time() * 1000)}-{next(self._clip_seq)}"
+        try:
+            _w, _h = qimage.width(), qimage.height()
+            if max(_w, _h) > MAX_CLIP_SIDE:
+                qimage = qimage.scaled(
+                    MAX_CLIP_SIDE if _w >= _h else int(_w * MAX_CLIP_SIDE / _h),
+                    int(_h * MAX_CLIP_SIDE / _w) if _w >= _h else MAX_CLIP_SIDE,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        except Exception as e:
+            _log.debug(f"粘贴图缩放失败（按原图存）: {e}")
         self._clip_images[key] = qimage          # 持引用，别让 QImage 被回收
+        # 超上限就丢最旧的（dict 保序 → 第一个就是最旧）
+        while len(self._clip_images) > MAX_CLIP_IMAGES:
+            _old = next(iter(self._clip_images))
+            self._clip_images.pop(_old, None)
         try:
             self._chat_display.document().addResource(
                 QTextDocument.ImageResource, QUrl(f"clip://{key}"), qimage)
@@ -1378,12 +1409,23 @@ class ChatWidget(QWidget):
         sb.setValue(sb.maximum())
 
     def append_system_msg(self, text: str):
-        """系统消息（居中灰色）"""
-        self._chat_display.moveCursor(QTextCursor.End)
-        self._chat_display.insertHtml(self._render_message_html("system", text))
-        self._chat_display.moveCursor(QTextCursor.End)
-        sb = self._chat_display.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        """★★ 1.9.2（用户 22:34 批注）：系统消息**不再在聊天区画「灰底白字」气泡**，
+        一律进「思考 / 系统信息」子窗口。
+
+        你原话："成功了，但是我看见系统消息还在外面，哪些灰低白字可以全删了。
+        另外，调用工具前的思考也要显示到这个窗口，所有的思考，所有的系统信息。"
+
+        做法：**只改去向，不改方法名** —— 全项目有 35 处调用
+        （工具调用/工具返回/转写/语音/图片识别/文件提示…），
+        在这里统一改投面板，那 35 处一行都不用动，也就不会漏掉某一类系统信息。
+        于是"所有的系统信息"自然都在面板里了。
+        """
+        if text is None or not str(text).strip():
+            return
+        try:
+            self.think_write(str(text), "system")
+        except Exception as e:
+            _log.debug(f"系统消息改投思考面板失败: {e}")
 
     def on_stream_done(self):
         self._last_role = ""

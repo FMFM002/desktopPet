@@ -1,0 +1,52 @@
+
+== A. ToolLogWidget：日志行数有上限 ==
+  [PASS] ★有 MAX_LOG_BLOCKS 常量
+  [PASS] ★★document().maximumBlockCount 真的设上了（原来实测是 0）
+  [PASS] ★★写 700 行后块数被封顶（不无限增长）
+  [PASS] ★留下的是**最新**的行
+  [PASS] ★注释记了这是一次 AttributeError 的教训（QTextEdit 没有该方法）
+
+== B. 聊天窗粘贴图：有界 + 降采样 + key 不撞车 ==
+  [PASS] ★有 MAX_CLIP_IMAGES / MAX_CLIP_SIDE 常量
+  [PASS] ★★粘贴图数量被封顶（原来无上限、实测每张 ~6.5MB）
+  [PASS] ★★key 全部唯一（原来用毫秒时间戳，实测 10 次只产生 8 个 key）
+  [PASS] ★★存的是降采样后的图（长边 ≤ MAX_CLIP_SIDE）
+  [PASS] ★保序：最旧的被丢掉、最新还在
+  [PASS] ★clear_chat 仍会全清
+
+== C. OCR 结果缓存：有上限 ==
+  [PASS] ★有 MAX_OCR_CACHE 常量
+  [PASS] ★★写入路径会裁剪（不是只在常量里定义）
+  [PASS] ★注释写明了原来是无上限且 clear() 无人调用
+  [PASS] ★按同一逻辑写入后长度被夹住
+
+== D/E/F. 主窗口与设置窗的三处 ==
+  [PASS] ★★直传去重集合有上限（原来只增不减）
+  [PASS] ★★DirectDispatchWindow 关闭时 deleteLater（原来只置 None）
+  [PASS] ★注释写明了原来「每次开关都攒一个」
+  [PASS] ★★保存看门狗 QTimer 改成建一次（原来每次保存新建无 parent 的 QTimer）
+  [PASS] ★新 QTimer 带了 parent（随窗口销毁）
+
+== G. user_profile：单 worker 队列（原来每次一个线程） ==
+  [PASS] ★★extract_async 不再直接开线程
+  [PASS] ★★改成了有界队列 + 单 worker
+  [PASS] ★队列满时丢最旧（画像提取是锦上添花，不该堆内存）
+  [PASS] ★import queue 在位
+  [PASS] ★★200 次 extract_async 只多出 1 条线程（原来会是 200 条）
+  [PASS] ★worker 线程确实在消费（去重后>0 条被处理）
+
+== H. data/downloads 清理策略 ==
+  [PASS] ★有上限常量与节流常量
+  [PASS] ★★保护 BT 引擎目录（tools/）
+  [PASS] ★★保护续传现场（.part / .aria2 不删）
+  [PASS] ★★保留最新 KEEP_RECENT 个文件
+  [PASS] ★下载完会顺手清一次（带节流）
+  [PASS] ★工具层暴露了 action=cleanup
+  [PASS] ★总量没超上限时**什么都不删**（不做无谓破坏）
+  [PASS] ★★超上限时会删最旧（.bin 变少）
+  [PASS] ★★.part / .aria2 续传现场一定活着
+  [PASS] ★action=cleanup 返回可用结果
+
+============================================================
+★ 1.9.2 内存有界化：36 PASS / 0 FAIL
+============================================================

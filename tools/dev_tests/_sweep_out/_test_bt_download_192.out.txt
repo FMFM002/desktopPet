@@ -15,7 +15,7 @@
   [PASS] ★is_bt_target 对空串为假
 
 == B. aria2c 定位（找不到就返回空串，不抛异常） ==
-        本机 aria2c: （没有）
+        本机 aria2c: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\tools\aria2c.exe
   [PASS] ★find_aria2() 返回字符串
   [PASS] ★找不到时返回空串而不是抛异常（本机预期就是空）
   [PASS] ★支持环境变量 PRTS_ARIA2C 指定（不用改代码）
@@ -46,16 +46,36 @@
   [PASS] ★注释点名了 Motrix 的 extra/aria2.conf
   [PASS] ★注释保留了 Motrix 原话理由（私有 tracker 封冒充 / 50-tracker 扫描）
 
+== B2. ★ 引擎来源与 CA 证书（官方 mingw 构建在本机 HTTPS 全废） ==
+  [PASS] ★有 CA 证书包常量 CA_BUNDLE
+        CA 证书包: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\tools\cacert.pem（存在=True）
+  [PASS] ★CA 证书包在项目里（data/tools/cacert.pem）
+  [PASS] ★★build_bt_args 会带上 --ca-certificate（OpenSSL 版没它 https tracker 全废）
+  [PASS] ★没 CA 文件时不硬报错（也许用户用的是别的 TLS 后端构建）
+  [PASS] ★有 aria2c.SOURCE.txt 记来源与两个 sha256
+  [PASS] ★★SOURCE 里写明了为什么不用官方版（WinTLS 那个错）
+  [PASS] ★★SOURCE 里带了两个校验和（压缩包 + 二进制）
+  [PASS] ★有复原脚本 tools/fetch_aria2.py
+  [PASS] ★★复原脚本会**双重校验**（压缩包 + 二进制 sha256）
+  [PASS] ★复原脚本顺带准备 CA 证书包
+  [PASS] ★本机现在能找到引擎（已装进 data/tools）
+  [PASS] ★★装的是 OpenSSL 构建（不是那个 HTTPS 全废的 WinTLS 版）
+  [PASS] ★版本是 Motrix 那个 tag
+  [PASS] ★判据是 TLS 后端而非编译器（mingw 不是问题）
+  [PASS] ★.gitignore 忽略了 exe 但保留了 cacert.pem 与 SOURCE
+
 == D. ★★ 找不到引擎时：明确报错 + 可操作提示 + 不擅自下载 ==
   [PASS] ★提示里给了 3 种可操作办法
   [PASS] ★★提示点名了推荐做法（放进 data/tools）
   [PASS] ★★明说不会自己联网装（安装新依赖要先问用户）
   [PASS] ★提示里给了环境变量这条路
-  [PASS] ★★源码里没有任何「自动下载 aria2c」的代码
-  [PASS] ★★没有引擎时 start_bt 返回失败（不是假装成功）
+  [PASS] ★提示里还告诉了「放哪」的具体目录
+  [PASS] ★★torrent_engine 里没有任何「自动下载 aria2c」的代码
+  [PASS] ★★没引擎时 start_bt 返回失败（不是假装成功）
   [PASS] ★★失败原因里带可操作提示
   [PASS] ★标了 bt=True（让调用方能区分）
   [PASS] ★★download 工具收到磁力链：没引擎时明确报错，不吞掉
+  [PASS] ★没引擎时**不会**启动任何进程（没有 job）
   [PASS] ★类似但非种子的链接仍走普通下载（不误判成 BT）
 
 == E. 任务记录与状态查询（用假进程，不真跑 aria2） ==
@@ -82,5 +102,5 @@
   [PASS] ★BT 下载落在 <bucket>/bt 子目录（不和直链混）
 
 ============================================================
-★ 1.9.2 任务10 BT 下载：69 PASS / 0 FAIL
+★ 1.9.2 任务10 BT 下载：86 PASS / 0 FAIL
 ============================================================

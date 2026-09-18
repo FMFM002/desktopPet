@@ -2535,9 +2535,13 @@ class SettingsWindow(QWidget):
         self._save_status.setText("保存中...")
         self._save_status.setStyleSheet("color: #007aff; font-size: 11px; background: transparent;")
 
-        self._save_watchdog = QTimer()
-        self._save_watchdog.setSingleShot(True)
-        self._save_watchdog.timeout.connect(self._on_save_timeout)
+        # ★ 1.9.2（内存调研结论）：原来**每次保存都新建一个无 parent 的 QTimer**，
+        #   旧引用被覆盖 → 那些 QTimer 只能等 GC，反复保存会攒一堆。
+        #   改成建一次、之后只 start()（结果一样：单次触发、每次保存重新计时）。
+        if getattr(self, "_save_watchdog", None) is None:
+            self._save_watchdog = QTimer(self)
+            self._save_watchdog.setSingleShot(True)
+            self._save_watchdog.timeout.connect(self._on_save_timeout)
         self._save_watchdog.start(5000)
 
         cfg = self._config

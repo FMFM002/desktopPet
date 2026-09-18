@@ -53,6 +53,11 @@ except ImportError:
 #   与 src/core/tool_manager.py 的 IDLE_UNLOAD_TIMEOUT = 30.0 保持一致）
 READER_IDLE_TIMEOUT = 30.0
 
+# ★ 1.9.2: OCR 结果缓存上限。内存调研发现它原先无上限、且 clear() 无人调用 ——
+#   key 是 64×64 灰度 md5，value 是整页识别文本，长会话会一直涨。
+#   64 条足够覆盖"同一张截图反复识别"这个真实用途。
+MAX_OCR_CACHE = 64
+
 
 def check_ocr_availability() -> dict:
     """检测所有 OCR 引擎的可用性"""
@@ -200,8 +205,13 @@ class OCREngine:
             text = pytesseract.image_to_string(processed, lang=self.lang)
 
             if use_cache:
-                key = self._image_hash_key(image)
+                # ★ 1.9.2（内存调研结论）：这个缓存原先是**无上限**的 dict，
+                #   key 是 64×64 灰度图的 md5、value 是整页 OCR 文本，
+                #   而且 clear() 全项目零调用点 → 长会话会一直涨。
+                #   给个上限，超了就丢最旧的（dict 保序）。
                 self._ocr_cache[key] = text
+                while len(self._ocr_cache) > MAX_OCR_CACHE:
+                    self._ocr_cache.pop(next(iter(self._ocr_cache)), None)
 
             return text.strip()
         except ImportError:

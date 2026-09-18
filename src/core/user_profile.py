@@ -6,6 +6,7 @@
 - TODO: 长期记忆 tool 待下一轮讨论完成后接入（当前暂用现有 set_trait 逻辑）
 """
 import time
+import queue
 import threading
 import logging
 from datetime import datetime, timedelta
@@ -240,9 +241,50 @@ class ProfileExtractor:
         except Exception as e:
             _log.debug(f"画像提取失败: {e}")
 
+    # ★ 1.9.2: 单 worker 队列（见 extract_async 的说明）
+    _extract_queue = None
+
     def extract_async(self, text: str):
-        """异步提取（后台线程）"""
-        threading.Thread(target=self.extract_from_text, args=(text,), daemon=True).start()
+        """异步提取（后台单 worker 队列）
+
+        ★ 1.9.2（内存调研结论）：原来是**每次调用起一条新线程**、无限流 ——
+        调用点有 main_window 的 3 处（粘贴图片 / 上传文件 / 定时总结），
+        短时间内连着来就会堆线程。改成"一条常驻 daemon 线程 + 有界队列"：
+          · 线程数恒为 1，不再随调用次数增长；
+          · 队列满（默认 32）时**丢最旧的**，因为画像提取只是"锦上添花"，
+            不该为了它把内存/线程堆起来。
+        """
+        try:
+            if self._extract_queue is None:
+                self._extract_queue = queue.Queue(maxsize=32)
+                threading.Thread(target=self._extract_loop, daemon=True,
+                                 name="profile-extract").start()
+            try:
+                self._extract_queue.put_nowait(text)
+            except queue.Full:
+                try:
+                    self._extract_queue.get_nowait()      # 丢最旧的
+                    self._extract_queue.put_nowait(text)
+                    _log.debug("画像提取队列满 → 丢掉最旧的一条")
+                except Exception:
+                    pass
+        except Exception as e:
+            _log.debug(f"画像提取入队失败（退回同步调用）: {e}")
+            try:
+                self.extract_from_text(text)
+            except Exception:
+                pass
+
+    def _extract_loop(self):
+        """唯一的提取工作线程：串行消费队列。"""
+        while True:
+            try:
+                item = self._extract_queue.get()
+                if item is None:
+                    return
+                self.extract_from_text(item)
+            except Exception as e:
+                _log.debug(f"画像提取 worker 出错（继续跑）: {e}")
 
 
 # ============================================================================
