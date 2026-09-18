@@ -33,9 +33,10 @@
   PASS  ★接了 WM_DISPLAYCHANGE / WM_DPICHANGED（这两个在现代 Windows 真的会发）
   PASS  ★接的是 DWMCOMPOSITIONCHANGED 但注释标明 Win8+ 收不到
   PASS  ★nativeEvent 返回 (handled, result) 元组，且不消费消息
-  PASS  ★Win32 回调只置标志（不在非主线程碰 QWidget）
+  PASS  ★★普通前台变化不再置 pending（修「抽」：切窗口零动作）
+  PASS  ★切到全屏窗口时回调置 pending 且 strong（进入也救，反正被全屏盖着）
   PASS  ★主线程取出标志并清掉
-  PASS  ★节流生效：紧接着再来一次不会重复自愈
+  PASS  ★节流生效：节流窗口内 pending 保持（不重复自愈）
   PASS  ★heal_window 是统一自愈入口（Win32 修 + Qt 重画）
   PASS  ★自愈后窗口仍然正常（没把形象搞没）
 
@@ -48,7 +49,7 @@
   PASS  ★_recreate_surface 存在（hide→show 重建分层表面）
   PASS  ★有「全屏检测」决定要不要走重度（免得每次 Alt+Tab 都闪）
   PASS  ★★重度自愈（hide→show）之后窗口仍然可见（别把人搞没了）
-  PASS  ★前台回调会置 pending（并在全屏时置 strong）
+  PASS  ★切到全屏时回调置 pending 且 strong
   PASS  ★★主线程取出后会**清掉 strong**（不然下一次普通切换也会闪一下）
 
 -- 6. 轮询检测「刚从全屏退出」（不依赖事件、不看窗口状态）--
@@ -62,6 +63,17 @@
   PASS  ★持续全屏时不触发
   PASS  ★★退出全屏那一刻触发**重度**自愈（就是用户报的那一下）
   PASS  ★状态跟着更新（不会每轮都触发一次）
+
+-- 6b. 图片查看器进/出触发（照片是普通窗口，全屏判据罩不住）--
+  PASS  ★win_window 提供了 foreground_is_viewer（查看器独立判据）
+  PASS  ★标题判据在位（照片看图时标题就是文件名，如 xxx.jpg）
+  PASS  ★进程名判据在位（photos.exe 等已知查看器）
+  PASS  ★pet_animation 有 _was_fg_viewer 状态（进出两个方向都要测得到）
+  PASS  ★平时（非查看器、非全屏）不触发 —— 这就是「不抽」
+  PASS  ★★切到图片查看器触发**重度**自愈（进入也救）
+  PASS  ★停留在查看器时不触发（看图过程中不闪）
+  PASS  ★★退出图片查看器触发**重度**自愈（兜住两场景的关键一环）
+  PASS  ★状态跟着更新（不会每轮都触发）
 
 -- 7. DWM cloaked 探针（对症检测，不靠猜）--
   PASS  ★★win_window 提供了 is_cloaked（DWMWA_CLOAKED = 14）
@@ -97,22 +109,17 @@
   PASS  ★确有 SWP_NOZORDER 定义（0x0004）
   PASS  ★★_set_exstyle 里 SetWindowPos 那段真的会执行到（不再被 NameError 吞）
 
--- 12. 色键透明（根治）--
-  PASS  ★★win_window 提供 apply_color_key
-  PASS  ★LWA_COLORKEY 常量正确（0x00000001）
-  PASS  ★★魔法色已定（magenta 255,0,255）
-  PASS  ★★形象窗口默认走色键（PRTS_PET_COLORKEY 默认开）
-  PASS  ★色键模式下**关掉** WA_TranslucentBackground（否则又回逐像素 alpha）
-  PASS  ★★有 _prepare_frame，且会把 alpha 二值化再合成魔法色
-  PASS  ★★全部 setPixmap 都走 _prepare_frame（漏一处就会露黑边/魔法色边）
-  PASS  ★★合成帧**只有全不透明**（alpha 集合 = [255]，没有半透明边）
-  PASS  ★★透明区被合成成魔法色（占比合理，说明色键能键掉它）
-  PASS  ★画出来的部分占比合理（不是整块魔法色）
-  PASS  ★★魔法色**没有**出现在原画的不透明像素里（不会误伤）
+-- 12. 色键方案已回退 --
+  PASS  ★★win_window 不再有 apply_color_key（色键入口已删）
+  PASS  ★win_window 不再有 COLOR_KEY / LWA_COLORKEY 常量
+  PASS  ★★pet_animation 不再有 _use_colorkey（环境变量开关已删）
+  PASS  ★pet_animation 不再有 _prepare_frame（二值化合成已删）
+  PASS  ★★WA_TranslucentBackground 恢复为默认无条件开启（逐像素 alpha 老路）
+  PASS  ★源码里没有残留的 numpy 色键合成（frombuffer/tobytes）
 
 -- 13. 日志顺序：先重定向 stderr 再 setup_logging --
   PASS  ★★main.py 里 redirect_stderr_to_file 在 setup_logging **之前**
   PASS  ★★pet_process.py 里也是同样顺序
   PASS  ★源码里写明了这个坑（免得后人调回去）
 
-★ 形象窗口自愈回归：89 PASS / 0 FAIL
+★ 形象窗口自愈回归：94 PASS / 0 FAIL

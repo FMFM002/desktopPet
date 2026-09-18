@@ -259,15 +259,21 @@ PTRTS1.9.0 —— 工具能力说明书（tools 功能 / 参数 / 返回）
 ■ system_command
 ──────────────────────────────────────────────────────────────────────────────
 【用途】
-  系统快捷操作：本机IP、打开应用、系统信息、进程管理、时间日期、磁盘内存等。
+  系统快捷操作：本机/公网IP与归属地、打开应用、系统信息、进程管理、时间日期、磁盘内存等。
 
 【完整描述（LLM 看到的就是它）】
-  执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日期、磁盘内存等。
+  执行快捷系统操作。支持: 查本机/公网IP、打开应用、查询系统信息、进程管理、时间日期、磁盘内存等。
 
 【参数】
   · action  (string, **必填**)
-      可选值: get_local_ip, open_calc, open_notepad, open_explorer, open_browser, system_info, get_time, get_date, list_processes, disk_usage, memory_usage, kill_process, open_url
-      说明: 操作类型: - get_local_ip: 获取本机局域网IP地址（即ipconfig里那个IPv4，不是公网IP） - open_calc: 打开计算器 - open_notepad: 打开记事本 - open_explorer: 打开文件资源管理器 - open_browser: 打开浏览器 - system_info: 系统信息 - get_time: 当前时间 - get_date: 当前日期 - list_processes: 列出高CPU进程 - disk_usage: 磁盘使用情况 - memory_usage: 内存使用情况 - kill_process: 终止进程(需param=进程名或PID) - open_url: 打开网址(需param=URL)
+      可选值: get_ip_info, get_local_ip, open_calc, open_notepad, open_explorer, open_browser, system_info, get_time, list_processes, disk_usage, memory_usage, kill_process, open_url
+      说明:
+        - get_ip_info  ★推荐。本机内网IP + 公网IP + 归属地（国家/省份/城市/运营商/ASN/时区/经纬度）
+        - get_local_ip 只要局域网IPv4（ipconfig里那个）
+        - get_time     当前日期+时间（含星期与周数）
+        - 其余: open_calc / open_notepad / open_explorer / open_browser / system_info /
+          list_processes / disk_usage / memory_usage / kill_process / open_url
+      注: 原 get_date 与 get_time 功能重复，1.9.2 已合并为一个；get_date 仅作旧调用别名保留，不在枚举里暴露。
   · param  (string, 可选)
       说明: [open_url/open_explorer/kill_process] 额外参数
   必填项: action
@@ -275,13 +281,23 @@ PTRTS1.9.0 —— 工具能力说明书（tools 功能 / 参数 / 返回）
 【返回】
   JSON 文本；常见字段：action
   失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  get_ip_info 典型输出：
+        内网IP: 10.x.x.x
+        主机名: <主机名>
+        公网IP: 45.x.x.x
+        国家: 中国 / 省份: 香港特别行政区 / 城市: 香港
+        运营商: Catixs Ltd / ASN: AS48266 Catixs Ltd
+        时区: Asia/Hong_Kong / 经纬度: 22.374, 114.1369
+  数据源: 主 ipapi.co(HTTPS)，备 ip-api.com；两者都免 key。查询失败只影响公网部分，内网IP照常返回。
   典型输出片段：
       · [提示] psutil未安装
       · [提示] psutil未安装，无法列出进程
       · [错误] kill_process 需要进程名或PID参数
 
 【示例】
-  system_command({"action": "ip"})
+  system_command({"action": "get_ip_info"})
+  system_command({"action": "get_local_ip"})
+  system_command({"action": "get_time"})
 
 ──────────────────────────────────────────────────────────────────────────────
 ■ shell_exec

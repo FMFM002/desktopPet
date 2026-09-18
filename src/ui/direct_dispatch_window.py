@@ -199,8 +199,8 @@ _TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── system_command：execute(action, param="") ──
     "system_command": {
-        "actions": ["get_local_ip", "open_calc", "open_notepad", "open_explorer",
-                    "open_browser", "system_info", "get_time", "get_date",
+        "actions": ["get_ip_info", "get_local_ip", "open_calc", "open_notepad",
+                    "open_explorer", "open_browser", "system_info", "get_time",
                     "list_processes", "disk_usage", "memory_usage",
                     "kill_process", "open_url"],
         "fields": [

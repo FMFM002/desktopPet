@@ -2650,18 +2650,31 @@ check("★caption 进了给 LLM 看的目录（prompt_catalog）",
 check("★resolve 现在也认 keywords（以前那个字段白写）",
       _ml.resolve("生气") is not None and _ml.resolve("tangping") is not None)
 
-print("\n== ★清理脚本（给你手动跑的 bat） ==")
+print("\n== ★脚本编码规矩（1.9.2 起改为全仓库通用检查） ==")
+# 1.9.2 任务 2：一次性清理脚本（清理临时文件.bat / _cleanup_190.ps1）已执行完并丢进回收站，
+# 所以原来「断言这两个文件存在」的 5 条已失去对象。但它们守护的**规则**仍然有效，
+# 这里改成对仓库里所有工具脚本生效的通用检查，规则不丢、覆盖面反而更大。
 _bat = ROOT / "清理临时文件.bat"
 _psc = ROOT / "_cleanup_190.ps1"
-check("★bat 和 ps1 都在项目根目录", _bat.exists() and _psc.exists())
-check("★bat 不能带 BOM（cmd 会把 BOM 当命令）",
-      _bat.exists() and _bat.read_bytes()[:3] != b"\xef\xbb\xbf")
-check("★ps1 必须带 BOM（PowerShell 5.1 否则会把中文注释吃掉）",
-      _psc.exists() and _psc.read_bytes()[:3] == b"\xef\xbb\xbf")
-_ps1_txt = _psc.read_text(encoding="utf-8-sig") if _psc.exists() else ""
-check("★只删 *-partial*，绝不碰正式模型文件",
-      "*-partial*" in _ps1_txt and "notlike '*-partial*'" in _ps1_txt)
-check("★动手前会先问一次", "Read-Host" in _ps1_txt)
+check("★一次性清理脚本已退役（1.9.2 已执行完毕并回收）",
+      not _bat.exists() and not _psc.exists(),
+      f"bat={_bat.exists()} ps1={_psc.exists()}")
+_ps1_all = [p for p in (ROOT / "tools").rglob("*.ps1")
+            if ".git" not in p.parts]
+_bat_all = [p for p in (ROOT / "tools").rglob("*.bat")
+            if ".git" not in p.parts]
+check("★tools 下仍有回归脚本在跑（不然这条检查是空的）", len(_ps1_all) >= 1,
+      f"找到 {len(_ps1_all)} 个 ps1")
+_bom_bad = [p.name for p in _ps1_all
+            if p.read_bytes()[:3] != b"\xef\xbb\xbf"]
+check("★每个 ps1 都带 BOM（PowerShell 5.1 否则会把中文注释吃掉）",
+      not _bom_bad, f"缺 BOM: {_bom_bad}")
+_nobom_bad = [p.name for p in _bat_all
+              if p.read_bytes()[:3] == b"\xef\xbb\xbf"]
+check("★每个 bat 都不带 BOM（cmd 会把 BOM 当命令）", not _nobom_bad,
+      f"多出 BOM: {_nobom_bad}")
+check("★回归脚本是 UTF-8 可解析的（没被 GBK 写坏）",
+      all(p.read_text(encoding="utf-8-sig").strip() for p in _ps1_all))
 
 # ══════════════════════════════════════════════════════════════
 # ★ 2026-09-17 第三轮（交接清单 9 条）的回归锚点

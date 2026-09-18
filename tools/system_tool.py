@@ -7,28 +7,27 @@ import platform
 import datetime
 
 TOOL_NAME = "system_command"
-TOOL_DESCRIPTION = "执行快捷系统操作。支持: 获取本机IP、打开应用、查询系统信息、进程管理、时间日期、磁盘内存等。"
+TOOL_DESCRIPTION = "执行快捷系统操作。支持: 查本机/公网IP、打开应用、查询系统信息、进程管理、时间日期、磁盘内存等。"
 TOOL_PARAMETERS = {
     "type": "object",
     "properties": {
         "action": {
             "type": "string",
             "enum": [
-                "get_local_ip", "open_calc", "open_notepad", "open_explorer", "open_browser",
-                "system_info", "get_time", "get_date",
+                "get_ip_info", "get_local_ip",
+                "open_calc", "open_notepad", "open_explorer", "open_browser",
+                "system_info", "get_time",
                 "list_processes", "disk_usage", "memory_usage",
                 "kill_process", "open_url",
             ],
             "description": (
                 "操作类型:\n"
-                "- get_local_ip: 获取本机局域网IP地址（即ipconfig里那个IPv4，不是公网IP）\n"
-                "- open_calc: 打开计算器\n"
-                "- open_notepad: 打开记事本\n"
-                "- open_explorer: 打开文件资源管理器\n"
-                "- open_browser: 打开浏览器\n"
+                "- get_ip_info: ★推荐。本机内网IP + 公网IP + 归属地"
+                "（国家/省份/城市/运营商/ASN/时区/经纬度）\n"
+                "- get_local_ip: 只要局域网IPv4（ipconfig里那个）\n"
+                "- open_calc / open_notepad / open_explorer / open_browser: 打开对应程序\n"
                 "- system_info: 系统信息\n"
-                "- get_time: 当前时间\n"
-                "- get_date: 当前日期\n"
+                "- get_time: 当前日期+时间（含星期与周数）\n"
                 "- list_processes: 列出高CPU进程\n"
                 "- disk_usage: 磁盘使用情况\n"
                 "- memory_usage: 内存使用情况\n"
@@ -45,28 +44,119 @@ TOOL_PARAMETERS = {
 }
 
 
+def _lan_ip() -> tuple:
+    """取局域网 IPv4 + 主机名 → (ip, hostname)"""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip, socket.gethostname()
+    except Exception:
+        try:
+            hostname = socket.gethostname()
+            return socket.gethostbyname(hostname), hostname
+        except Exception:
+            return "", ""
+
+
+def _public_ip_info() -> dict:
+    """★ 1.9.2（用户要求）：查公网 IP 归属地。
+
+    用户点名要这些字段：IP / 国家 / 省份 / 城市 / 运营商 / ASN / 时区 / 经纬度。
+    数据源（都免费、都不用 key）：
+      · 主：`https://ipapi.co/json/`（HTTPS，1000 次/天）
+      · 备：`http://ip-api.com/json/?lang=zh-CN`（HTTP 免费版；只是因为免费版不带 HTTPS，
+            查 IP 归属地不涉及密钥，用 HTTP 可接受）
+    """
+    import requests
+    # ── 主：ipapi.co ──
+    try:
+        r = requests.get("https://ipapi.co/json/", timeout=8,
+                         headers={"User-Agent": "PTRTS-DesktopPet/1.9.2"})
+        if r.status_code == 200:
+            j = r.json()
+            if not j.get("error"):
+                return {
+                    "ip": j.get("ip", ""),
+                    "country": j.get("country_name") or j.get("country") or "",
+                    "region": j.get("region") or "",
+                    "city": j.get("city") or "",
+                    "isp": j.get("org") or "",
+                    "asn": j.get("asn") or "",
+                    "timezone": j.get("timezone") or "",
+                    "lat": j.get("latitude"),
+                    "lon": j.get("longitude"),
+                    "src": "ipapi.co",
+                }
+    except Exception:
+        pass
+    # ── 备：ip-api.com ──
+    try:
+        r = requests.get("http://ip-api.com/json/?lang=zh-CN", timeout=8)
+        if r.status_code == 200:
+            j = r.json()
+            if j.get("status") == "success":
+                return {
+                    "ip": j.get("query", ""),
+                    "country": j.get("country", ""),
+                    "region": j.get("regionName", ""),
+                    "city": j.get("city", ""),
+                    "isp": j.get("isp", ""),
+                    "asn": j.get("as", ""),
+                    "timezone": j.get("timezone", ""),
+                    "lat": j.get("lat"),
+                    "lon": j.get("lon"),
+                    "src": "ip-api.com",
+                }
+    except Exception:
+        pass
+    return {}
+
+
 def execute(action: str, param: str = "") -> str:
     """执行系统操作"""
 
+    if action == "get_ip_info":
+        # ★ 1.9.2（用户要求）：一次查全 —— 内网IP + 公网IP + 完整归属地
+        lan_ip, hostname = _lan_ip()
+        lines = []
+        if lan_ip:
+            lines.append(f"内网IP: {lan_ip}")
+        if hostname:
+            lines.append(f"主机名: {hostname}")
+        info = _public_ip_info()
+        if not info:
+            lines.append("公网IP: [查询失败] 网络不通或接口限流")
+            lines.append("(内网IP仍然可用；公网归属地需要联网查询)")
+            return "\n".join(lines)
+        lines.append(f"公网IP: {info.get('ip') or '未知'}")
+        lines.append(f"国家: {info.get('country') or '未知'}")
+        lines.append(f"省份: {info.get('region') or '未知'}")
+        lines.append(f"城市: {info.get('city') or '未知'}")
+        lines.append(f"运营商: {info.get('isp') or '未知'}")
+        asn = info.get("asn")
+        if asn:
+            if not str(asn).upper().startswith("AS"):
+                asn = f"AS{asn}"
+            lines.append(f"ASN: {asn}")
+        else:
+            lines.append("ASN: 未知")
+        lines.append(f"时区: {info.get('timezone') or '未知'}")
+        lat, lon = info.get("lat"), info.get("lon")
+        if lat is not None and lon is not None:
+            lines.append(f"经纬度: {lat}, {lon}")
+        else:
+            lines.append("经纬度: 未知")
+        return "\n".join(lines)
+
     if action == "get_local_ip":
-        import socket
-        try:
-            # 通过连接外部地址获取本机实际使用的网卡IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            hostname = socket.gethostname()
-            return f"本机IP: {local_ip}\n主机名: {hostname}\n说明: 这是局域网IPv4地址（ipconfig里那个）"
-        except Exception:
-            # 备用方案：遍历网卡
-            try:
-                hostname = socket.gethostname()
-                local_ip = socket.gethostbyname(hostname)
-                return f"本机IP: {local_ip}\n主机名: {hostname}\n说明: 这是局域网IPv4地址"
-            except Exception as e:
-                return f"[错误] 无法获取本机IP: {e}"
+        lan_ip, hostname = _lan_ip()
+        if not lan_ip:
+            return "[错误] 无法获取本机IP"
+        return f"本机IP: {lan_ip}\n主机名: {hostname}\n说明: 这是局域网IPv4地址（ipconfig里那个）"
 
     if action == "open_calc":
         subprocess.Popen("calc.exe" if os.name == "nt" else "gnome-calculator")
@@ -110,14 +200,20 @@ def execute(action: str, param: str = "") -> str:
         return "\n".join(info)
 
     elif action == "get_time":
+        # ★ 1.9.2（用户要求）：原 get_time / get_date 功能重复，合并为一个。
+        # 输出同时含 日期 + 时间 + 星期 + 周数，模型一次调用拿全，不必再分两次问。
         now = datetime.datetime.now()
         weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        return f"当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')} ({weekdays[now.weekday()]})"
+        iso = now.isocalendar()
+        return (
+            f"当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')} "
+            f"({weekdays[now.weekday()]}) 第{iso[1]}周\n"
+            f"中文写法: {now.strftime('%Y年%m月%d日 %H:%M')}"
+        )
 
     elif action == "get_date":
-        now = datetime.datetime.now()
-        weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        return f"当前日期: {now.strftime('%Y年%m月%d日')} ({weekdays[now.weekday()]}) 第{now.isocalendar()[1]}周"
+        # 兼容旧调用：get_date 已并入 get_time，此处保留为同义别名（枚举里不再暴露）
+        return execute("get_time", param)
 
     elif action == "list_processes":
         try:
