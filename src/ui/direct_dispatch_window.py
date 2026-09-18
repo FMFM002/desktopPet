@@ -116,17 +116,33 @@ _TOOL_SCHEMAS: dict[str, dict] = {
     },
     # ── download：execute(url, filename, bucket) —— 无 action ──
     "download": {
-        "actions": [],
+        "actions": ["", "bt_status", "bt_stop", "bt_engine"],
         "fields": [
-            _FieldSpec("url", "URL", "string", placeholder="https://...", help="必填"),
+            _FieldSpec("url", "URL", "string",
+                       placeholder="https://... 或 magnet:?xt=urn:btih:... 或 x.torrent",
+                       help="必填。支持普通直链、磁力链、.torrent 种子"),
             _FieldSpec("filename", "另存为", "string", placeholder="留空从 URL 推断",
                        help="含扩展名；不带也行。"),
             _FieldSpec("bucket", "子目录", "string", default="websearch",
-                       help="存到 data/downloads/<bucket>/ 下，默认 websearch。"),
+                       help="存到 data/downloads/<bucket>/ 下，默认 websearch；"
+                            "BT 会落到 <bucket>/bt/。"),
+            _FieldSpec("threads", "分段并发", "int", default=0,
+                       help="1-8；0=自动（按文件大小定）。"),
+            _FieldSpec("resume", "断点续传", "bool", default=True,
+                       help="默认开；中断后再下同一 URL 会接着下。"),
+            _FieldSpec("max_mb", "大小上限(MB)", "int", default=512,
+                       help="超过就拒绝，默认 512。"),
+            _FieldSpec("action", "动作", "string", default="",
+                       help="空=下载；bt_status=看 BT 进度；bt_stop=停止(配 job_id)；"
+                            "bt_engine=看 BT 引擎状态"),
+            _FieldSpec("job_id", "BT 任务 id", "string",
+                       help="只对 action=bt_stop 有意义"),
         ],
         "intro": (
-            "通用 HTTP 下载（图片/PDF/音频/视频/任意二进制）。"
-            "真实参数：url / filename / bucket。"
+            "通用下载。直链支持多线程分段 + 断点续传（照 Motrix）；"
+            "磁力链/.torrent 交给 aria2c 后台下载（BT 慢，会立刻返回 job_id，"
+            "之后用 action=bt_status 看进度）。"
+            "★ BT 需要 aria2c，本机没有时会给放置路径提示（不会自动下载安装）。"
         ),
     },
     # ── file_ops：execute(action, **kwargs) —— 真实 action 8 个 ──

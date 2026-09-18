@@ -1,0 +1,40 @@
+
+== A. 接口与常量 ==
+  [PASS] ★有 READER_IDLE_TIMEOUT 常量
+  [PASS] ★★超时值和 LAZY 工具那条规则一致（用户说的「一样的30s」）
+  [PASS] ★OCREngine 有 release_idle_reader()
+  [PASS] ★__init__ 里有 _reader_last_used
+  [PASS] ★import time 在位（第一版漏了它，编译能过但运行会 NameError）
+
+== B. 逻辑：未超时不放、超时才放、放了能重建 ==
+  [PASS] ★刚用过 → 不释放
+  [PASS] ★未超时时 Reader 还在
+  [PASS] ★★空闲超过 30 秒 → 释放
+  [PASS] ★★释放后 _easyocr_reader 变回 None
+  [PASS] ★已经没 Reader 时再调不报错、返回 False
+  [PASS] ★差 1 秒还不放（边界不越界）
+  [PASS] ★重建分支仍在（if self._easyocr_reader is None → easyocr.Reader(...)）
+  [PASS] ★每次真正用到会刷新 _reader_last_used（否则会被误判空闲）
+
+== C. 真的接进了空闲清扫（不是写完没人调） ==
+  [PASS] ★ToolManager 有 _sweep_idle_big_objects()
+  [PASS] ★★清扫循环里真的调了它
+  [PASS] ★★清扫会去调 OCR 引擎的 release_idle_reader()
+  [PASS] ★没 OCR 引擎时清扫不报错（不能把清扫线程带崩）
+  [PASS] ★视觉客户端取不到时清扫也不报错
+
+== D. 用同一条规则、同一个线程（不额外起线程） ==
+  [PASS] ★没有为 OCR 单独起线程（避免旧线程抱住旧对象）
+  [PASS] ★挂在 tool-idle-check 那条线程上
+  [PASS] ★每次清扫都有 try/except 包着（单次失败不带崩线程）
+
+== E. 注释如实说明能省多少（不夸大） ==
+  [PASS] ★★注释写明 Reader 约 174MB 能释放
+  [PASS] ★★注释写明 torch 的 510MB 本进程要不回来（不吹成省 776MB）
+  [PASS] ★注释引用了用户原话「一样的30s后卸载」
+  [PASS] ★注释写了释放后下次会重新加载（行为可预期）
+  [PASS] ★释放时主动 gc.collect（Reader 里有循环引用）
+
+============================================================
+★ 1.9.2 easyocr 空闲卸载：26 PASS / 0 FAIL
+============================================================

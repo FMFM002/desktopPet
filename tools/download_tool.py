@@ -71,15 +71,20 @@ TOOL_DESCRIPTION = (
     "并自动发送到聊天窗口。"
     "★ 支持多线程分段下载 + 断点续传（照 Motrix）：大文件会切成多段并发拉取，"
     "下到一半中断的话，再下同一个 URL 会接着下（不会从头再来）。"
+    "★ 也支持 BT：磁力链（magnet:?xt=urn:btih:…）和 .torrent 种子，"
+    "交给 aria2c 后台下载（BT 很慢，会立刻返回 job_id，之后问进度就行）。"
     "联网搜索拿到图片链接后要用它把图取回来；B站封面、网页上的附件同理。\n"
     "参数: url(必填); filename(可选，含扩展名); bucket(可选，默认 websearch，"
     "即 data/downloads/<bucket>/); threads(可选，分段并发数 1-8，默认自动); "
-    "resume(可选，默认 true，断点续传); max_mb(可选，默认 512，超过就拒绝)。"
+    "resume(可选，默认 true，断点续传); max_mb(可选，默认 512，超过就拒绝); "
+    "action(可选: 空=下载 | bt_status=看 BT 任务进度 | bt_stop=停止，配 job_id)。"
 )
 TOOL_PARAMETERS = {
     "type": "object",
     "properties": {
-        "url": {"type": "string", "description": "要下载的 http/https 链接"},
+        "url": {"type": "string",
+                "description": "要下载的 http/https 链接，或磁力链 magnet:?xt=…，"
+                               "或 .torrent 种子（本地路径/网址）"},
         "filename": {"type": "string",
                      "description": "保存的文件名（含扩展名）；不填则自动推断"},
         "bucket": {"type": "string",
@@ -92,6 +97,12 @@ TOOL_PARAMETERS = {
                    "description": "文件大小上限（MB），默认 512"},
         "referer": {"type": "string",
                     "description": "防盗链站点需要（如 B站封面填 https://www.bilibili.com）"},
+        "action": {"type": "string",
+                   "enum": ["", "bt_status", "bt_stop", "bt_engine"],
+                   "description": "空=正常下载；bt_status=查 BT 任务进度；"
+                                  "bt_stop=停止某任务(配 job_id)；bt_engine=看 BT 引擎状态"},
+        "job_id": {"type": "string",
+                   "description": "[action=bt_stop] 要停止的 BT 任务 id"},
     },
     "required": ["url"],
 }
@@ -642,8 +653,64 @@ def download_url(url: str, filename: str = "", bucket: str = "websearch",
 
 def execute(url: str, filename: str = "", bucket: str = "websearch",
             referer: str = "", threads: int = 0, resume: bool = True,
-            max_mb: int = DEFAULT_MAX_MB, **kwargs) -> str:
-    """下载 URL → 返回 JSON。主窗口会自动把它推送到聊天窗口。"""
+            max_mb: int = DEFAULT_MAX_MB, action: str = "",
+            job_id: str = "", **kwargs) -> str:
+    """下载 URL → 返回 JSON。主窗口会自动把它推送到聊天窗口。
+
+    ★ 1.9.2（用户批注「希望可以下载BT」）：
+      · action="" 且 url 是磁力链/.torrent → 交给 aria2c 后台下载，立刻返回 job_id
+      · action="bt_status" → 看 BT 任务进度
+      · action="bt_stop"   → 停某个任务
+      · action="bt_engine" → 看 BT 引擎（aria2c）找不找得到
+    """
+    act = (action or "").strip().lower()
+
+    # ── BT 相关动作（不需要 url）──
+    try:
+        from src.core import torrent_engine as BT
+    except Exception as e:
+        BT = None
+        _log.debug(f"[Download] BT 模块不可用: {e}")
+
+    if act == "bt_engine":
+        if BT is None:
+            return json.dumps({"success": False,
+                               "error": "BT 模块不可用"}, ensure_ascii=False, indent=2)
+        info = BT.engine_info()
+        info["success"] = True
+        info["message"] = (f"BT 引擎：{'已找到 ' + info['path'] if info['found'] else '未找到'}"
+                           + ("" if info["found"] else "\n" + info["hint"]))
+        return json.dumps(info, ensure_ascii=False, indent=2)
+
+    if act == "bt_status":
+        if BT is None:
+            return json.dumps({"success": False, "error": "BT 模块不可用"},
+                              ensure_ascii=False, indent=2)
+        return json.dumps(BT.job_status(job_id or ""), ensure_ascii=False, indent=2)
+
+    if act == "bt_stop":
+        if BT is None:
+            return json.dumps({"success": False, "error": "BT 模块不可用"},
+                              ensure_ascii=False, indent=2)
+        if not job_id:
+            return json.dumps({"success": False, "error": "bt_stop 需要 job_id"},
+                              ensure_ascii=False, indent=2)
+        return json.dumps(BT.stop_bt(job_id), ensure_ascii=False, indent=2)
+
+    u = (url or "").strip()
+
+    # ── ★ BT（磁力 / 种子）：交给 aria2c 后台跑，不阻塞工具调用 ──
+    if BT is not None and BT.is_bt_target(u):
+        if not BT.find_aria2():
+            return json.dumps({
+                "success": False, "bt": True,
+                "error": ("这是一个 BT 链接，但本机没有 BT 下载引擎。\n"
+                          + BT.aria2_hint()),
+            }, ensure_ascii=False, indent=2)
+        dest = download_dir(bucket) / "bt"
+        r = BT.start_bt(u, dest)
+        return json.dumps(r, ensure_ascii=False, indent=2)
+
     result = download_url(url, filename=filename or "",
                           bucket=bucket or "websearch",
                           referer=referer or "", threads=threads or 0,

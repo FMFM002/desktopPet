@@ -79,29 +79,53 @@ PTRTS1.9.0 —— 工具能力说明书（tools 功能 / 参数 / 返回）
 ──────────────────────────────────────────────────────────────────────────────
 【用途】
   把任意 http/https 链接下载到 data/downloads/<来源>/，并自动发到聊天窗口。
+  ★ 1.9.2 起：支持多线程分段 + 断点续传（照 Motrix），
+    也支持 BT / 磁力链（交给 aria2c 后台下载）。
 
 【完整描述（LLM 看到的就是它）】
-  把任意 http/https 链接（图片、封面、PDF、压缩包、音视频等）下载到本地，并自动发送到聊天窗口。联网搜索拿到图片链接后要用它把图取回来；B站封面、网页上的附件同理。参数: url(必填); filename(可选，含扩展名); bucket(可选，data/downloads 下的子目录，默认 websearch)。
+  把任意 http/https 链接（图片、封面、PDF、压缩包、音视频等）下载到本地，并自动发送到聊天窗口。★ 支持多线程分段下载 + 断点续传（照 Motrix）：大文件会切成多段并发拉取，下到一半中断的话，再下同一个 URL 会接着下（不会从头再来）。★ 也支持 BT：磁力链（magnet:?xt=urn:btih:…）和 .torrent 种子，交给 aria2c 后台下载（BT 很慢，会立刻返回 job_id，之后问进度就行）。联网搜索拿到图片链接后要用它把图取回来；B站封面、网页上的附件同理。参数: url(必填); filename(可选，含扩展名); bucket(可选，默认 websearch); threads(可选，分段并发数 1-8，默认自动); resume(可选，默认 true); max_mb(可选，默认 512); action(可选: 空=下载 | bt_status=看 BT 任务进度 | bt_stop=停止，配 job_id)。
 
 【参数】
   · url  (string, **必填**)
-      说明: 要下载的 http/https 链接
+      说明: 普通 http/https 链接 / 磁力链 magnet:?xt=… / .torrent 种子
   · filename  (string, 可选)
       说明: 保存的文件名（含扩展名）；不填则从 URL 推断
   · bucket  (string, 可选)
-      说明: 保存到 data/downloads/ 下的哪个子目录，默认 websearch
+      说明: 保存到 data/downloads/ 下的哪个子目录，默认 websearch；BT 落到 <bucket>/bt/
+  · threads  (integer, 可选)
+      说明: 分段并发数 1-8；0 或不填=自动（按文件大小定）
+  · resume  (boolean, 可选)
+      说明: 断点续传，默认 true；中断后再下同一 URL 会接着下（实测只补缺失分段）
+  · max_mb  (integer, 可选)
+      说明: 大小上限（MB），默认 512
+  · referer  (string, 可选)
+      说明: 防盗链站点需要（如 B站封面填 https://www.bilibili.com）
+  · action  (string, 可选)
+      可选值: (空) / bt_status / bt_stop / bt_engine
+      · bt_status 查 BT 任务进度；bt_stop 停任务（配 job_id）；bt_engine 看引擎状态
+  · job_id  (string, 可选)
+      说明: 只对 action=bt_stop 有意义
   必填项: url
 
 【返回】
-  JSON 文本；常见字段：error, file_path, message, success, url
+  JSON 文本；常见字段：success, file_path, file_name, file_size, bytes,
+  is_image, url, mode, threads, seconds, speed, message
   失败时: {"success": false, "error": "…（会写清原因和补救办法）"}
+  BT：{"success": true, "bt": true, "job_id": "bt-…", "dir": "…"}
+  ★ 断点续传：中断时返回 {"success": false, "resumable": true,
+     "partial_file": "xxx.part", "hint": "再调用一次同一条 download 即可续传"}
+  ★ BT 引擎缺失时返回 {"success": false, "bt": true,
+     "error": "……需要 aria2c……三种放置办法……"}（绝不会自动下载安装）
   典型输出片段：
-      · download
-      · {n / 1024 / 1024:.1f} MB
-      · {n / 1024:.1f} KB
+      · 🖼 图片下载完成 · xxx.png · 145 B
+      · 📎 下载完成 · xxx.zip · 3.0 MB · 4 段并发
+      · 🧲 已开始后台下载磁力链（job bt-…）
 
 【示例】
   download({"url": "https://…/a.jpg", "filename": "封面.jpg"})
+  download({"url": "https://…/big.zip", "threads": 8})
+  download({"url": "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a"})
+  download({"url": "", "action": "bt_status"})
 
 ──────────────────────────────────────────────────────────────────────────────
 ■ bilibili_video

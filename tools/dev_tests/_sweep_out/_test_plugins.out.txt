@@ -1,14 +1,14 @@
 == office 工具 ==
-  [PASS] create xlsx  已创建文档: 自检表格_22704_1789740648.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_22
-  [PASS] create docx  已创建文档: 自检文档_22704_1789740648.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_22
-  [PASS] create pptx  已创建文档: 自检幻灯_22704_1789740648.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_22
-  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_22704_1789740648.docx', '自检幻灯_22704_1789740648.pptx', '自检表格_22704_1789740648.xlsx']
-  [PASS] view pptx  文档 自检幻灯_22704_1789740648.pptx 的 outline:
+  [PASS] create xlsx  已创建文档: 自检表格_27684_1789741116.xlsx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\xlsx\自检表格_27
+  [PASS] create docx  已创建文档: 自检文档_27684_1789741116.docx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\docx\自检文档_27
+  [PASS] create pptx  已创建文档: 自检幻灯_27684_1789741116.pptx (完整路径: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\office\pptx\自检幻灯_27
+  [PASS] 文件已落盘到 桌宠私有data/office  ['自检文档_27684_1789741116.docx', '自检幻灯_27684_1789741116.pptx', '自检表格_27684_1789741116.xlsx']
+  [PASS] view pptx  文档 自检幻灯_27684_1789741116.pptx 的 outline:
 {
   "success": true,
   "data": {
-    "fileName": "自检幻灯_22704_17897406
-  [PASS] add slide  已添加到 自检幻灯_22704_1789740648.pptx: /
+    "fileName": "自检幻灯_27684_17897411
+  [PASS] add slide  已添加到 自检幻灯_27684_1789741116.pptx: /
 路径: N/A
 == file_ops 工具 ==
   [PASS] write  ✅ 已写入 data\桌宠私有data\自检文件.txt (22 字节)
@@ -67,7 +67,7 @@ gen_pdf.py:10:     "(Hello FM, this is a test
   [PASS] shell 正常命令  命令: echo prts_ok
 工作目录: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0
 退出码: 0
-耗时: 16ms
+耗时: 28ms
 
 --- STDOUT ---
   [PASS] shell 拦截破坏性命令  [拒绝] 沙箱限制：禁止向只读区域写入/修改: C:\Windows\Temp\x.txt

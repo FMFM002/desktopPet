@@ -7,6 +7,7 @@
 import logging
 import subprocess
 import sys
+import time
 import hashlib
 from pathlib import Path
 from typing import Optional
@@ -47,6 +48,10 @@ try:
     _easyocr_available = True
 except ImportError:
     pass
+
+# ★ 1.9.2: easyocr Reader 空闲多久后释放（用户要求"一样的30s后卸载"，
+#   与 src/core/tool_manager.py 的 IDLE_UNLOAD_TIMEOUT = 30.0 保持一致）
+READER_IDLE_TIMEOUT = 30.0
 
 
 def check_ocr_availability() -> dict:
@@ -127,6 +132,8 @@ class OCREngine:
         self.lang = lang
         self._ocr_cache: dict[str, str] = {}
         self._easyocr_reader = None
+        # ★ 1.9.2: easyocr Reader 的"最后使用时间"（空闲卸载用；照 LAZY 工具的 30s 规则）
+        self._reader_last_used = 0.0
         self._available = False
         self._check_engine()
         if not self._available:
@@ -218,6 +225,8 @@ class OCREngine:
                     download_enabled=True,
                 )
                 _log.info(f"easyocr 模型目录: {_MODEL_DIR}")
+            # ★ 1.9.2: 每次真正用到就刷新"最后使用时间"（空闲卸载据此判断）
+            self._reader_last_used = time.time()
             results = self._easyocr_reader.readtext(np.array(image))
             return " ".join([item[1] for item in results])
         except ImportError:
@@ -225,6 +234,43 @@ class OCREngine:
         except Exception as e:
             _log.error(f"EasyOCR 失败: {e}")
             return ""
+
+    def release_idle_reader(self, timeout: float = READER_IDLE_TIMEOUT) -> bool:
+        """★ 1.9.2（用户要求）：easyocr 的 Reader 空闲超时就释放，别永久常驻。
+
+        用户原话：「这个直接一样的30s后卸载就行了」—— 就是照 LAZY 工具那套
+        `IDLE_UNLOAD_TIMEOUT = 30.0` 的规则（见 src/core/tool_manager.py:25）。
+
+        为什么值得做：内存调研实测 easyocr 这条链非常贵 ——
+          import torch +510.6 MB、easyocr +135.8 MB、Reader(...) 再 +174.2 MB
+          （18.2 → 794.0 MB，4.8s）。
+        ★ 诚实说明能省多少：`Reader` 对象本身（含加载的模型权重、检测/识别网络）
+          约 174 MB 能被真正释放；但 **`torch` 一旦 import 就留在 sys.modules 里**，
+          那 510 MB 本进程内要不回来（除非把 OCR 挪进独立子进程 —— 那是更大的改法）。
+          所以这里省的是"每次 OCR 之后不必一直养着 Reader"，不是那 776 MB 的全部。
+
+        返回 True 表示这次真的释放了。
+        """
+        if self._easyocr_reader is None:
+            return False
+        idle = time.time() - (self._reader_last_used or 0.0)
+        if idle < timeout:
+            return False
+        try:
+            self._easyocr_reader = None
+        except Exception as e:
+            _log.debug(f"释放 easyocr Reader 失败: {e}")
+            return False
+        # ★ 主动催一次 GC：Reader 里有循环引用（模型 ↔ 网络层），
+        #   光删引用不一定立刻回收那 174 MB。
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+        _log.info(f"[OCR] easyocr Reader 已空闲 {idle:.0f}s（>{timeout:.0f}s）"
+                  f"→ 已释放（下次 OCR 会重新加载）")
+        return True
 
     def extract_text_with_positions(self, image: Image.Image) -> list[dict]:
         """带位置信息的 OCR 提取，坐标归一化到 [0, 1]"""

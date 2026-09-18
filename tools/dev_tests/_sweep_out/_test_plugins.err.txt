@@ -14,6 +14,7 @@
 共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
 执行工具: office(['action', 'format', 'file'])
 工具 [office] 加载完成 (策略=lazy)
+视觉客户端就绪: mode=ocr, model=deepseek-chat
 执行工具: office(['action', 'format', 'file'])
 执行工具: office(['action', 'format', 'file'])
 执行工具: office(['action', 'file', 'mode'])
@@ -37,6 +38,6 @@
 执行工具: shell_exec(['command'])
 工具 [shell_exec] 加载完成 (策略=lazy)
 执行命令: echo prts_ok (cwd=D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0)
-命令完成: exit=0, 耗时=16ms, stdout=8字节, stderr=0字节
+命令完成: exit=0, 耗时=28ms, stdout=8字节, stderr=0字节
 执行工具: shell_exec(['command'])
 沙箱拦截命令: cmd /c del C:\Windows\Temp\x.txt

@@ -538,6 +538,28 @@ class ToolManager:
             except Exception as e:      # 单次出错不该把整个线程带走
                 _log.debug(f"空闲卸载检查出错（忽略）: {e}")
 
+            # ★ 1.9.2（用户要求）：顺手做一次"大对象空闲回收"。
+            #   用户原话（针对 easyocr 常驻 776MB）："这个直接一样的30s后卸载就行了"
+            #   —— 就是挂在同一个空闲清扫线程上，用同一条 30 秒规则，
+            #   不额外起线程（多起线程反而会抱住旧对象、让内存释放不掉）。
+            self._sweep_idle_big_objects()
+
+    def _sweep_idle_big_objects(self):
+        """回收"用一次就长期占着"的大对象（目前只有 easyocr 的 Reader）。
+
+        设计成"钩子式"：具体实现放在各自模块里（`release_idle_reader()`），
+        这里只负责按空闲规则去问一句"你该释放了吗"。
+        新增别的贵对象时，在这里加一行即可。
+        """
+        try:
+            from src.core.llm_client import get_vision_client
+            vc = get_vision_client()
+            eng = getattr(vc, "_ocr_engine", None)
+            if eng is not None and hasattr(eng, "release_idle_reader"):
+                eng.release_idle_reader()
+        except Exception as e:
+            _log.debug(f"大对象空闲回收出错（忽略）: {e}")
+
     # ---- 公共 API ----
 
     def get_tool(self, name: str) -> Optional[ToolInfo]:

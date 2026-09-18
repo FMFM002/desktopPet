@@ -1,5 +1,5 @@
 ----------------------------------------
-Exception occurred during processing of request from ('127.0.0.1', 63054)
+Exception occurred during processing of request from ('127.0.0.1', 59868)
 Traceback (most recent call last):
   File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 697, in process_request_thread
     self.finish_request(request, client_address)
@@ -15,5 +15,5 @@ Traceback (most recent call last):
   File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socket.py", line 720, in readinto
     return self._sock.recv_into(b)
            ^^^^^^^^^^^^^^^^^^^^^^^
-ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+ConnectionAbortedError: [WinError 10053] 你的主机中的软件中止了一个已建立的连接。
 ----------------------------------------

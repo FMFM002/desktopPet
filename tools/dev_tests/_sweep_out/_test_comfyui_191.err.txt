@@ -19,23 +19,23 @@ ComfyUI 能动用的显存只有 1.00 GB，连模型常驻需要的
   [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]
 共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
 [ComfyUI] 工具空闲卸载 → 释放模型并关闭 ComfyUI（同加载同卸载）
-[ComfyUI] 任务已入队 draw-6-35437（第 1 位） 512x512 steps=8
-[ComfyUI] 开始画 draw-6-35437
+[ComfyUI] 任务已入队 draw-6-99338（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-6-99338
 [ComfyUI] 工具被卸载，但后台还有画图任务 → 这次不关，等它画完
-[ComfyUI] 任务 draw-6-35437 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
+[ComfyUI] 任务 draw-6-99338 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
 [ComfyUI] 当前没在跑 → 交给后台 worker 先启动它
-[ComfyUI] 任务已入队 draw-7-36143（第 1 位） 512x512 steps=8
-[ComfyUI] 开始画 draw-7-36143
+[ComfyUI] 任务已入队 draw-7-160（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-7-160
 [ComfyUI] 没在跑 → 后台启动中…
 [ComfyUI] 已就绪，共花 0 秒（含启动）
-[ComfyUI] 任务 draw-7-36143 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
+[ComfyUI] 任务 draw-7-160 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
 [ComfyUI] 已请求释放模型与显存
-[ComfyUI] 任务已入队 draw-8-36248（第 1 位） 512x512 steps=8
-[ComfyUI] 开始画 draw-8-36248
-[ComfyUI] 任务 draw-8-36248 失败: ComfyUI 报错了：模拟 OOM
+[ComfyUI] 任务已入队 draw-8-372（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-8-372
+[ComfyUI] 任务 draw-8-372 失败: ComfyUI 报错了：模拟 OOM
 [ComfyUI] 当前没在跑 → 交给后台 worker 先启动它
-[ComfyUI] 任务已入队 draw-9-36353（第 1 位） 512x512 steps=35
-[ComfyUI] 开始画 draw-9-36353
+[ComfyUI] 任务已入队 draw-9-475（第 1 位） 512x512 steps=35
+[ComfyUI] 开始画 draw-9-475
 [ComfyUI] 没在跑 → 后台启动中…
 [ComfyUI] 已就绪，共花 0 秒（含启动）
-[ComfyUI] 任务 draw-9-36353 失败: ComfyUI 报错了：模拟 OOM
+[ComfyUI] 任务 draw-9-475 失败: ComfyUI 报错了：模拟 OOM
