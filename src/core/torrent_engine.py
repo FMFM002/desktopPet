@@ -292,6 +292,45 @@ def _collect(jid: str):
         e["finished"] = time.time()
 
 
+_PROG_RE = re.compile(
+    r"\[#\w+\s+([\d.]+)([KMG]?i?B)/([\d.]+)([KMG]?i?B)\((\d+)%\)"
+    r"(?:\s+CN:(\d+))?(?:\s+SD:(\d+))?(?:\s+DL:([\d.]+[KMG]?i?B))?")
+
+
+def _parse_progress(tail: list) -> dict:
+    """从 aria2 的输出里抠出**最后一条进度行** → 进度/速度/peer 数。
+
+    ★ 1.9.2（用户："BT提交后台后就没消息了"、"没有进度百分比、没有文件大小、
+      速度信息"）：原来 job_status 只回报状态+秒数，等于把"看不见的下载"
+      交给用户干等。aria2 的进度行长这样，直接解析它就有全部信息：
+          [#3de0d2 1.2MiB/5.9GiB(0%) CN:2 SD:0 DL:100KiB]
+    """
+    for line in reversed(tail or []):
+        m = _PROG_RE.search(line or "")
+        if not m:
+            continue
+        def _num(v):
+            try:
+                return float(v)
+            except Exception:
+                return 0.0
+        got, got_u, tot, tot_u, pct, cn, sd, dl = m.groups()
+        scale = {"B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3,
+                 "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3}
+        g = _num(got) * scale.get(got_u, 1)
+        t = _num(tot) * scale.get(tot_u, 1)
+        return {
+            "percent": int(pct or 0),
+            "downloaded": f"{got}{got_u}",
+            "total": f"{tot}{tot_u}",
+            "peers": int(cn or 0),
+            "seeds": int(sd or 0),
+            "speed": (dl or "0B"),
+            "_bytes": int(g), "_total": int(t),
+        }
+    return {}
+
+
 def job_status(jid: str = "") -> dict:
     """查一个（或全部）BT 任务状态。"""
     with _jobs_lock:
@@ -312,7 +351,8 @@ def job_status(jid: str = "") -> dict:
         #   "已结束(退出码 None)" —— 明明 poll() 已经知道结果了。
         if not alive and e.get("returncode") is None:
             e["returncode"] = rc
-        out.append({
+        _prog = _parse_progress(e.get("tail") or [])
+        _item = {
             "job_id": e["id"],
             "target": (e["target"][:80] + "…") if len(e["target"]) > 80 else e["target"],
             "infohash": e.get("infohash", ""),
@@ -320,14 +360,37 @@ def job_status(jid: str = "") -> dict:
             "state": "下载中" if alive else f"已结束(退出码 {rc})",
             "seconds": round(time.time() - e["started"], 1),
             "engine": e.get("engine", ""),
-        })
+        }
+        if _prog:
+            # ★ 1.9.2：把进度/速度/peer 一并回报（用户报"没消息了"就是缺这个）
+            _item.update({k: v for k, v in _prog.items() if not k.startswith("_")})
+        else:
+            _item["peers"] = 0
+            _item["hint"] = ("还没有进度行 —— 说明 aria2 还没连上任何 peer"
+                             "（BT 找 peer 可能要几分钟；若一直为 0，多半是"
+                             "网络/种子问题，见 advice）")
+        out.append(_item)
     if not out:
         return {"success": True, "jobs": [],
                 "message": "当前没有 BT 下载任务。"}
-    lines = [f"· {o['job_id']}  {o['state']}  {o['seconds']}s  → {o['dir']}"
-             for o in out]
-    return {"success": True, "jobs": out,
-            "message": "BT 任务：\n" + "\n".join(lines)}
+    # ★ 1.9.2：把进度/速度/peer 拼进 message —— 模型读到的是 message，
+    #   用户问"BT 进度"时它才有东西可说（原来只有"下载中 194.9s"，等于没说）。
+    lines = []
+    for o in out:
+        seg = f"· {o['job_id']}  {o['state']}  {o['seconds']}s"
+        if o.get("percent") is not None:
+            seg += (f"  进度 {o.get('percent')}% "
+                    f"({o.get('downloaded')}/{o.get('total')})"
+                    f"  peer {o.get('peers')}  seed {o.get('seeds')}"
+                    f"  速度 {o.get('speed')}")
+        else:
+            seg += "  还没有进度行（尚未连上 peer）"
+        seg += f"  → {o['dir']}"
+        lines.append(seg)
+    msg = "BT 任务：\n" + "\n".join(lines)
+    if any(o.get("hint") for o in out):
+        msg += "\n" + next(o["hint"] for o in out if o.get("hint"))
+    return {"success": True, "jobs": out, "message": msg}
 
 
 def stop_bt(jid: str) -> dict:

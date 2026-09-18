@@ -3,15 +3,15 @@ Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.githu
 This plugin does not support propagateSizeHints()
 This plugin does not support raise()
 [窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
-[窗口] 触发自愈（全屏程序进/出（前台窗口铺满屏幕））: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=查看两版开发日志并讨论 — DeepSeek Harness 和另外 1 个页面 - 个人 - Microsoft​ Edge exstyle=0x0 foreground=263522
+[窗口] 触发自愈（全屏程序进/出（前台窗口铺满屏幕））: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=图片查看器 exstyle=0x0 foreground=22940334
         内容快照: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
 [窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
 [窗口] 自愈完成: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
-[窗口] 触发自愈（自测）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=查看两版开发日志并讨论 — DeepSeek Harness 和另外 1 个页面 - 个人 - Microsoft​ Edge exstyle=0x0 foreground=263522
+[窗口] 触发自愈（自测）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=图片查看器 exstyle=0x0 foreground=22940334
         内容快照: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
 [窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
 [窗口] 自愈完成: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
-[窗口] 触发自愈（自测重度，重度）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=查看两版开发日志并讨论 — DeepSeek Harness 和另外 1 个页面 - 个人 - Microsoft​ Edge exstyle=0x0 foreground=263522
+[窗口] 触发自愈（自测重度，重度）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=图片查看器 exstyle=0x0 foreground=22940334
         内容快照: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
 [窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
 [窗口] 重建分层表面（hide→show，原因：自测重度）
@@ -19,7 +19,7 @@ This plugin does not support raise()
 This plugin does not support raise()
 [窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
 [窗口] 自愈完成: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
-[窗口] 触发自愈（全屏程序进/出（前台窗口铺满屏幕），重度）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=查看两版开发日志并讨论 — DeepSeek Harness 和另外 1 个页面 - 个人 - Microsoft​ Edge exstyle=0x0 foreground=263522
+[窗口] 触发自愈（全屏程序进/出（前台窗口铺满屏幕），重度）: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=图片查看器 exstyle=0x0 foreground=22940334
         内容快照: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''
 [窗口] 形象窗口丢了 WS_EX_TOPMOST → 已重新声明
 [窗口] 重建分层表面（hide→show，原因：全屏程序进/出（前台窗口铺满屏幕））
@@ -31,5 +31,5 @@ This plugin does not support raise()
 [窗口] 检测到图片查看器进/出 → 准备强制重显形象
 [窗口] 检测到图片查看器进/出 → 准备强制重显形象
 [窗口] ★ DWM 报告该窗口被 cloaked（没在呈现）→ 重建分层表面
-        窗口侧: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=查看两版开发日志并讨论 — DeepSeek Harness 和另外 1 个页面 - 个人 - Microsoft​ Edge exstyle=0x0 foreground=263522
+        窗口侧: qt_visible=True visible=False iconic=False layered=False topmost=False noactivate=False composited=False qt_geometry=651,611 128x128 foreground_title=图片查看器 exstyle=0x0 foreground=22940334
         画面侧: gif=无电影 当前帧空=True 标签pixmap=无 窗口=128x128 上一文件=''

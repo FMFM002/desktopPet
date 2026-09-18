@@ -364,7 +364,7 @@
   PASS  ★【行为控制】也进了提示词（表情包倾向 + 优先情绪）
 
 == ★表情包改成 tool（你说的方案：调用一次 → 待发送 → 回复后发）==
-  PASS  ★meme 工具能挑一张并进入待发送状态   {'success': True, 'action': 'meme', 'meme': '112.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS
+  PASS  ★meme 工具能挑一张并进入待发送状态   {'success': True, 'action': 'meme', 'meme': '083.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS
   PASS  ★一轮只生效一次（重复调用被拒，不会来回换）
   PASS  ★take_pending 取走后就空了（主窗口回复结束后取）
   PASS  ★可以按文件名直接指定
@@ -378,7 +378,7 @@
   PASS  ★空参调用 `meme({})` 被拒（不再随机兜底 → 图和回复脱钩）   {'success': False, 'error': 'tag 是必填的，不能空着调用。请根据你这次回复想表达的情绪选一个标签后再调用一次。可选：happy/daily/angry/confused/sad/shy/b
   PASS  ★拒绝时会列出真实存在的标签（模型才知道重挑什么）
   PASS  ★自己编的标签被拒（不退化成全库随机）   {'success': False, 'error': '没有「绝不存在的标签xyz」这个标签的表情包，别自己造标签。请换成这些里的一个再调用：happy/daily/angry/confused/sad/shy/bak
-  PASS  ★标签大小写不敏感 / 能模糊匹配到真实标签   {'success': True, 'action': 'meme', 'meme': '097.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\dat
+  PASS  ★标签大小写不敏感 / 能模糊匹配到真实标签   {'success': True, 'action': 'meme', 'meme': '104.webp', 'path': 'D:\\Dtopdesk\\普瑞赛斯在哪\\倒腾\\桌宠\\PTRTS1.9.0\\dat
   PASS  ★available_tags 读的是真实索引（不是硬编码）   ['happy', 'daily', 'angry', 'confused', 'sad', 'shy', 'baka', 'color']
   PASS  ★工具被 ToolManager 扫到（14 个工具，含 meme）
   PASS  ★主窗口：回复结束后优先发 meme 工具选的，老协议留作兜底
@@ -386,7 +386,7 @@
   PASS  ★提示词改成让 LLM 调 meme 工具（不再靠 JSON 协议）
 
 == ★主动说话：不再注入一大段（性格交给系统提示词）==
-  PASS  ★触发语很短（以前把整套性格设定都塞进去，聊天里像用户发了一大段）   167 字符
+  PASS  ★触发语很短（以前把整套性格设定都塞进去，聊天里像用户发了一大段）   165 字符
   PASS  ★仍带三要素：自动工具触发 / 没理你 / 进程背景（一行）
   PASS  ★不再把整段 persona 塞进消息（交给会话的系统提示词）
 
@@ -420,7 +420,7 @@
   PASS  ★描述里写明了「问明天/后天/这周必须传 days」
   PASS  ★days=0 走实时那条路（不碰预报端点）
   PASS  ★days=3 返回逐日预报   北京未来 3 天预报：
-  PASS  ★预报里有日期/温度区间/风力     09-18 今天  小雨转多云  18~27°C  东南风1-3级  湿度75%
+  PASS  ★预报里有日期/温度区间/风力     09-19 今天  多云  20~27°C  南风1-3级  湿度68%
   PASS  ★前三天带「今天/明天/后天」标签
   PASS  ★days=7 走 7d 端点、给满 7 行   8
   PASS  ★days 超上限会被夹到 7（不会把 99 原样甩给 API）
@@ -428,8 +428,8 @@
   PASS  ★days 传了脏值也不炸（退回实时）
   PASS  ★未知城市仍给可操作提示
   PASS  ★实测：现有 key 本来就有预报权限（不用再申请）   北京未来 3 天预报：
-  09-18 今天  小雨转多云  18~27°C  东南风1-3级  湿度75%
-  09-
+  09-19 今天  多云  20~27°C  南风1-3级  湿度68%
+  09-20 明
   PASS  ★鉴权改用请求头 X-QW-Api-Key（key 不再进 URL）
 
 == ★1.9.1（你 01:4x 的批注）：tokens 单位 + 思考内容进日志 ==

@@ -88,6 +88,12 @@
   [PASS] ★stop_bt 能停
   [PASS] ★stop 不存在的任务返回失败
   [PASS] ★没有任务时 job_status 说明「当前没有」
+  [PASS] ★★能从 aria2 输出解析出进度（百分比/已下/总量）
+  [PASS] ★★解析出 peer/seed 数与速度
+  [PASS] ★没有进度行时返回空 dict（由调用方给 hint，不编数字）
+  [PASS] ★★多行时取**最后一条**（最新进度）
+  [PASS] ★★job_status 里带上了 percent/downloaded/total/peers/speed
+  [PASS] ★message 里也体现了进度（用户/模型一眼能看出在下多少）
   [PASS] ★action=bt_status 能用
   [PASS] ★action=bt_engine 能用且报告引擎状态
   [PASS] ★action=bt_stop 缺 job_id 时明确报错
@@ -102,5 +108,5 @@
   [PASS] ★BT 下载落在 <bucket>/bt 子目录（不和直链混）
 
 ============================================================
-★ 1.9.2 任务10 BT 下载：86 PASS / 0 FAIL
+★ 1.9.2 任务10 BT 下载：92 PASS / 0 FAIL
 ============================================================

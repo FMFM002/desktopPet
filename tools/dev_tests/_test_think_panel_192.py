@@ -754,15 +754,17 @@ check("★think_panel 里 _flush 只定义一次（我加 stop_timers 时重复�
       (BASE / "src" / "ui" / "think_panel.py").read_text(encoding="utf-8")
       .count("def _flush(self)") == 1)
 
-# ⑤ 定位改用 cursorRect（修"子面板上边沿遮挡气泡"）
-check("★★定位用 cursorRect（blockBoundingRect 会含前导行高、把面板顶上去）",
-      "self._chat_display.cursorRect(cur)" in _src_cw2)
-check("★不再用 documentLayout().blockBoundingRect 定位面板",
-      # 注意两点：① 气泡绘制那条老代码（_painted_box）也用 blockBoundingRect，
-      # 与面板定位无关；② 我在函数注释里提到了这个词 —— 所以判据是
-      # **实际调用** `blockBoundingRect(blk)` 不在 _reposition_think_panels 里。
-      "blockBoundingRect(blk)" not in
+# ⑤ 定位：文档坐标 + 自己判断可视区（不能用 cursorRect —— 它会把区外位置钳到边缘）
+check("★★定位用文档坐标 blockBoundingRect（cursorRect 会把区外位置钳到视口边缘）",
+      "layout.blockBoundingRect(blk)" in _src_cw2)
+check("★★不用 cursorRect 定位面板（我上一版用它 → 面板全堆在上边框下面）",
+      "self._chat_display.cursorRect(" not in
       _src_cw2.split("def _reposition_think_panels")[1].split("def ")[0])
+check("★★滚出可视区的面板会被 hide（不堆在边缘）",
+      "p.hide()          # 滚出可视区" in _src_cw2 or "p.hide()" in
+      _src_cw2.split("def _reposition_think_panels")[1].split("def ")[0])
+check("★★占位图独占一个 block（insertBlock 而不是插 <br>）",
+      "textCursor().insertBlock()" in _src_cw2)
 _cw5.clear_chat()
 app.processEvents()
 _cw5._append_message("user", "上面一条用户消息")

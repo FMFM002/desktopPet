@@ -311,6 +311,33 @@ BT._jobs.clear()
 check("★没有任务时 job_status 说明「当前没有」",
       BT.job_status()["jobs"] == [] and "没有" in BT.job_status()["message"])
 
+# ★★ 1.9.2（用户："BT提交后台后就没消息了"、"没有进度百分比、没有文件大小、速度"）
+_p = BT._parse_progress(["[#3de0d2 1.2MiB/5.9GiB(0%) CN:2 SD:0 DL:100KiB]"])
+check("★★能从 aria2 输出解析出进度（百分比/已下/总量）",
+      _p.get("percent") == 0 and _p.get("downloaded") == "1.2MiB"
+      and _p.get("total") == "5.9GiB", str(_p))
+check("★★解析出 peer/seed 数与速度",
+      _p.get("peers") == 2 and _p.get("seeds") == 0 and _p.get("speed") == "100KiB")
+check("★没有进度行时返回空 dict（由调用方给 hint，不编数字）",
+      BT._parse_progress([]) == {} and BT._parse_progress(["乱七八糟"]) == {})
+_p2 = BT._parse_progress(["进度 5.0MiB/10MiB(50%) CN:7 DL:1.0MiB",
+                          "[#x 7.5MiB/10MiB(75%) CN:9 SD:3 DL:2.0MiB]"])
+check("★★多行时取**最后一条**（最新进度）",
+      _p2.get("percent") == 75 and _p2.get("peers") == 9, str(_p2))
+BT._jobs["bt-prog-1"] = {"id": "bt-prog-1", "target": "magnet:?xt=x", "dir": "/d",
+                         "proc": _FakeProc(None), "started": BT.time.time() - 3,
+                         "infohash": "abc", "engine": "aria2c",
+                         "tail": ["[#g 1.0MiB/2.0MiB(50%) CN:4 DL:10KiB]"]}
+_st = BT.job_status("bt-prog-1")["jobs"][0]
+check("★★job_status 里带上了 percent/downloaded/total/peers/speed",
+      _st.get("percent") == 50 and _st.get("peers") == 4
+      and _st.get("speed") == "10KiB", str(_st)[:160])
+check("★message 里也体现了进度（用户/模型一眼能看出在下多少）",
+      "%" in BT.job_status("bt-prog-1")["message"]
+      or "MiB" in BT.job_status("bt-prog-1")["message"],
+      BT.job_status("bt-prog-1")["message"][:140])
+BT._jobs.clear()
+
 # 工具层的 action
 _r4 = json.loads(DL.execute(url="", action="bt_status"))
 check("★action=bt_status 能用", _r4.get("success") is True, str(_r4)[:100])

@@ -38,6 +38,6 @@
 执行工具: shell_exec(['command'])
 工具 [shell_exec] 加载完成 (策略=lazy)
 执行命令: echo prts_ok (cwd=D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0)
-命令完成: exit=0, 耗时=18ms, stdout=8字节, stderr=0字节
+命令完成: exit=0, 耗时=24ms, stdout=8字节, stderr=0字节
 执行工具: shell_exec(['command'])
 沙箱拦截命令: cmd /c del C:\Windows\Temp\x.txt

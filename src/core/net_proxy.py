@@ -121,6 +121,40 @@ def mode() -> str:
     return "app-proxy" if proxy_url() else "direct"
 
 
+def reachable(timeout: float = 1.5) -> tuple:
+    """配置的代理**端口到底有没有人在听**？返回 (可连?, 说明)。
+
+    ★ 1.9.2（用户："vpn关闭情况P，JM，BT都无法正常使用"）：
+      实测发现最容易误导人的场景是 —— 用户把**代理客户端本身**也关了
+      （以为"关 VPN"就是全关），于是 127.0.0.1:7897 没人监听：
+        · P站/JM 因为配了代理而连不上（比直连还糟，直连至少能报 SSL 错）；
+        · BT 又必须直连、本来就得不到 peer。
+      所以这里给一个明确的、可操作的诊断，而不是让工具回一句模糊的失败。
+    """
+    p = proxy_url()
+    if not p:
+        return False, ("没有配置代理（PRTS_PROXY / PIXIV_PROXY 都是空的）—— "
+                       "P站/JM 在国内直连不通，需要本地代理客户端。")
+    try:
+        from urllib.parse import urlparse
+        import socket
+        u = urlparse(p if "://" in p else f"http://{p}")
+        host = u.hostname or "127.0.0.1"
+        port = u.port or (1080 if (u.scheme or "").startswith("socks") else 7890)
+        s = socket.socket()
+        s.settimeout(timeout)
+        try:
+            s.connect((host, port))
+            return True, f"代理 {host}:{port} 可连接"
+        finally:
+            s.close()
+    except Exception as e:
+        return False, (f"代理 {p} **连不上**（{type(e).__name__}）。"
+                       f"★ 注意：别把代理客户端（Clash/v2rayN 等）也关了 —— "
+                       f"要关的是它的 **VPN/TUN/全局模式**，代理端口必须留着；"
+                       f"P站/JM 靠这个端口，BT 我会强制直连、不走它。")
+
+
 def advice() -> str:
     """给用户的可操作建议（一条规则分流就够，不用开关 VPN）。"""
     p = proxy_url()
@@ -146,4 +180,10 @@ def advice() -> str:
     if sysp:
         lines.append(f"· 注意：检测到系统级代理环境变量 {list(sysp.keys())} —— "
                      f"aria2c 这边我会屏蔽掉，不影响 BT。")
+    # ★ 1.9.2：把"代理端口到底在不在"直接告诉他（这是最常见的误会）
+    try:
+        _ok, _why = reachable()
+        lines.append(f"· 代理可用性：{_why}")
+    except Exception:
+        pass
     return "\n".join(lines)

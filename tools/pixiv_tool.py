@@ -115,7 +115,22 @@ def _refresh_token() -> str:
 
 
 def _proxy() -> str:
-    return (os.getenv("PIXIV_PROXY", "") or "").strip()
+    """当前代理地址。
+
+    ★★ 1.9.2 真机踩坑（用户 00:09 报"关闭 VPN 后 P站也无法使用"）：
+      这里原来直接 `os.getenv("PIXIV_PROXY")` —— **没有 .env 兜底**，
+      所以能不能读到完全取决于"别处有没有先 load_dotenv()"。
+      真机日志里 P站就在 00:09:18 失败、而 NetProxy 直到 00:09:53 才
+      "已按需加载 .env" —— 也就是说那次 P站**读到的是空串 → 请求走了直连**
+      → SSL 被掐（错误正是 oauth.secure.pixiv.net 握手 EOF）。
+      现在统一走 src/core/net_proxy（它自己会按需读 .env，并兼容
+      PRTS_PROXY / PIXIV_PROXY 两个键名）。
+    """
+    try:
+        from src.core.net_proxy import proxy_url
+        return proxy_url()
+    except Exception:
+        return (os.getenv("PIXIV_PROXY", "") or "").strip()
 
 
 # ★ i.pximg.net 会 403 掉 requests 的默认 UA（实测，见 _build_api 里的说明）

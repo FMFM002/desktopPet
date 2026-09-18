@@ -1,4 +1,4 @@
-﻿"""
+"""
 聊天窗口组件 v3.1 - 极简浅色 + 可拖拽缩放 + 自定义头像
 - 左侧栏：当前角色窗口状态 + 「开启新话题 / 总结旧话题」（★ 1.6.0 一个角色一个窗口）
 - 消息无底色：用户头像靠右、桌宠头像靠左，仅展示文本
@@ -1642,7 +1642,11 @@ class ChatWidget(QWidget):
         doc.addResource(QTextDocument.ImageResource, QUrl(key), pm)
 
         self._chat_display.moveCursor(QTextCursor.End)
-        self._chat_display.insertHtml("<br>")
+        # ★★ 1.9.2：占位图**独占一个 block**（用 insertBlock 而不是插一个 <br>）。
+        #   这样 `blockBoundingRect(blk)` 就精确等于图片本身的矩形 ——
+        #   既没有"含前导行高、把面板向上偏一行遮住气泡"的问题，
+        #   又能用文档坐标定位（不会被 cursorRect 的视口钳制坑到）。
+        self._chat_display.textCursor().insertBlock()
         self._chat_display.moveCursor(QTextCursor.End)
         fmt = QTextImageFormat()
         fmt.setName(key)
@@ -1792,31 +1796,42 @@ class ChatWidget(QWidget):
             return
         try:
             doc = self._chat_display.document()
+            layout = doc.documentLayout()
+            dy = self._chat_display.verticalScrollBar().value()
+            dx = self._chat_display.horizontalScrollBar().value()
+            vh = self._chat_display.viewport().height()
             w = self._panel_width()
             for e in list(self._think_panels):
                 p = e.get("panel")
                 if not self._alive(p):
                     continue
-                pos = self._find_think_pos(e["key"])
-                if pos < 0:
+                blk = self._find_think_block(e["key"])
+                if not blk.isValid():
                     try:
                         p.hide()
                     except Exception:
                         pass
                     continue
                 try:
-                    if not p.isVisible():
+                    # ★★ 1.9.2 修（用户："子窗口堆叠在主窗口上边框下面，不跟着消息走"）：
+                    #   上一版改用 `cursorRect()` 是**错的** —— Qt 对**可视区之外**的
+                    #   游标位置会把矩形**钳制到视口边缘**（顶上或底下），于是所有
+                    #   滚出视野的面板全被摆到"上边框下面"堆成一摞。
+                    #   正确做法：用**文档坐标**（blockBoundingRect）再减滚动偏移 ——
+                    #   绝对的、不会被钳制；然后自己判断在不在可视区来决定显隐。
+                    #   （占位图现在是独立 block，blockBoundingRect 就是图片本身的
+                    #     矩形，所以也不会再有"含前导行高、遮住气泡"那个问题。）
+                    r = layout.blockBoundingRect(blk)
+                    y = int(r.top()) - dy
+                    x = max(0, int(r.left()) - dx + 4)
+                    if y + p.height() < 0 or y > vh:
+                        p.hide()          # 滚出可视区 → 藏起来，别堆在边缘
                         continue
-                    # ★ 用图片字符自己的 cursorRect（视口坐标）：
-                    #   比 blockBoundingRect 精确 —— 后者含 block 前导行高，
-                    #   会把面板向上偏一行、遮住上面的消息气泡（真机报过）。
-                    cur = QTextCursor(doc)
-                    cur.setPosition(pos)
-                    r = self._chat_display.cursorRect(cur)
                     if w != p.width():
                         p.setFixedWidth(w)
                         p._relayout_height()
-                    p.move(max(0, int(r.x()) + 4), max(0, int(r.y())))
+                    p.show()
+                    p.move(x, y)
                 except Exception as ex:
                     _log.debug(f"单个思考面板定位失败（跳过）: {ex}")
         except Exception as e:

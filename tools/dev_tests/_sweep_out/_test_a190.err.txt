@@ -20,10 +20,10 @@ This plugin does not support raise()
   角色 'deepseek': ['GIF']
   角色 '铃兰': ['GIF']
 桌宠组件就绪: 2 个角色
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B, 单流, 70.8 KB/s)
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test (1).png (145 B, 单流, 11.3 KB/s)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B, 单流, 10.1 KB/s)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test (1).png (145 B, 单流, 11.8 KB/s)
 ----------------------------------------
-Exception occurred during processing of request from ('127.0.0.1', 57880)
+Exception occurred during processing of request from ('127.0.0.1', 56814)
 Traceback (most recent call last):
   File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 697, in process_request_thread
     self.finish_request(request, client_address)
@@ -49,7 +49,7 @@ Traceback (most recent call last):
     self._sock.sendall(b)
 ConnectionAbortedError: [WinError 10053] 你的主机中的软件中止了一个已建立的连接。
 ----------------------------------------
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B, 单流, 56.1 KB/s)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B, 单流, 336.3 KB/s)
 [形象] 说话 沿用 LLM 选定动作: 启动.gif
 [形象] 执行 沿用 LLM 选定动作: 启动.gif
 OCR 引擎「tesseract」不可用 → 自动改用「easyocr」（想用回 tesseract 请先安装它）
@@ -74,13 +74,13 @@ STT 用不了，data/whisper 里还缺：（未知原因，见上一条日志）
 [Pixiv] 返回结构与内置模型不符（SearchIllustrations: illusts, next_url, search_span_limit），按原始 JSON 处理
 [粘贴] 从剪贴板发送图片 40x30（不落盘）
 [粘贴] 从剪贴板发送文件: README.md
-[表情包信箱] 待发送: 112.webp (tag=happy, 描述=Claude Fable5正式发布（隔壁模型发布会整活）)
-[表情包工具] 已选: 112.webp (tag=happy, 理由=测试) 描述=Claude Fable5正式发布（隔壁模型发布会整活） → 待回复结束后发送
+[表情包信箱] 待发送: 083.webp (tag=happy, 描述=已思考用时3秒，我直接笑出声（掩嘴偷乐）)
+[表情包工具] 已选: 083.webp (tag=happy, 理由=测试) 描述=已思考用时3秒，我直接笑出声（掩嘴偷乐） → 待回复结束后发送
 [表情包信箱] 待发送: 009.webp (tag=-, 描述=我是吃白饭的大肥鱼！（元气搞怪）)
 [表情包工具] 已选: 009.webp (tag=-) 描述=我是吃白饭的大肥鱼！（元气搞怪） → 待回复结束后发送
 [表情包工具] 被空参调用 meme({}) → 拒绝，要求模型自己选 tag
-[表情包信箱] 待发送: 097.webp (tag=happy, 描述=得加钱（数钱谈价）)
-[表情包工具] 已选: 097.webp (tag=happy) 描述=得加钱（数钱谈价） → 待回复结束后发送
+[表情包信箱] 待发送: 104.webp (tag=happy, 描述=鲸鱼埋头口交溜吸溜)
+[表情包工具] 已选: 104.webp (tag=happy) 描述=鲸鱼埋头口交溜吸溜 → 待回复结束后发送
 主动说话: 注入会话（系统触发，短触发语）
 执行工具: weather_query(['action', 'city'])
 工具 weather_query 的 action「query」已被设置禁用，拒绝执行
