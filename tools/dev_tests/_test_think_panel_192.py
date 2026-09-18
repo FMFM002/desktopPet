@@ -814,6 +814,60 @@ check("★源码里两处 setWidth 都用 THINK_ANCHOR_W（不是 _panel_width�
       and "fmt.setWidth(self._panel_width())" not in _src_cw2)
 _cw6.close()
 
+# ══════════════════════════════════════════════════════════════
+head("K. ★★★ 跨线程安全：后台线程不许直接碰 Qt 控件（真机 access violation）")
+#
+# 真机 00:40 崩溃 —— 这次 **faulthandler 抓到了确切堆栈**：
+#     Windows fatal exception: access violation
+#       think_panel.py:404 _sync_body_size
+#       think_panel.py:422 _render
+#       think_panel.py:352 flush_now
+#       chat_widget.py:1886 think_flush
+#       main_window.py:1141 _on_thinking_done_safe
+#       session.py:1091 _run_loop          ← LLM 的**后台线程**！
+# 即 `_on_thinking_done_safe`（工作线程）直接调了 think_flush → 一路 resize 控件。
+_cw7 = ChatWidget()
+_cw7.resize(420, 640)
+_cw7.show()
+for _ in range(4):
+    app.processEvents()
+_cw7.think_write("主线程系统信息", "system")
+check("★有 think_flush_in 信号（跨线程收尾入口）", hasattr(_cw7, "think_flush_in"))
+check("★有 _think_flush_main（真正动控件的那半）",
+      hasattr(_cw7, "_think_flush_main"))
+_src_cw7 = (BASE / "src" / "ui" / "chat_widget.py").read_text(encoding="utf-8")
+check("★★think_flush 会判线程，非 GUI 线程改走信号",
+      "QThread.currentThread() is not _app.thread()" in _src_cw7
+      and "self.think_flush_in.emit()" in _src_cw7)
+check("★★append_system_msg 也做了线程判定（它现在会走到控件）",
+      _src_cw7.count("QThread.currentThread() is not _app.thread()") >= 2)
+check("★think_flush_in 接到了 _think_flush_main",
+      "self.think_flush_in.connect(self._think_flush_main)" in _src_cw7)
+
+_err = []
+
+
+def _worker():
+    try:
+        _cw7.think_flush()
+        _cw7.append_system_msg("后台线程写的系统信息")
+    except Exception as _e:
+        _err.append(repr(_e))
+
+
+import threading as _th                                          # noqa: E402
+_t = _th.Thread(target=_worker)
+_t.start()
+_t.join()
+for _ in range(6):
+    app.processEvents()
+check("★★★后台线程调 think_flush / append_system_msg 不抛异常（原来在这里访问违例）",
+      not _err, str(_err))
+_all = "".join(e["panel"].text() for e in _cw7._think_panels)
+check("★★★后台线程写入的内容确实进了面板（转成了信号，没丢）",
+      "后台线程写的系统信息" in _all, _all[-60:])
+_cw7.close()
+
 # ⑥ 主进程要有 faulthandler（这次静默崩溃没留下堆栈）
 _mn = (BASE / "main.py").read_text(encoding="utf-8")
 check("★★main.py 开了 faulthandler 且写独立文件（下次硬崩溃能留 C 级堆栈）",

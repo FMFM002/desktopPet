@@ -298,6 +298,9 @@ class ChatWidget(QWidget):
     # ★ 1.9.2（用户任务 4）：思考 / 系统信息 子窗口的跨线程入口
     think_in = Signal(str, str)        # (一行文本, kind: think|system)
     think_delta_in = Signal(str)       # 流式思考增量
+    # ★ 1.9.2：跨线程安全的"收尾渲染"入口 —— `_on_thinking_done_safe` 是在
+    #   session 的后台线程里调的，直接碰 Qt 控件会访问违例（真机崩过）。
+    think_flush_in = Signal()
 
     # 话题相关（★ 1.6.0: 一个角色一个窗口，只有「开启新话题 / 总结旧话题」两个动作）
     new_topic_request = Signal()
@@ -596,6 +599,8 @@ class ChatWidget(QWidget):
         # ★ 1.9.2（用户任务 4）：思考 / 系统信息 子窗口
         self.think_in.connect(self._handle_think_in)
         self.think_delta_in.connect(self._handle_think_delta_in)
+        # ★ 1.9.2：收尾渲染也走信号（后台线程调 think_flush 时会被转到这里）
+        self.think_flush_in.connect(self._think_flush_main)
 
     def _style_sheet(self, ui_bg: str, chat_bg: str) -> str:
         """生成主样式表（无边框圆角窗口）"""
@@ -1423,6 +1428,18 @@ class ChatWidget(QWidget):
         """
         if text is None or not str(text).strip():
             return
+        # ★★ 1.9.2：**线程安全**。本方法现在会走到 think_write → 动 Qt 控件，
+        #   而它可能被 session 的后台线程调用（真机就因此吃过一次
+        #   "access violation"，见 think_flush 的注释）。非 GUI 线程一律改走信号。
+        try:
+            from PySide6.QtWidgets import QApplication as _QApp
+            from PySide6.QtCore import QThread as _QThread
+            _app = _QApp.instance()
+            if _app is not None and _QThread.currentThread() is not _app.thread():
+                self.think_in.emit(str(text), "system")
+                return
+        except Exception:
+            pass
         try:
             self.think_write(str(text), "system")
         except Exception as e:
@@ -1874,10 +1891,35 @@ class ChatWidget(QWidget):
     def think_flush(self):
         """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。
 
-        ★ 1.9.2 崩溃修复：先摘死条目再逐个校验存活 —— 这个函数是
-        `_on_thinking_done_safe()` 调的，而"开启新话题"可能刚好在它之前
-        把旧面板销毁掉（真机那次静默崩溃就在这个时间窗口里）。
+        ★★★ 1.9.2 崩溃修复（真机 00:40 那次，**faulthandler 抓到了确切堆栈**）：
+            Windows fatal exception: access violation
+              think_panel.py:404 _sync_body_size
+              think_panel.py:422 _render
+              think_panel.py:352 flush_now
+              chat_widget.py:1886 think_flush
+              main_window.py:1141 _on_thinking_done_safe
+              session.py:1091 _run_loop        ← 这是 LLM 的**后台线程**！
+            `_on_thinking_done_safe` 是在 session 的工作线程里被调的，而它直接
+            调了本函数 → 一路走到 `QWidget.resize()` —— **Qt 控件只能在 GUI
+            线程碰**，跨线程操作就是访问违例（而且它绕过了我原有的
+            `think_delta_in` Signal 中转）。
+        所以这里自己判线程：**不在 GUI 线程就改走 Signal**（自动排队到主线程），
+        绝不直接动控件。
         """
+        try:
+            from PySide6.QtWidgets import QApplication as _QApp
+            from PySide6.QtCore import QThread as _QThread
+            _app = _QApp.instance()
+            if _app is not None and _QThread.currentThread() is not _app.thread():
+                # 非 GUI 线程 → 交给信号（主线程执行）
+                self.think_flush_in.emit()
+                return
+        except Exception as e:
+            _log.debug(f"[思考面板] 线程判定失败，按主线程处理: {e}")
+        self._think_flush_main()
+
+    def _think_flush_main(self):
+        """**必须在 GUI 线程**执行的收尾渲染。"""
         self._prune_think_panels()
         if self._think_current is not None:
             p = self._think_current.get("panel")

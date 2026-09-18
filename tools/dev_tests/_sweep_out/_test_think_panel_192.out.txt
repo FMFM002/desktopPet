@@ -162,10 +162,19 @@
   [PASS] ★★没有产生水平滚动（内容不会被横向挤出可视区）
   [PASS] ★面板仍在可视区内（x 不为负、不至于贴出屏幕）
   [PASS] ★源码里两处 setWidth 都用 THINK_ANCHOR_W（不是 _panel_width）
+
+== K. ★★★ 跨线程安全：后台线程不许直接碰 Qt 控件（真机 access violation） ==
+  [PASS] ★有 think_flush_in 信号（跨线程收尾入口）
+  [PASS] ★有 _think_flush_main（真正动控件的那半）
+  [PASS] ★★think_flush 会判线程，非 GUI 线程改走信号
+  [PASS] ★★append_system_msg 也做了线程判定（它现在会走到控件）
+  [PASS] ★think_flush_in 接到了 _think_flush_main
+  [PASS] ★★★后台线程调 think_flush / append_system_msg 不抛异常（原来在这里访问违例）
+  [PASS] ★★★后台线程写入的内容确实进了面板（转成了信号，没丢）
   [PASS] ★★main.py 开了 faulthandler 且写独立文件（下次硬崩溃能留 C 级堆栈）
   [PASS] ★注册了 SIGABRT/SIGSEGV 等信号的 dump
   [PASS] ★all_threads=True（崩溃时能看到所有线程）
 
 ============================================================
-★ 1.9.2 任务4 思考/系统信息子窗口：144 PASS / 0 FAIL
+★ 1.9.2 任务4 思考/系统信息子窗口：151 PASS / 0 FAIL
 ============================================================
