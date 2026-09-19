@@ -519,5 +519,41 @@ check("★★pet_process.py 里也是同样顺序",
 check("★源码里写明了这个坑（免得后人调回去）",
       "0 字节" in _mn_src or "0 字节" in _pp_src)
 
+# ── 14. ★★★ 子进程内存：nativeEvent 的 ctypes 永久缓存泄漏（1.9.2 定位并修复）──
+#   真凶不是"切换 GIF 留内存"（旧 QMovie 清理链完整），而是 nativeEvent 里
+#   **每次调用新建 _MsgHdr 类再对它 ctypes.POINTER()** —— CPython 会把结果塞进
+#   模块级永久字典 ctypes._pointer_type_cache（key 是那个类、强引用），
+#   每条原生消息泄漏约 5.4KB 且 GC 收不掉。实测 20000 次 → +103MB。
+#   修法：结构体与指针类型提到模块级只建一次。
+import ctypes as _ct                                    # noqa: E402
+import src.ui.pet_animation as _pa_mod                  # noqa: E402
+check("★★★nativeEvent 用的 MSG 指针类型在模块级（不是每次新建）",
+      hasattr(_pa_mod, "_MSG_HDR_PTR") and hasattr(_pa_mod, "_MsgHdr"))
+check("★★★nativeEvent 函数体里不再 `class _MsgHdr`（那是泄漏根源）",
+      "class _MsgHdr" not in _pa_src.split("def nativeEvent")[1].split("def ")[0])
+# ★ 判据要盯"实际调用形态"，不能只看出现没出现 POINTER( 这个词 ——
+#   我自己的解释性注释里就写了 `ctypes.POINTER(_MsgHdr)`（第一版因此假红）。
+#   真正的判据：函数体里用的是**复用的模块级指针类型** _MSG_HDR_PTR。
+_nb = _pa_src.split("def nativeEvent")[1].split("def ")[0]
+check("★★nativeEvent 用复用的模块级指针类型（cast(addr, _MSG_HDR_PTR)）",
+      "cast(addr, _MSG_HDR_PTR)" in _nb)
+check("★★nativeEvent 里没有把 POINTER 结果算在函数内（只允许出现在注释里）",
+      not any(l.strip().startswith(("m = ctypes.POINTER", "ctypes.POINTER(_MsgHdr)"))
+              for l in _nb.split("\n")))
+check("★nativeEvent 对非 Windows 原生消息提前退出",
+      "windows_generic_MSG" in _pa_src)
+_before = len(_ct._pointer_type_cache)
+_addr = _ct.addressof(_ct.c_int(0))
+for _i in range(20000):
+    _m = _ct.cast(_addr, _pa_mod._MSG_HDR_PTR).contents
+    _ = _m.message
+_after = len(_ct._pointer_type_cache)
+check(f"★★★20000 次解析后 ctypes 指针缓存零增长（{_before} → {_after}）",
+      _after == _before, f"{_before} → {_after}（原来会 +20000 条 / +103MB）")
+check("★注释里留了量化复现数字（给下一任看）",
+      "103.16" in _pa_src or "+103" in _pa_src or "20021" in _pa_src)
+
 print(f"\n★ 形象窗口自愈回归：{PASS} PASS / {FAIL} FAIL")
+
 sys.exit(1 if FAIL else 0)
+

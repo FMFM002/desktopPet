@@ -121,5 +121,12 @@
   PASS  ★★main.py 里 redirect_stderr_to_file 在 setup_logging **之前**
   PASS  ★★pet_process.py 里也是同样顺序
   PASS  ★源码里写明了这个坑（免得后人调回去）
+  PASS  ★★★nativeEvent 用的 MSG 指针类型在模块级（不是每次新建）
+  PASS  ★★★nativeEvent 函数体里不再 `class _MsgHdr`（那是泄漏根源）
+  PASS  ★★nativeEvent 用复用的模块级指针类型（cast(addr, _MSG_HDR_PTR)）
+  PASS  ★★nativeEvent 里没有把 POINTER 结果算在函数内（只允许出现在注释里）
+  PASS  ★nativeEvent 对非 Windows 原生消息提前退出
+  PASS  ★★★20000 次解析后 ctypes 指针缓存零增长（21 → 21）
+  PASS  ★注释里留了量化复现数字（给下一任看）
 
-★ 形象窗口自愈回归：94 PASS / 0 FAIL
+★ 形象窗口自愈回归：101 PASS / 0 FAIL

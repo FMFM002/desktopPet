@@ -1,6 +1,6 @@
 == 1. 子线程 → Phase5 的回调真的会触发 ==
-  PASS  heavy_ready 触发过 Phase5   fired=[23744]
-  PASS  Phase5 跑在主线程   main=23744 got=[23744]
+  PASS  heavy_ready 触发过 Phase5   fired=[25460]
+  PASS  Phase5 跑在主线程   main=25460 got=[25460]
   PASS  _load_heavy 里已无 QTimer.singleShot
   PASS  _load_heavy 用 heavy_ready.emit 回主线程
   PASS  heavy_ready 连到了 _init_finalize

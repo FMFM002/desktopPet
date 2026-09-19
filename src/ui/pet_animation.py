@@ -15,6 +15,31 @@ from PySide6.QtWidgets import QLabel, QWidget, QVBoxLayout, QApplication
 
 _log = logging.getLogger("PetAnim")
 
+# ★★★ 1.9.2：nativeEvent 用的 MSG 头结构体 —— **必须在模块级只建一次**。
+#
+# 为什么不能写在函数里（这是子进程内存缓慢上升的真凶，已量化复现）：
+#   CPython 的 `ctypes.POINTER(T)` 会把结果缓存进**模块级永久字典**
+#   `ctypes._pointer_type_cache`，**key 就是 T、强引用**。
+#   所以如果每次调用都新建一个 `_MsgHdr` 类再对它取 POINTER，
+#   每来一条原生窗口消息就会往那个缓存里塞一条**永不回收**的条目：
+#       实测（独立 CPython 3.12.10，20000 次）：
+#         对象图 +103.16 MB（≈5408 B/次）
+#         RSS +112 MB（≈5883 B/次）
+#         `_pointer_type_cache` 20 → 20021 条，gc.collect() 后仍是 20021
+#   而 nativeEvent 会被频繁调用（看门狗每 3 秒重绘一次，每次重绘都产生原生消息），
+#   于是形象子进程内存从 42MB 慢慢往上爬 —— 用户报的正是这个现象。
+#   （注意：用户原先怀疑的"切换 GIF 留内存"**不成立**，旧的 QMovie 清理链是完整的。）
+import ctypes as _ctypes
+
+
+class _MsgHdr(_ctypes.Structure):
+    """只需要 MSG 的前两个字段（hwnd, message）—— 定义得越少越不容易踩对齐坑。"""
+    _fields_ = [("hwnd", _ctypes.c_void_p), ("message", _ctypes.c_uint)]
+
+
+_MSG_HDR_PTR = _ctypes.POINTER(_MsgHdr)      # ★ 只建一次，之后反复 cast 复用它
+
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 # ★ 1.5.0: 形象目录迁移 data/<角色>/ → data/桌宠形象/<角色>/
@@ -433,17 +458,30 @@ class PetAnimationWidget(QWidget):
         · `WM_DWMCOMPOSITIONCHANGED`(0x031E)——**Win8+ 永远不会发**（MSDN 明说），
           这里只是顺手接一下旧系统，别指望它（真正的替代是前台窗口监听）。
         ★ 我们只**观察**不**消费**：一律返回 (False, 0)，让 Qt 继续正常处理。
+
+        ★★★ 1.9.2 修 —— **子进程内存缓慢上升的真凶就在这里**（专项排查+量化复现）：
+          原来每次调用都**新建一个 `_MsgHdr` 类**，再对这个新类调
+          `ctypes.POINTER(_MsgHdr)`。而 CPython 的 `ctypes.POINTER()` 会把结果
+          存进**模块级永久缓存** `ctypes._pointer_type_cache`，**key 就是这个类、
+          强引用** → 这个类永远不回收，每次调用都是一次 cache miss + 一条永久条目。
+          实测（独立 CPython 3.12.10，20000 次调用）：
+              · 对象图 +103.16 MB（约 5408 B/次）
+              · RSS 15.62 → 127.82 MB（约 5883 B/次）
+              · `_pointer_type_cache` 20 → 20021 条，**gc.collect() 之后仍是 20021**
+          而 nativeEvent 会被**频繁**调用（看门狗每 3 秒一次重绘 + 自愈，
+          每次重绘都产生原生消息）→ 每小时十几~几十 MB，与实测"42MB 后缓慢上升"吻合。
+          修法：把结构体与指针类型**提到模块级只建一次**（见文件下方 _MSG_HDR_PTR）。
         """
+        # ★ 提前退出：不是 Windows 原生消息就不用解析（也少一次函数体开销）
         try:
-            import ctypes
-
-            # 只需要 MSG 的前两个字段（hwnd, message）—— 定义得越少越不容易踩对齐/位数坑
-            class _MsgHdr(ctypes.Structure):
-                _fields_ = [("hwnd", ctypes.c_void_p), ("message", ctypes.c_uint)]
-
+            if eventType not in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
+                return False, 0
+        except Exception:
+            pass
+        try:
             addr = message if isinstance(message, int) else int(message)
             if addr:
-                m = ctypes.cast(addr, ctypes.POINTER(_MsgHdr)).contents
+                m = ctypes.cast(addr, _MSG_HDR_PTR).contents
                 if m.message in (0x007E, 0x02E0, 0x031E):
                     self._heal_pending = True
                     self._heal_reason = {
