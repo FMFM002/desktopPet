@@ -1141,11 +1141,26 @@ class MainWindow:
             except Exception as _e:
                 self._chat_load_rounds = 2
                 _log.debug(f"[聊天历史] 轮数初始化失败，按 2 轮: {_e}")
+            # ★ 1.9.2（R61）：预算对**整个视图**（归档 + 当前）生效 ——
+            #   一次只多放一轮，不再"一按就全灌进来"。
+            _limit = max(2, int(getattr(self, "_chat_load_rounds", 2))) * 2
+            _cur_keep = []
+            try:
+                with self.session._lock:
+                    _cur_all = [dict(m) for m in self.session.messages]
+                _cur_keep = [m for m in _cur_all
+                             if (m.get("content") or "").strip()
+                             and m.get("role") in ("user", "assistant", "system")]
+            except Exception as _e:
+                _log.debug(f"[聊天历史] 预读当前话题失败: {_e}")
+            _slots = max(0, _limit - len(_cur_keep[-_limit:]))
             self.chat._history_rendering = True
             try:
-                # ★ 1.9.2（R60）：只有用户按过"加载历史"（轮数 > 2）才回放归档话题，
-                #   否则一打开就把全部历史摊开（真机反馈"不应该直接全上下文可见"）。
-                archived = ([] if int(getattr(self, "_chat_load_rounds", 2)) <= 2 else
+                # ★ 1.9.2（R61，用户："点加载历史把该话题全部上下文都加载进来了"）：
+                #   只有当"当前话题还没占满预算"时，才用**剩下的名额**回放归档话题，
+                #   而且只回放那么多条。之前写成"N>2 就整段回放归档（最多120条）"，
+                #   所以按一次按钮就把整个上下文摊开了 —— 这是那条反馈的根因。
+                archived = ([] if _slots <= 0 else
                             [t for t in self.db.list_character_topics(char, limit=50)
                              if t.get("status") == "archived"])
                 archived = list(reversed(archived))[-2:]   # 最近 2 段，避免界面过长
@@ -1165,9 +1180,9 @@ class MainWindow:
                         else:
                             self.chat._append_message("assistant", content)
                         total += 1
-                        if total >= 120:
+                        if total >= _slots:
                             break
-                    if total >= 120:
+                    if total >= _slots:
                         break
             except Exception as e:
                 _log.debug(f"渲染旧话题历史失败: {e}")
