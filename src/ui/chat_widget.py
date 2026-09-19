@@ -1239,6 +1239,16 @@ class ChatWidget(QWidget):
                     _log.warning(f"预览落盘失败，回退原图: {_pv}")
                     return file_uri
                 _preview_trim()
+                # ★ 1.9.2（R56）：**成功那条也要打日志** —— 上一版只给"≤648 用原图"
+                #   加了 info，>648 生成预览是静默的 → 真机上"到底有没有生成预览"
+                #   根本看不出来（我因此白查了一轮）。
+                try:
+                    _log.info(f"[预览] 长边 {max(_sz.width(), _sz.height())} > "
+                              f"{PREVIEW_SIDE} → 已生成预览 {_pv.name} "
+                              f"({_img.width()}x{_img.height()}, "
+                              f"{_pv.stat().st_size} 字节)")
+                except Exception:
+                    pass
             return _pv.as_uri().replace("&", "&amp;")
         except Exception as _e:
             _log.warning(f"预览落盘异常，回退原图: {_e}")
