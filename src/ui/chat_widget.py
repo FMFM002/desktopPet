@@ -1551,13 +1551,16 @@ class ChatWidget(QWidget):
         self._chat_display.insertHtml(self._render_message_html(role, text))
         self._chat_display.moveCursor(QTextCursor.End)
         self._record_bubble(_start, self._chat_display.textCursor().position(), role)
-        # ★ 1.9.2（R51，用户原话："并没有体现只加载两轮的规则，是不是忘记写卸载程序了？"）
-        #   ——**确实是我漏了卸载那一半**：之前只在"重画历史"时套了轮数预算，
-        #   实时对话里新消息只是一直往后追加，旧轮次永远留在视图里，看着就像没生效。
-        #   现在：每条"用户消息"算一轮开始，超过 keep 轮就把更早的**从文档里真删掉**。
-        if role == "user":
-            self._note_round_start(_start)
-        self._unload_old_rounds()
+        # ★ 1.9.2（R52）：**停用**"按轮数自动卸载" —— 用户真机实测"自动卸载不稳定"，
+        #   而且新设计已经定了：**用户每次发言时卸载前面的聊天记录**（话题/上下文不动），
+        #   触发点应该放在 main_window 的"发送"路径里调 clear_chat()，**不塞在这里** ——
+        #   因为塞在 _append_message 里会连"渲染历史"和自测里的逐条追加一起清掉
+        #   （实测把 think_panel / ui / topic 三个套件共 7 条断言打挂，其中
+        #     think_panel 的 5 条还牵涉"清屏会不会踩掉本轮的思考面板"，需要专门验证）。
+        #   两个方法先留着，等新方案在真机确认稳定后再删。
+        # if role == "user":
+        #     self._note_round_start(_start)
+        # self._unload_old_rounds()
 
     def _note_round_start(self, pos: int):
         marks = getattr(self, "_round_marks", None)

@@ -1072,23 +1072,18 @@ class MainWindow:
             self.chat.clear_chat()
             char = getattr(self.session, "character", "") or self.config.pet.character
             topic_id = self.session.topic_id
+            # ★ 1.9.2（R52）：用户改了设计 —— 不再靠"往上翻触发加载"，
+            #   所以这里**不再连接滚动信号**（用户反馈"往上翻没有触发加载"；
+            #   与其去修一个不稳的滚动判定，不如按新设计：每次发言清屏）。
             # ① 旧话题历史：按话题分组，每段前插分割线
-            # ★ 1.9.2（用户 R49："分段加载完全没有生效"）：分段必须对**整个视图**生效。
-            #   以前这一段（归档话题最多 120 条）是无条件渲染的 → 一屏历史，
-            #   既没省内存，开新话题时还会让人以为"旧记录没清干净"（旧话题刚被归档，
-            #   于是又被当成历史重画一遍）。
-            #   现在：只有用户已经往上翻过（_chat_load_rounds > 2）才回放归档话题。
-            _rounds = max(1, int(getattr(self, "_chat_load_rounds", 2)))
-            # ★ 1.9.2（R51）：把"保留几轮"同步给聊天窗口 —— 实时对话里它要**边聊边卸**，
-            #   不然新消息只往后追加、旧轮次永远留着（用户："是不是忘记写卸载程序了？"）。
+            # ★ 1.9.2（R52）：用户要求"**加载历史聊天记录的方式不变**"，
+            #   所以这里恢复成原来的无条件渲染（分段改由"每次用户发言清屏"实现）。
+            #   同时打开"历史渲染中"开关：这期间 _append_message 绝不清屏，
+            #   否则一打开话题就被清空了。
+            self.chat._history_rendering = True
             try:
-                self.chat._chat_keep_rounds = _rounds
-            except Exception:
-                pass
-            try:
-                archived = ([] if _rounds <= 2 else
-                            [t for t in self.db.list_character_topics(char, limit=50)
-                             if t.get("status") == "archived"])
+                archived = [t for t in self.db.list_character_topics(char, limit=50)
+                            if t.get("status") == "archived"]
                 archived = list(reversed(archived))[-2:]   # 最近 2 段，避免界面过长
                 total = 0
                 for t in archived:
@@ -1116,16 +1111,6 @@ class MainWindow:
             self.chat.append_topic_divider("当前话题", topic_id="CUR")
             with self.session._lock:
                 msgs = [dict(m) for m in self.session.messages]
-            # ★ 1.9.2（用户 R41）：只渲染最后 N 轮，剩下的等用户往上翻再放
-            _budget = max(1, int(getattr(self, "_chat_load_rounds", 2))) * 2
-            _keep = [m for m in msgs
-                     if (m.get("content") or "").strip()
-                     and m.get("role") in ("user", "assistant", "system")]
-            self._chat_hidden_count = max(0, len(_keep) - _budget)
-            if self._chat_hidden_count:
-                _log.debug(f"[聊天分段加载] 本轮渲染最后 {_budget} 条，"
-                           f"另有 {self._chat_hidden_count} 条等上翻")
-                msgs = _keep[-_budget:]
             for m in msgs:
                 role = m.get("role")
                 content = m.get("content") or ""
@@ -1137,19 +1122,13 @@ class MainWindow:
                     self.chat._append_message("assistant", content)
                 elif role == "system":
                     self.chat.append_system_msg(content)
-            # ★ 1.9.2（R41）：明确告诉用户"上面还有，往上翻会加载"
-            if getattr(self, "_chat_hidden_count", 0):
-                self.chat.append_system_msg(
-                    f"↑ 上面还有 {self._chat_hidden_count} 条更早的记录 —— "
-                    f"继续往上翻会自动加载")
+            self.chat._history_rendering = False
             self.chat.on_stream_done()
-            if keep_position:
-                try:
-                    _sb = self.chat._chat_display.verticalScrollBar()
-                    _sb.setValue(max(0, _sb.maximum() - _old_gap))
-                except Exception as _e:
-                    _log.debug(f"[聊天分段加载] 还原滚动位置失败: {_e}")
         except Exception as e:
+            try:
+                self.chat._history_rendering = False
+            except Exception:
+                pass
             _log.warning(f"重载聊天视图失败: {e}")
 
     def _on_chat_scrolled_top(self, value: int):
