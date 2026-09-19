@@ -242,8 +242,7 @@ text = w3._chat_display.toPlainText()
 #   按过"↑ 历史"（_chat_load_rounds > 2）之后归档内容才回来。
 _mw_src = (Path(__file__).resolve().parents[2] / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
 check("★历史加载是'全视图预算'（按一次只多放一轮，不再整段归档灌进来）",
-      "_slots = max(0, _limit - len(_cur_keep[-_limit:]))" in _mw_src
-      and "if total >= _slots:" in _mw_src)
+      "_u_idx[-_rounds]" in _mw_src and "if total >= _slots:" in _mw_src)
 check("界面含当前话题内容", "第二段：再见" in text)
 check("界面用 # 分割线且标注当前话题", "#" in text and "当前话题" in text)
 check("★不再写隐形跳转标记（书签跳转才需要它）", "⟦T" not in text)

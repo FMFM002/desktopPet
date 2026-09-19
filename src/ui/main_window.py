@@ -1143,7 +1143,9 @@ class MainWindow:
                 _log.debug(f"[聊天历史] 轮数初始化失败，按 2 轮: {_e}")
             # ★ 1.9.2（R61）：预算对**整个视图**（归档 + 当前）生效 ——
             #   一次只多放一轮，不再"一按就全灌进来"。
-            _limit = max(2, int(getattr(self, "_chat_load_rounds", 2))) * 2
+            #   ★ 1.9.2（R61）：**轮 = 以"用户消息"为界**，不是"两条消息" ——
+            #     一次发言后面还会跟系统提示/工具记录等，所以"轮数×2 条"根本对不上。
+            _rounds0 = max(2, int(getattr(self, "_chat_load_rounds", 2)))
             _cur_keep = []
             try:
                 with self.session._lock:
@@ -1153,7 +1155,11 @@ class MainWindow:
                              and m.get("role") in ("user", "assistant", "system")]
             except Exception as _e:
                 _log.debug(f"[聊天历史] 预读当前话题失败: {_e}")
-            _slots = max(0, _limit - len(_cur_keep[-_limit:]))
+            _cur_shown = len(_cur_keep)
+            _u_idx0 = [i for i, m in enumerate(_cur_keep) if m.get("role") == "user"]
+            if len(_u_idx0) > _rounds0:
+                _cur_shown = len(_cur_keep) - _u_idx0[-_rounds0]
+            _slots = max(0, _rounds0 * 2 - _cur_shown)   # 归档话题只吃剩下的名额
             self.chat._history_rendering = True
             try:
                 # ★ 1.9.2（R61，用户："点加载历史把该话题全部上下文都加载进来了"）：
@@ -1199,10 +1205,17 @@ class MainWindow:
             #   ★ 只有真的超了才裁；`_keep` 为空时**绝不动** msgs ——
             #     否则一旦消息结构不符合预期（比如自测里的桩对象），
             #     整个视图会被裁成空的（我把 topic_buttons 打挂过就是这个）。
-            if _keep and len(_keep) > _rounds * 2:
-                _log.debug(f"[聊天历史] 只显示最后 {_rounds} 轮"
-                           f"（共 {len(_keep)} 条，按'↑ 历史'可加载更早的）")
-                msgs = _keep[-_rounds * 2:]
+            #   ★ R61：**按用户消息为界**取"最后 N 轮"，一次发言算一轮，
+            #     中间夹着的系统提示/工具记录都跟着它那一轮一起显示。
+            if _keep:
+                _u_idx = [j for j, m in enumerate(_keep) if m.get("role") == "user"]
+                if len(_u_idx) > _rounds:
+                    _start = _u_idx[-_rounds]
+                    _log.debug(f"[聊天历史] 只显示最后 {_rounds} 轮"
+                               f"（从倒数第 {_rounds} 条用户消息起，共 {len(_keep)} 条）")
+                    msgs = _keep[_start:]
+                else:
+                    msgs = _keep
             for m in msgs:
                 role = m.get("role")
                 content = m.get("content") or ""
