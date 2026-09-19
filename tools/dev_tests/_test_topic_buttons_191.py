@@ -237,11 +237,21 @@ stub6.config = stub.config
 stub6.chat = w3
 mw_mod.MainWindow._reload_chat_view(stub6)
 text = w3._chat_display.toPlainText()
-check("界面含旧话题内容", "第一段：你好" in text)
+# ★ 1.9.2（用户 R41/R49）：默认是**分段式加载** —— 只渲染最后 2 轮，**归档话题默认
+#   不渲染**（以前无条件渲染最多 120 条：既没省内存，开新话题时旧话题刚被归档、
+#   又被当历史重画一遍，用户会以为"新话题没清干净"）。
+check("★默认分段加载：归档话题默认不渲染", "第一段：你好" not in text)
 check("界面含当前话题内容", "第二段：再见" in text)
 check("界面用 # 分割线且标注当前话题", "#" in text and "当前话题" in text)
 check("★不再写隐形跳转标记（书签跳转才需要它）", "⟦T" not in text)
 check("★也不再记 _topic_marks", getattr(stub6, "_topic_marks", None) is None)
+# 用户往上翻过之后（轮数被调大）→ 归档话题应该回来（这才是"分段"而不是"删掉"）
+stub6._chat_load_rounds = 6
+w3b = ChatWidget()
+stub6.chat = w3b
+mw_mod.MainWindow._reload_chat_view(stub6)
+check("★往上翻过之后归档话题会回来（分段不是删掉）",
+      "第一段：你好" in w3b._chat_display.toPlainText())
 
 # 清理
 db.delete_topic(t1)

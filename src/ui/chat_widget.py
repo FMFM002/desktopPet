@@ -54,7 +54,10 @@ CLIP_CACHE_MAX = 60               # 磁盘缓存上限（张），按 mtime 淘�
 #   为什么必须降采样：`<img src="file://原图" width="260">` 的 width 不会让 Qt 少解码，
 #   它按原图整张解（内存 = 宽×高×4）→ 用户实测"发 10 张图 +90MB"。
 PREVIEW_SIDE = 648                # 长边上限（写死，不给开关 —— 用户明确要求）
-MAX_PREVIEW_IMAGES = 24           # 内存里最多留多少张预览（有界，防新的泄漏点）
+# ★ 1.9.2（R49 修正）：这个上限**只用来避免重复解码**，不再用来"释放内存"
+#   —— 淘汰时若把文档资源换成空图，会把正在显示的图变成破图（真机踩过）。
+#   真正释放内存的地方是 clear_chat()（重画 / 开新话题）。
+MAX_PREVIEW_IMAGES = 60
 
 
 def _clip_cache_dir() -> Path:
@@ -1183,15 +1186,14 @@ class ChatWidget(QWidget):
                     _log.debug(f"预览解码失败，回退原图: {path} ({rd.errorString()})")
                     return file_uri
                 cache[key] = img
-                # 超上限丢最旧的（dict 保序）；同时让文档资源表松手，否则像素不放
+                # ★★ 1.9.2（用户 R49 真机："所有图片变成了占位图片"）：这里**绝不能**
+                #   把文档资源换成空 QImage —— 那样会把"此刻正显示在屏幕上的图"
+                #   变成破图占位（用户看到的就是这个）。
+                #   只从我们自己的缓存里丢引用就行：像素仍然被 QTextDocument 握着，
+                #   而文档在"重画 / 开启新话题"时会被 clear_chat() 整体清掉 ——
+                #   **内存是在那里释放的，不是在淘汰时释放的**。
                 while len(cache) > MAX_PREVIEW_IMAGES:
-                    _old = next(iter(cache))
-                    cache.pop(_old, None)
-                    try:
-                        self._chat_display.document().addResource(
-                            QTextDocument.ImageResource, QUrl(f"img://{_old}"), QImage())
-                    except Exception:
-                        pass
+                    cache.pop(next(iter(cache)), None)
             _u = f"img://{key}"
             self._chat_display.document().addResource(
                 QTextDocument.ImageResource, QUrl(_u), cache[key])

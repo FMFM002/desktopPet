@@ -1073,9 +1073,16 @@ class MainWindow:
             char = getattr(self.session, "character", "") or self.config.pet.character
             topic_id = self.session.topic_id
             # ① 旧话题历史：按话题分组，每段前插分割线
+            # ★ 1.9.2（用户 R49："分段加载完全没有生效"）：分段必须对**整个视图**生效。
+            #   以前这一段（归档话题最多 120 条）是无条件渲染的 → 一屏历史，
+            #   既没省内存，开新话题时还会让人以为"旧记录没清干净"（旧话题刚被归档，
+            #   于是又被当成历史重画一遍）。
+            #   现在：只有用户已经往上翻过（_chat_load_rounds > 2）才回放归档话题。
+            _rounds = max(1, int(getattr(self, "_chat_load_rounds", 2)))
             try:
-                archived = [t for t in self.db.list_character_topics(char, limit=50)
-                            if t.get("status") == "archived"]
+                archived = ([] if _rounds <= 2 else
+                            [t for t in self.db.list_character_topics(char, limit=50)
+                             if t.get("status") == "archived"])
                 archived = list(reversed(archived))[-2:]   # 最近 2 段，避免界面过长
                 total = 0
                 for t in archived:
