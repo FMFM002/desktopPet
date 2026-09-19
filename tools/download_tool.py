@@ -98,7 +98,7 @@ TOOL_PARAMETERS = {
         "referer": {"type": "string",
                     "description": "防盗链站点需要（如 B站封面填 https://www.bilibili.com）"},
         "action": {"type": "string",
-                   "enum": ["", "bt_status", "bt_stop", "bt_engine", "cleanup"],
+                   "enum": ["", "bt_status", "bt_stop", "bt_engine"],
                    "description": "空=正常下载；bt_status=查 BT 任务进度；"
                                   "bt_stop=停止某任务(配 job_id)；bt_engine=看 BT 引擎状态；"
                                   "cleanup=清理下载缓存(超 800MB 时删最旧的)"},
@@ -718,11 +718,12 @@ def download_url(url: str, filename: str = "", bucket: str = "websearch",
 
     dt = max(0.001, time.time() - t0)
     speed = got / dt
-    # ★ 1.9.2: 下载完顺手看一眼缓存总量（有 10 分钟节流，不会每次都扫盘）
-    try:
-        cleanup_downloads()
-    except Exception as e:
-        _log.debug(f"[Download] 缓存清理跳过: {e}")
+    # ★★ 1.9.2（用户："###删除这个功能"）：**不再自动清理下载缓存**。
+    #   原来这里会调 cleanup_downloads()（超 800MB 就删最旧的文件）。
+    #   用户明确不要这个行为 —— "删文件"这种事不该由工具背着他做。
+    #   下面那些常量与函数保留但**不再被调用**（想恢复把这两行接回去）：
+    #       try: cleanup_downloads()
+    #       except Exception as e: _log.debug(f"[Download] 缓存清理跳过: {e}")
     is_img = dest.suffix.lower() in _IMG_EXTS
     size_str = _fmt_size(got)
     _log.info(f"[Download] 完成: {dest} ({size_str}, {mode}, "
@@ -774,15 +775,6 @@ def execute(url: str, filename: str = "", bucket: str = "websearch",
         info["success"] = True
         info["message"] = (f"BT 引擎：{'已找到 ' + info['path'] if info['found'] else '未找到'}"
                            + ("" if info["found"] else "\n" + info["hint"]))
-        return json.dumps(info, ensure_ascii=False, indent=2)
-
-    if act == "cleanup":
-        info = cleanup_downloads(force=True)
-        info["success"] = True
-        info["message"] = (f"下载缓存：现在 {info.get('total_mb')} MB"
-                           f"（上限 {info.get('cap_mb')} MB），"
-                           f"本次删除 {info.get('deleted', 0)} 个最旧文件"
-                           f"、释放 {info.get('freed', '0 B')}。")
         return json.dumps(info, ensure_ascii=False, indent=2)
 
     if act == "bt_status":

@@ -518,11 +518,38 @@ class PetAnimationWidget(QWidget):
             _log.debug(f"强制重绘失败: {e}")
 
         # ② 重度：hide→show 重建分层表面（用户土办法验证过的解法）
+        #
+        # ★★ 1.9.2 修（用户报"形象平时就在闪烁"，日志里抓到了机制）：
+        #     16:02:46 自愈(重度): qt_visible=False visible=False → 该重建 ✅
+        #     16:02:49 自愈(重度): qt_visible=True  visible=True  → **还是重建了** ❌
+        #   第二行就是闪烁的来源：窗口**已经可见、也没被 cloaked**，说明画面
+        #   正常呈现着，此时 hide→show 只会让它肉眼闪一下、一点好处都没有。
+        #   所以这里加一道判定：只有"真的没在呈现"才走重度。
         if strong:
+            _need_rebuild = True
             try:
-                self._recreate_surface(why)
-            except Exception as e:
-                _log.warning(f"[窗口] 重建分层表面失败: {e}")
+                _vis = bool(self.isVisible())
+                try:
+                    _iconic = bool(self.isMinimized())
+                except Exception:
+                    _iconic = False
+                _cloaked = False
+                try:
+                    _cloaked = bool(ww.is_cloaked(self))
+                except Exception:
+                    pass
+                _need_rebuild = (not _vis) or _iconic or _cloaked
+            except Exception:
+                _need_rebuild = True
+            if _need_rebuild:
+                try:
+                    self._recreate_surface(why)
+                except Exception as e:
+                    _log.warning(f"[窗口] 重建分层表面失败: {e}")
+            else:
+                # 可见且未被 cloaked → 只做轻量重绘就够了，别闪
+                _log.info("[窗口] 可见且未被 cloaked → 跳过 hide→show"
+                          "（避免无谓闪烁）")
 
         try:
             _log.warning(f"[窗口] 自愈完成: {self._content_snapshot()}")

@@ -105,6 +105,19 @@ check("★保序：最旧的被丢掉、最新还在",
       len(_cw._clip_images) == MAX_CLIP_IMAGES)
 _cw.clear_chat()
 check("★clear_chat 仍会全清", len(_cw._clip_images) == 0)
+# ★★ 1.9.2（用户报"30 张图一路飙升到 600MB"）：光 pop dict 不够，
+#   像素还被 QTextDocument 的资源表握着 → 必须把它换成空 QImage 才真释放。
+_cw2 = ChatWidget(); _cw2.resize(420, 640); _cw2.show()
+for _i in range(4):
+    app.processEvents()
+for _i in range(12):
+    _cw2.append_clip_image(_img, name=f"q{_i}.png")
+check("★★淘汰时会把文档里的图片资源换成空图（真正释放像素）",
+      "QImage())" in (BASE / "src" / "ui" / "chat_widget.py").read_text(encoding="utf-8")
+      and "clip://{_old}" in (BASE / "src" / "ui" / "chat_widget.py").read_text(encoding="utf-8"))
+check("★淘汰后 dict 里仍只有上限那么多", len(_cw2._clip_images) == MAX_CLIP_IMAGES,
+      str(len(_cw2._clip_images)))
+_cw2.close()
 _cw.close()
 
 # ══════════════════════════════════════════════════════════════
@@ -192,8 +205,13 @@ check("★★保护续传现场（.part / .aria2 不删）",
 check("★★保留最新 KEEP_RECENT 个文件", DL.KEEP_RECENT > 0, str(DL.KEEP_RECENT))
 check("★下载完会顺手清一次（带节流）", "cleanup_downloads()" in
       (BASE / "tools" / "download_tool.py").read_text(encoding="utf-8"))
-check("★工具层暴露了 action=cleanup",
-      "cleanup" in DL.TOOL_PARAMETERS["properties"]["action"]["enum"])
+# ★ 1.9.2（用户："###删除这个功能"）：下载缓存自动清理已按用户要求移除。
+check("★★action=cleanup 已移除（用户明确不要这个行为）",
+      "cleanup" not in DL.TOOL_PARAMETERS["properties"]["action"]["enum"],
+      str(DL.TOOL_PARAMETERS["properties"]["action"]["enum"]))
+check("★★下载完成后不再自动清理缓存",
+      "try: cleanup_downloads()" in
+      (BASE / "tools" / "download_tool.py").read_text(encoding="utf-8"))
 
 # 真造一堆小文件，验证"删最旧 + 护住最新 + 护住 .part"
 import json as _json                                                # noqa: E402
@@ -218,8 +236,8 @@ check("★★超上限时会删最旧（.bin 变少）",
 check("★★.part / .aria2 续传现场一定活着",
       (_tmp / "keep.part").exists() and (_tmp / "keep.part.aria2").exists())
 _res3 = _json.loads(DL.execute(url="", action="cleanup"))
-check("★action=cleanup 返回可用结果",
-      _res3.get("success") is True and "cap_mb" in _res3, str(_res3)[:120])
+check("★★action=cleanup 现在会被当作未知动作（功能已删）",
+      _res3.get("success") is False, str(_res3)[:100])
 # 清理测试目录
 for _p in sorted(_tmp.rglob("*"), reverse=True):
     try:

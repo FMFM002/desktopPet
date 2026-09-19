@@ -8,7 +8,7 @@ ComfyUI 能动用的显存只有 1.00 GB，连模型常驻需要的
   [+] jmcomic: 禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜 [lazy]
   [+] knowledge_graph: 知识图谱工具，用于存储和查询结构化知识。支持:
 - analyze_projec [lazy]
-  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [disabled]
+  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [resident]
   [+] meme: 发表情包。想在回复里表达情绪时调用**一次**：它会挑一张表情包并进入待发送状态 [lazy]
   [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
   [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
@@ -19,25 +19,23 @@ ComfyUI 能动用的显存只有 1.00 GB，连模型常驻需要的
   [+] web_search: 联网搜索信息。传入关键词进行网络搜索，返回搜索结果摘要与相关图片链接。★ 需要把 [lazy]
 共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
 [ComfyUI] 工具空闲卸载 → 释放模型并关闭 ComfyUI（同加载同卸载）
-[ComfyUI] 任务已入队 draw-6-69443（第 1 位） 512x512 steps=8
-[ComfyUI] 开始画 draw-6-69443
+[ComfyUI] 任务已入队 draw-6-37125（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-6-37125
 [ComfyUI] 工具被卸载，但后台还有画图任务 → 这次不关，等它画完
-[ComfyUI] 任务 draw-6-69443 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
+[ComfyUI] 任务 draw-6-37125 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
 [ComfyUI] 当前没在跑 → 交给后台 worker 先启动它
-[ComfyUI] 任务已入队 draw-7-70155（第 1 位） 512x512 steps=8
-[ComfyUI] 开始画 draw-7-70155
+[ComfyUI] 任务已入队 draw-7-37831（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-7-37831
 [ComfyUI] 没在跑 → 后台启动中…
 [ComfyUI] 已就绪，共花 0 秒（含启动）
-[ComfyUI] 任务 draw-7-70155 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
+[ComfyUI] 任务 draw-7-37831 完成 → D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\桌宠私有data\comfyui\_test_fake_draw.png
 [ComfyUI] 已请求释放模型与显存
-[ComfyUI] 任务已入队 draw-8-70264（第 1 位） 512x512 steps=8
-[ComfyUI] 开始画 draw-8-70264
-[ComfyUI] 任务 draw-8-70264 失败: ComfyUI 报错了：模拟 OOM
+[ComfyUI] 任务已入队 draw-8-38039（第 1 位） 512x512 steps=8
+[ComfyUI] 开始画 draw-8-38039
+[ComfyUI] 任务 draw-8-38039 失败: ComfyUI 报错了：模拟 OOM
 [ComfyUI] 当前没在跑 → 交给后台 worker 先启动它
-[ComfyUI] 任务已入队 draw-9-70366（第 1 位） 512x512 steps=35
-[ComfyUI] 开始画 draw-9-70366
+[ComfyUI] 任务已入队 draw-9-38145（第 1 位） 512x512 steps=35
+[ComfyUI] 开始画 draw-9-38145
 [ComfyUI] 没在跑 → 后台启动中…
-[ComfyUI] 已拉起启动脚本: D:\Apps\ComfyUI_windows_portable_nvidia\ComfyUI_windows_portable\run_nvidia_gpu.bat
-[ComfyUI] 已就绪（1 秒）
-[ComfyUI] 已就绪，共花 2 秒（含启动）
-[ComfyUI] 任务 draw-9-70366 失败: ComfyUI 报错了：模拟 OOM
+[ComfyUI] 已就绪，共花 0 秒（含启动）
+[ComfyUI] 任务 draw-9-38145 失败: ComfyUI 报错了：模拟 OOM

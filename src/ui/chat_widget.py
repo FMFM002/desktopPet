@@ -1319,9 +1319,23 @@ class ChatWidget(QWidget):
             _log.debug(f"粘贴图缩放失败（按原图存）: {e}")
         self._clip_images[key] = qimage          # 持引用，别让 QImage 被回收
         # 超上限就丢最旧的（dict 保序 → 第一个就是最旧）
+        #
+        # ★★ 1.9.2 修（用户报"30 张图一路飙升到 600MB"）：
+        #   上一版我只把 dict 里的条目 pop 掉 —— **但那不够**：
+        #   像素还被 QTextDocument 的资源表（clip://key）握着，而 QTextDocument
+        #   没有 removeResource API，所以内存照样涨。
+        #   这里把同一个 key 的图片**换成空 QImage**，等于让文档松手；
+        #   正文里那条 [[CLIP:...]] 标记文字（很小）留着 —— 重启后本来也只会
+        #   显示"未落盘"的占位提示，行为一致。
         while len(self._clip_images) > MAX_CLIP_IMAGES:
             _old = next(iter(self._clip_images))
             self._clip_images.pop(_old, None)
+            try:
+                self._chat_display.document().addResource(
+                    QTextDocument.ImageResource, QUrl(f"clip://{_old}"),
+                    QImage())
+            except Exception as e:
+                _log.debug(f"释放粘贴图资源失败: {e}")
         try:
             self._chat_display.document().addResource(
                 QTextDocument.ImageResource, QUrl(f"clip://{key}"), qimage)

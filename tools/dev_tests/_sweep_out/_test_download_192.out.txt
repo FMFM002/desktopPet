@@ -1,4 +1,4 @@
-  测试服务器: http://127.0.0.1:51411/testfile.bin  (3MB, sha256=2aaf7ee362f5…)
+  测试服务器: http://127.0.0.1:51403/testfile.bin  (3MB, sha256=2aaf7ee362f5…)
 
 == A. 模块结构与参数（对 LLM 暴露的新能力） ==
   [PASS] ★导出 download_url()

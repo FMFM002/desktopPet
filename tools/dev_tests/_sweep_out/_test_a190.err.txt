@@ -5,7 +5,7 @@ This plugin does not support raise()
   [+] jmcomic: 禁漫天堂(JM/18comic)本子搜索与下载工具。当用户提到JM、禁漫、本子搜 [lazy]
   [+] knowledge_graph: 知识图谱工具，用于存储和查询结构化知识。支持:
 - analyze_projec [lazy]
-  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [disabled]
+  [+] long_term_memory: 管理长期记忆 — 记住用户偏好、习惯、身份、项目等信息。输入要分析的文字，输出记 [resident]
   [+] meme: 发表情包。想在回复里表达情绪时调用**一次**：它会挑一张表情包并进入待发送状态 [lazy]
   [+] office: Office文档操作工具，支持创建和编辑 Word(.docx)、Excel(. [lazy]
   [+] pixiv: Pixiv（P站）插画工具。支持: info(作品详情)、search(关键词搜 [lazy]
@@ -17,14 +17,13 @@ This plugin does not support raise()
 共扫描 15 个工具: ['bilibili_video', 'comfyui', 'download', 'endfield', 'file_ops', 'jmcomic', 'knowledge_graph', 'long_term_memory', 'meme', 'office', 'pixiv', 'shell_exec', 'system_command', 'weather_query', 'web_search']
 This plugin does not support raise()
 This plugin does not support raise()
-视觉客户端就绪: mode=ocr, model=deepseek-chat
   角色 'deepseek': ['GIF']
   角色 '铃兰': ['GIF']
 桌宠组件就绪: 2 个角色
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B, 单流, 70.8 KB/s)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test.png (145 B, 单流, 70.7 KB/s)
 [Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\websearch\test (1).png (145 B, 单流, 10.9 KB/s)
 ----------------------------------------
-Exception occurred during processing of request from ('127.0.0.1', 57877)
+Exception occurred during processing of request from ('127.0.0.1', 62037)
 Traceback (most recent call last):
   File "C:\Users\farma\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 697, in process_request_thread
     self.finish_request(request, client_address)
@@ -50,10 +49,9 @@ Traceback (most recent call last):
     self._sock.sendall(b)
 ConnectionAbortedError: [WinError 10053] 你的主机中的软件中止了一个已建立的连接。
 ----------------------------------------
-[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B, 单流, 56.1 KB/s)
+[Download] 完成: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\downloads\bilibili\BV1test_封面.jpg (689 B, 单流, 336.4 KB/s)
 [形象] 说话 沿用 LLM 选定动作: 启动.gif
 [形象] 执行 沿用 LLM 选定动作: 启动.gif
-视觉客户端就绪: mode=ocr, model=deepseek-chat
 OCR 引擎「tesseract」不可用 → 自动改用「easyocr」（想用回 tesseract 请先安装它）
 OCR 引擎就绪: easyocr (语言: chi_sim+eng)
 OCR 引擎「tesseract」不可用 → 自动改用「easyocr」（想用回 tesseract 请先安装它）
@@ -61,6 +59,7 @@ OCR 引擎就绪: easyocr (语言: chi_sim+eng)
 STT 用不了，data/whisper 里还缺：（未知原因，见上一条日志）
 补齐办法：把 ggml-small.bin（约 465MB）放到 data/whisper/ 即可 —— 下载：python -c "from huggingface_hub import snapshot_download; snapshot_download('ggerganov/whisper.cpp', allow_patterns=['ggml-small.bin'], local_dir='data/whisper')"（国内先设 HF_ENDPOINT=https://hf-mirror.com 与代理）
 [WhisperCLI] 就绪: D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\data\whisper\whisper-cli.exe, model=ggml-small.bin
+视觉客户端就绪: mode=ocr, model=deepseek-chat
 [形象] 正文协议 → GIF「赞啊!」
 [形象] 正文协议 → 表情包「009.webp」（回复结束后单独发）
 [形象] 正文协议 → 表情包「009.webp」（回复结束后单独发）
@@ -75,13 +74,13 @@ STT 用不了，data/whisper 里还缺：（未知原因，见上一条日志）
 [Pixiv] 返回结构与内置模型不符（SearchIllustrations: illusts, next_url, search_span_limit），按原始 JSON 处理
 [粘贴] 从剪贴板发送图片 40x30（不落盘）
 [粘贴] 从剪贴板发送文件: README.md
-[表情包信箱] 待发送: 112.webp (tag=happy, 描述=Claude Fable5正式发布（隔壁模型发布会整活）)
-[表情包工具] 已选: 112.webp (tag=happy, 理由=测试) 描述=Claude Fable5正式发布（隔壁模型发布会整活） → 待回复结束后发送
+[表情包信箱] 待发送: 102.webp (tag=happy, 描述=你愿意和我发生性关系吗？（反将一军）)
+[表情包工具] 已选: 102.webp (tag=happy, 理由=测试) 描述=你愿意和我发生性关系吗？（反将一军） → 待回复结束后发送
 [表情包信箱] 待发送: 009.webp (tag=-, 描述=我是吃白饭的大肥鱼！（元气搞怪）)
 [表情包工具] 已选: 009.webp (tag=-) 描述=我是吃白饭的大肥鱼！（元气搞怪） → 待回复结束后发送
 [表情包工具] 被空参调用 meme({}) → 拒绝，要求模型自己选 tag
-[表情包信箱] 待发送: 154.webp (tag=happy, 描述=快夸我喵)
-[表情包工具] 已选: 154.webp (tag=happy) 描述=快夸我喵 → 待回复结束后发送
+[表情包信箱] 待发送: 011.webp (tag=happy, 描述=不愧是你！眼光真棒！（开心夸赞）)
+[表情包工具] 已选: 011.webp (tag=happy) 描述=不愧是你！眼光真棒！（开心夸赞） → 待回复结束后发送
 主动说话: 注入会话（系统触发，短触发语）
 执行工具: weather_query(['action', 'city'])
 工具 weather_query 的 action「query」已被设置禁用，拒绝执行
