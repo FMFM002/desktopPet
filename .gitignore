@@ -75,3 +75,6 @@ data/tools/*.exe
 # ---- 系统 ----
 Thumbs.db
 desktop.ini
+
+# 回归的配置保镖快照（跑完自动删；内含用户真实 config.json/.env，绝不入库）
+tools/dev_tests/_cfg_guard/

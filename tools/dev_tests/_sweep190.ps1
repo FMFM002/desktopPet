@@ -18,6 +18,36 @@ Set-Location $root
 $outDir = Join-Path $root "tools\dev_tests\_sweep_out"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
+# ★ 1.9.2: config.json / .env 保镖（开跑前快照）
+#   为什么：config.json 是**入库的用户真实配置**，而有些套件会实例化主窗口并触发
+#   "保存配置"，把用户配置写成测试形象（实测 character: 铃兰→deepseek）。
+#   用户不在线时这等于悄悄改了人家的桌宠。所以跑之前快照、跑完还原，
+#   并用 sha256 证明字节一致；单个测试进程的退出还原见 _quiet/sitecustomize.py。
+$guardDir  = Join-Path $root "tools\dev_tests\_cfg_guard"
+$guardName = @("config.json", ".env")
+$env:PRTS_CFG_GUARD = "1"
+$guardHash = @{}
+if (Test-Path $guardDir) {
+    # 上一轮没正常收尾（Ctrl+C / 硬崩）留下的快照 → 先还原，别把污染过的当基线
+    Write-Output "★ 发现上一轮遗留的配置快照 → 先还原（上次回归没正常收尾）"
+    foreach ($n in $guardName) {
+        $g = Join-Path $guardDir $n
+        if (Test-Path $g) { Copy-Item $g (Join-Path $root $n) -Force }
+    }
+    Remove-Item $guardDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+New-Item -ItemType Directory -Force -Path $guardDir | Out-Null
+foreach ($n in $guardName) {
+    $src = Join-Path $root $n
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $guardDir $n) -Force
+        $guardHash[$n] = (Get-FileHash $src -Algorithm SHA256).Hash
+    }
+}
+Write-Output ("配置保镖已就位: " + ((@($guardName) | Where-Object { $guardHash.ContainsKey($_) } |
+    ForEach-Object { "$_=" + $guardHash[$_].Substring(0, 12) }) -join "  "))
+
+
 $summary = @()
 foreach ($f in (Get-ChildItem (Join-Path $root "tools\dev_tests") -Filter "_test_*.py" | Sort-Object Name)) {
     $name = $f.BaseName
@@ -93,6 +123,23 @@ foreach ($f in (Get-ChildItem (Join-Path $root "tools\dev_tests") -Filter "_test
     }
     $summary += "$name : $tail ($([int]$sw.Elapsed.TotalSeconds)s)$flag"
 }
+
+# ★ 1.9.2: 还原 config.json / .env（并证明跟开跑前字节一致）
+foreach ($n in $guardName) {
+    $g = Join-Path $guardDir $n
+    if (-not (Test-Path $g)) { continue }
+    $dst = Join-Path $root $n
+    $nowHash = if (Test-Path $dst) { (Get-FileHash $dst -Algorithm SHA256).Hash } else { "" }
+    Copy-Item $g $dst -Force
+    $backHash = (Get-FileHash $dst -Algorithm SHA256).Hash
+    if ($backHash -eq $guardHash[$n]) {
+        $note = if ($nowHash -eq $guardHash[$n]) { "跑动期间没被动过" } else { "跑动期间被改过 → 已还原" }
+        $summary += "配置保镖: $n OK ($note)"
+    } else {
+        $summary += "★★ 配置保镖: $n 还原后哈希不一致，请手工检查！"
+    }
+}
+Remove-Item $guardDir -Recurse -Force -ErrorAction SilentlyContinue
 
 $summary | ForEach-Object { Write-Output $_ }
 $summary | Out-File (Join-Path $outDir "_summary.txt") -Encoding utf8

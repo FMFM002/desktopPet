@@ -41,3 +41,38 @@ try:
     faulthandler.enable()
 except Exception:
     pass
+
+# ★ 1.9.2: config.json / .env 保镖（快照由 _sweep190.ps1 建，这里负责进程退出还原）
+#   为什么需要：好几套件会真的实例化主窗口/主进程并触发"保存配置"，退出时把
+#   **用户真实配置**写成测试形象（实测被改成 character=deepseek / multimodal=false）
+#   → 用户下次开桌宠就"变样了"。所以测试跑完必须字节级还原。
+#   为什么限定"顶层测试进程"：_test_*.py 起的子进程（main.py / pet_process.py）会
+#   继承同一个环境变量，它们中途退出时若也去还原，会把**测试正在写入**的
+#   config.json 抹掉 → _test_settings_persist_182 之类的落盘断言假红。
+#   用 sys.argv[0] 的文件名区分：回归脚本起的是 `python -u ...\_test_xxx.py`。
+try:
+    import os
+    import sys
+    import atexit
+    import shutil
+    from pathlib import Path as _P
+
+    _root = _P(__file__).resolve().parent.parent.parent   # _quiet → dev_tests → 项目根
+    _guard = _root / "tools" / "dev_tests" / "_cfg_guard"
+    _argv0 = os.path.basename(sys.argv[0] or "")
+    if (os.environ.get("PRTS_CFG_GUARD") == "1"
+            and _argv0.startswith("_test_")
+            and _guard.is_dir()):
+        def _restore_cfg_guard():
+            # atexit 是后进先出：本函数注册得最早 → **最后**执行，
+            # 所以就算被测程序自己也注册了"退出时保存配置"，也已经被它盖掉。
+            for _n in ("config.json", ".env"):
+                _g = _guard / _n
+                if _g.is_file():
+                    try:
+                        shutil.copy2(_g, _root / _n)
+                    except Exception:
+                        pass
+        atexit.register(_restore_cfg_guard)
+except Exception:
+    pass
