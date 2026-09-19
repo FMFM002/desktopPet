@@ -541,10 +541,12 @@ class ChatWidget(QWidget):
         header.addWidget(upload_btn)
 
         # ★ 1.5.0: 菜单按钮（≡）— 设置 / 退出 / 显示隐藏
-        self._menu_btn = QPushButton("≡")
-        self._menu_btn.setFixedSize(26, 26)
-        self._menu_btn.setToolTip("菜单（设置 / 退出）")
-        self._menu_btn.clicked.connect(self._on_chat_menu)
+        self._menu_btn = QPushButton("↑ 历史")
+        self._menu_btn.setFixedSize(56, 26)
+        self._menu_btn.setToolTip("加载上一轮聊天记录（每按一次加载一轮）")
+        self.load_more_cb = None   # ★ R60：由 main_window 挂上真正加载逻辑
+        self._menu_btn.clicked.connect(
+            lambda: (self.load_more_cb() if callable(self.load_more_cb) else None))
         self._menu_btn.setStyleSheet("""
             QPushButton { background: #ececf0; color: #888; border: none;
                           border-radius: 13px; font-size: 16px; font-weight: bold; }
@@ -1262,8 +1264,19 @@ class ChatWidget(QWidget):
                     pass
             # ★ 1.9.2（R57）：**命中已有预览也要留痕** —— 之前这条路是静默的，
             #   我因此误判过"这张大图没走预览"（其实只是缓存命中）。
+            _u = f"img://{key}" if False else _pv.as_uri().replace("&", "&amp;")
+            # ★ 1.9.2（R60）：记下我们注册过的图片 URL —— 清屏时要**显式把这些资源
+            #   换成空图**才能真正把像素还回去（真机："清屏后内存不降"就是这个原因：
+            #   文档的资源表还握着每张图 ~2.3MB）。
+            try:
+                _urls = getattr(self, "_preview_urls", None)
+                if _urls is None:
+                    _urls = self._preview_urls = set()
+                _urls.add(_u)
+            except Exception:
+                pass
             _log.debug(f"[预览] 命中已有预览 {_pv.name} ← {path.name}")
-            return _pv.as_uri().replace("&", "&amp;")
+            return _u
         except Exception as _e:
             _log.warning(f"预览落盘异常，回退原图: {_e}")
             return file_uri
@@ -1738,7 +1751,7 @@ class ChatWidget(QWidget):
             _log.debug(f"[聊天分段加载] 卸载旧轮次失败: {e}")
 
     def clear_before_last_user_message(self):
-        """★ 1.9.2（R55，用户新设计）：用户每次发言时，把**这条之前**的聊天记录
+        """★ 1.9.2（R55/R60）：发言即清屏 —— 把这条用户消息**之前**的记录整段卸载。
         全部卸载 —— 话题不断、上下文不断（`session.messages` 一个字不动），
         只是让"每一次对话都是干净的聊天界面"。
 
@@ -2661,7 +2674,37 @@ class ChatWidget(QWidget):
     # 工具方法
     # ══════════════════════════════════════════
 
+    def _release_preview_resources(self):
+        """★ 1.9.2（R60）：把注册过的图片资源**换成空图**，让文档真正松手。
+
+        真机现象："清屏后内存不降" —— 因为 `QTextDocument` 的资源表仍然握着每张
+        解码后的图（648 预览约 2.3MB/张），`clear()` 并不会把它们放掉。
+        （粘贴图那条路早就用这个办法修好了 600MB 的问题，这里把预览也补上。）
+        只有在"这些图已经不在屏幕上"时调用才安全 —— 所以只挂在清屏路径上。
+        """
+        urls = getattr(self, "_preview_urls", None)
+        if not urls:
+            return
+        n = len(urls)
+        try:
+            doc = self._chat_display.document()
+            for u in list(urls):
+                try:
+                    doc.addResource(QTextDocument.ImageResource, QUrl(u), QImage())
+                except Exception:
+                    pass
+            _log.info(f"[预览] 清屏时释放了 {n} 张图片资源（避免'清屏后内存不降'）")
+        except Exception as e:
+            _log.debug(f"[预览] 释放图片资源失败: {e}")
+        finally:
+            try:
+                urls.clear()
+            except Exception:
+                pass
+
     def clear_chat(self):
+        # ★ 1.9.2（R60）：先释放图片资源再清文档 —— 顺序无所谓，但必须在清屏路径上做
+        self._release_preview_resources()
         self._chat_display.clear()
         # ★ 1.9.0: 文档清空了，气泡区间也必须跟着清（否则会拿旧区间去画）
         try:

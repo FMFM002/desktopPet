@@ -102,7 +102,10 @@ def check_deps():
         "psutil": "系统监控",
         "win32gui": "窗口监控（原生）",
         "soundfile": "音频文件读写",
-        "sounddevice": "音频设备（高级）",
+        # ★ 1.9.2（R60，用户只做候选 A）：sounddevice 懒加载 ——
+        #   它只服务 STT，而 STT 默认关闭；无条件 import 要付 8.8MB/171ms。
+        #   真要用到（STT/音频播放）时自然会被 import，这里不再预检。
+        # "sounddevice": "音频设备（高级）",
     }
 
     for mod, desc in deps.items():

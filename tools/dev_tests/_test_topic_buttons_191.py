@@ -237,14 +237,22 @@ stub6.config = stub.config
 stub6.chat = w3
 mw_mod.MainWindow._reload_chat_view(stub6)
 text = w3._chat_display.toPlainText()
-# ★ 1.9.2（R52）：用户改了设计 ——"**加载历史聊天记录的方式不变**"，
-#   所以归档话题恢复成**无条件渲染**（分段改由"每次用户发言清屏"实现，
-#   触发点放在发送路径里，而不是渲染历史这里）。
-check("界面含旧话题内容", "第一段：你好" in text)
+# ★ 1.9.2（R60）：默认只显示最后 2 轮、**不回放归档话题**
+#   （用户原话："不应该直接全上下文可见，应该保持上一次退出的状态"）；
+#   按过"↑ 历史"（_chat_load_rounds > 2）之后归档内容才回来。
+check("★默认不回放归档话题（开机不再摊开全部上下文）", "第一段：你好" not in text)
 check("界面含当前话题内容", "第二段：再见" in text)
 check("界面用 # 分割线且标注当前话题", "#" in text and "当前话题" in text)
 check("★不再写隐形跳转标记（书签跳转才需要它）", "⟦T" not in text)
 check("★也不再记 _topic_marks", getattr(stub6, "_topic_marks", None) is None)
+
+# 按过"↑ 历史"之后 → 更早的归档内容应该回来（证明是"分段"而不是"删掉"）
+stub6._chat_load_rounds = 6
+w3b = ChatWidget()
+stub6.chat = w3b
+mw_mod.MainWindow._reload_chat_view(stub6)
+check("★按过'加载历史'后归档话题会回来",
+      "第一段：你好" in w3b._chat_display.toPlainText())
 
 # 清理
 db.delete_topic(t1)

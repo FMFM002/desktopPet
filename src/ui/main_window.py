@@ -367,6 +367,11 @@ class MainWindow:
 
     def _setup_chat(self):
         self.chat.send_message.connect(self._on_user_message)
+        # ★ 1.9.2（R60，用户要求）：聊天窗口右上角那个按钮 → "加载上一轮历史"
+        try:
+            self.chat.load_more_cb = self._load_more_history
+        except Exception:
+            pass
         self.chat.abort_chat.connect(self._on_abort_chat)
         self.chat.abort_tool.connect(self._on_abort_tool)
         self.chat.image_recognize_request.connect(self._on_image_recognize)
@@ -919,6 +924,41 @@ class MainWindow:
 
     # ============ 聊天处理 ============
 
+    def _chat_rounds_path(self):
+        """★ 1.9.2（R60）：聊天窗口显示轮数的存盘位置（data/ui_state.json）。"""
+        return Path(self.config.config_path).parent / "data" / "ui_state.json"
+
+    def _load_chat_rounds(self) -> int:
+        try:
+            import json as _json
+            p = self._chat_rounds_path()
+            if p.is_file():
+                return max(2, int(_json.loads(p.read_text(encoding="utf-8"))
+                                  .get("chat_rounds", 2)))
+        except Exception as e:
+            _log.debug(f"[聊天历史] 读显示轮数失败（按 2 轮）: {e}")
+        return 2
+
+    def _save_chat_rounds(self, n: int):
+        try:
+            import json as _json
+            p = self._chat_rounds_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(_json.dumps({"chat_rounds": int(n)}, ensure_ascii=False),
+                         encoding="utf-8")
+        except Exception as e:
+            _log.debug(f"[聊天历史] 存显示轮数失败: {e}")
+
+    def _load_more_history(self):
+        """★ 1.9.2（R60，用户要求）：聊天窗口右上角按钮 —— **按一次加载上一轮**。"""
+        try:
+            self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 2)) + 1
+            self._save_chat_rounds(self._chat_load_rounds)
+            _log.info(f"[聊天历史] 加载上一轮（现在显示 {self._chat_load_rounds} 轮）")
+            self._reload_chat_view(keep_position=True)
+        except Exception as e:
+            _log.warning(f"[聊天历史] 加载上一轮失败: {e}")
+
     def _on_user_message(self, text: str):
         _log.info(f"收到用户消息: {text}")
         # ★ 1.9.1: 标记"一轮对话正在进行" —— 后台异步来的东西（比如画好的图）
@@ -1093,10 +1133,21 @@ class MainWindow:
             #   所以这里恢复成原来的无条件渲染（分段改由"每次用户发言清屏"实现）。
             #   同时打开"历史渲染中"开关：这期间 _append_message 绝不清屏，
             #   否则一打开话题就被清空了。
+            # ★ 1.9.2（R60，用户要求）：聊天窗口"显示到第几轮"要**跨重启保持**
+            #   （真机反馈：重启后不应该直接把全部上下文都摊开）。
+            try:
+                if getattr(self, "_chat_load_rounds", None) is None:
+                    self._chat_load_rounds = self._load_chat_rounds()
+            except Exception as _e:
+                self._chat_load_rounds = 2
+                _log.debug(f"[聊天历史] 轮数初始化失败，按 2 轮: {_e}")
             self.chat._history_rendering = True
             try:
-                archived = [t for t in self.db.list_character_topics(char, limit=50)
-                            if t.get("status") == "archived"]
+                # ★ 1.9.2（R60）：只有用户按过"加载历史"（轮数 > 2）才回放归档话题，
+                #   否则一打开就把全部历史摊开（真机反馈"不应该直接全上下文可见"）。
+                archived = ([] if int(getattr(self, "_chat_load_rounds", 2)) <= 2 else
+                            [t for t in self.db.list_character_topics(char, limit=50)
+                             if t.get("status") == "archived"])
                 archived = list(reversed(archived))[-2:]   # 最近 2 段，避免界面过长
                 total = 0
                 for t in archived:
@@ -1124,6 +1175,19 @@ class MainWindow:
             self.chat.append_topic_divider("当前话题", topic_id="CUR")
             with self.session._lock:
                 msgs = [dict(m) for m in self.session.messages]
+            # ★ 1.9.2（R60，用户要求）：只显示最后 N 轮（1 轮 = 一用户 + 一助手），
+            #   按一次"↑ 历史"按钮就 +1 轮。N 会存盘、重启后沿用（= 上一次退出的状态）。
+            _rounds = max(2, int(getattr(self, "_chat_load_rounds", 2)))
+            _keep = [m for m in msgs
+                     if (m.get("content") or "").strip()
+                     and m.get("role") in ("user", "assistant", "system")]
+            #   ★ 只有真的超了才裁；`_keep` 为空时**绝不动** msgs ——
+            #     否则一旦消息结构不符合预期（比如自测里的桩对象），
+            #     整个视图会被裁成空的（我把 topic_buttons 打挂过就是这个）。
+            if _keep and len(_keep) > _rounds * 2:
+                _log.debug(f"[聊天历史] 只显示最后 {_rounds} 轮"
+                           f"（共 {len(_keep)} 条，按'↑ 历史'可加载更早的）")
+                msgs = _keep[-_rounds * 2:]
             for m in msgs:
                 role = m.get("role")
                 content = m.get("content") or ""
