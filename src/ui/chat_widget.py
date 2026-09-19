@@ -1200,9 +1200,19 @@ class ChatWidget(QWidget):
             _st = path.stat()
             _key = _hl.md5(f"{path}|{int(_st.st_mtime)}|{_st.st_size}|{PREVIEW_SIDE}"
                            .encode("utf-8")).hexdigest()
+            # ★ 1.9.2（R54，用户明确）：**648 是上限，不是下限** ——
+            #   本来就不用缩的小图（长边 ≤ 648）**直接用原图**：不重编码、不落盘、
+            #   更不会被放大。只有"真的超过 648"的图才生成预览文件。
+            _rd = _QIR(str(path))
+            try:
+                _sz0 = _rd.size()            # 只读图片头，很便宜
+            except Exception:
+                _sz0 = None
+            if _sz0 is not None and _sz0.isValid() \
+                    and max(_sz0.width(), _sz0.height()) <= PREVIEW_SIDE:
+                return file_uri
             _pv = _preview_dir() / f"{_key}.webp"
             if not _pv.is_file():
-                _rd = _QIR(str(path))
                 try:
                     _rd.setAutoTransform(True)
                 except Exception:
@@ -1215,6 +1225,10 @@ class ChatWidget(QWidget):
                 _img = _rd.read()
                 if _img.isNull():
                     _log.debug(f"预览解码失败，回退原图: {path} ({_rd.errorString()})")
+                    return file_uri
+                # ★ 1.9.2（R54）兜底再确认一次"648 只是上限"：
+                #   解码出来本来就不大（≤648）→ 用原图，别落盘、别放大。
+                if max(_img.width(), _img.height()) <= PREVIEW_SIDE:
                     return file_uri
                 if not _img.save(str(_pv), "WEBP", CLIP_WEBP_QUALITY):
                     _log.debug(f"预览落盘失败，回退原图: {_pv}")
