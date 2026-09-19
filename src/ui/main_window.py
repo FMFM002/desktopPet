@@ -1079,6 +1079,12 @@ class MainWindow:
             #   于是又被当成历史重画一遍）。
             #   现在：只有用户已经往上翻过（_chat_load_rounds > 2）才回放归档话题。
             _rounds = max(1, int(getattr(self, "_chat_load_rounds", 2)))
+            # ★ 1.9.2（R51）：把"保留几轮"同步给聊天窗口 —— 实时对话里它要**边聊边卸**，
+            #   不然新消息只往后追加、旧轮次永远留着（用户："是不是忘记写卸载程序了？"）。
+            try:
+                self.chat._chat_keep_rounds = _rounds
+            except Exception:
+                pass
             try:
                 archived = ([] if _rounds <= 2 else
                             [t for t in self.db.list_character_topics(char, limit=50)

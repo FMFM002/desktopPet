@@ -1551,6 +1551,53 @@ class ChatWidget(QWidget):
         self._chat_display.insertHtml(self._render_message_html(role, text))
         self._chat_display.moveCursor(QTextCursor.End)
         self._record_bubble(_start, self._chat_display.textCursor().position(), role)
+        # ★ 1.9.2（R51，用户原话："并没有体现只加载两轮的规则，是不是忘记写卸载程序了？"）
+        #   ——**确实是我漏了卸载那一半**：之前只在"重画历史"时套了轮数预算，
+        #   实时对话里新消息只是一直往后追加，旧轮次永远留在视图里，看着就像没生效。
+        #   现在：每条"用户消息"算一轮开始，超过 keep 轮就把更早的**从文档里真删掉**。
+        if role == "user":
+            self._note_round_start(_start)
+        self._unload_old_rounds()
+
+    def _note_round_start(self, pos: int):
+        marks = getattr(self, "_round_marks", None)
+        if marks is None:
+            marks = self._round_marks = []
+        marks.append(pos)
+
+    def _unload_old_rounds(self):
+        """★ 1.9.2（R51）：只保留最后 `_chat_keep_rounds` 轮，更早的**从文档里删掉**。
+
+        这是"分段式加载"的**卸载那一半**。删除之后必须把已登记的位置整体左移
+        （气泡区间 / 流式区间 / 轮次标记），否则气泡底色和滚动位置会错位。
+        """
+        try:
+            marks = getattr(self, "_round_marks", None) or []
+            keep = int(getattr(self, "_chat_keep_rounds", 2) or 2)
+            if keep < 1 or len(marks) <= keep:
+                return
+            cut = marks[-keep]
+            if cut <= 0:
+                return
+            cur = self._chat_display.textCursor()
+            cur.setPosition(0)
+            cur.setPosition(cut, QTextCursor.KeepAnchor)
+            cur.removeSelectedText()
+            # 位置整体左移
+            for sp in (getattr(self._chat_display, "bubble_spans", None) or []):
+                try:
+                    sp["start"] = max(0, sp["start"] - cut)
+                    sp["end"] = max(0, sp["end"] - cut)
+                except Exception:
+                    pass
+            if getattr(self, "_stream_span", None):
+                self._stream_span["start"] = max(0, self._stream_span["start"] - cut)
+                self._stream_span["end"] = max(0, self._stream_span["end"] - cut)
+            self._round_marks = [max(0, m - cut) for m in marks[-keep:]]
+            _log.debug(f"[聊天分段加载] 卸载旧轮次：切掉前 {cut} 个字符，"
+                       f"保留最后 {keep} 轮")
+        except Exception as e:
+            _log.debug(f"[聊天分段加载] 卸载旧轮次失败: {e}")
 
     def append_streaming_text(self, text: str):
         """流式文本（桌宠风格，无底色）"""
