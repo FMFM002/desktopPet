@@ -84,6 +84,31 @@ def _clip_cache_trim():
         pass
 
 
+# ★ 1.9.2（R53）：聊天里**显示用**的 648 预览，落盘成 WebP 文件（和粘贴图那套分开）。
+#   为什么必须落盘：`img://` 内存资源那条路让图片显示依赖 QTextDocument 的资源缓存，
+#   而 clear_chat() 会清掉缓存、文本却还在 → 图变破图占位并被拉长（真机踩过）。
+#   落成文件后用 `file://<预览.webp>`，Qt 每次重画都从磁盘读，**不依赖任何缓存**。
+PREVIEW_CACHE_MAX = 300           # 磁盘上最多留多少张预览（按 mtime 淘汰最旧）
+
+
+def _preview_dir() -> Path:
+    d = _BASE_DIR / "data" / "chat_previews"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _preview_trim():
+    try:
+        files = sorted(_preview_dir().glob("*.webp"), key=lambda p: p.stat().st_mtime)
+        for p in (files[:-PREVIEW_CACHE_MAX] if len(files) > PREVIEW_CACHE_MAX else []):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 # 自带形象头像（桌宠默认头像）★ 1.5.0: 迁移到 data/桌宠形象/<角色>/
 def _default_pet_avatar() -> Path | None:
     chars_dir = _BASE_DIR / "data" / "桌宠形象"
@@ -1160,7 +1185,45 @@ class ChatWidget(QWidget):
           这样既不依赖资源缓存，又能把解码尺寸压到 648，`href` 仍然是原图（R45）。
           在把那条做完之前，这里**先原样返回 file_uri**，保证"图一定能正常显示"。
         """
-        return file_uri
+        # ★ 1.9.2（R53）：改成**落盘预览文件**（用户早前提过的方案，也是唯一
+        #   "不依赖资源缓存"的做法）：把原图缩到长边 648 存成 WebP，
+        #   再用 `file://<预览.webp>` 当 src。于是：
+        #     · 图**永远能显示**（Qt 每次重画都从磁盘读，不依赖任何缓存）；
+        #     · 解码尺寸是 648 → 内存 ≈1.6MB/张（原来是 宽×高×4，大图 100MB+）；
+        #     · `href` 仍然指**原图**（用户 R45 硬约束：点开/右键复制=原图路径）。
+        #   任何一步失败都回退 `file://原图`（最差只是没省内存，绝不图裂）。
+        try:
+            import hashlib as _hl
+            from PySide6.QtGui import QImageReader as _QIR
+            from PySide6.QtCore import QSize as _QSize
+
+            _st = path.stat()
+            _key = _hl.md5(f"{path}|{int(_st.st_mtime)}|{_st.st_size}|{PREVIEW_SIDE}"
+                           .encode("utf-8")).hexdigest()
+            _pv = _preview_dir() / f"{_key}.webp"
+            if not _pv.is_file():
+                _rd = _QIR(str(path))
+                try:
+                    _rd.setAutoTransform(True)
+                except Exception:
+                    pass
+                _sz = _rd.size()             # 只读图片头，很便宜
+                if _sz.isValid() and max(_sz.width(), _sz.height()) > PREVIEW_SIDE:
+                    _f = PREVIEW_SIDE / float(max(_sz.width(), _sz.height()))
+                    _rd.setScaledSize(_QSize(max(1, int(_sz.width() * _f)),
+                                             max(1, int(_sz.height() * _f))))
+                _img = _rd.read()
+                if _img.isNull():
+                    _log.debug(f"预览解码失败，回退原图: {path} ({_rd.errorString()})")
+                    return file_uri
+                if not _img.save(str(_pv), "WEBP", CLIP_WEBP_QUALITY):
+                    _log.debug(f"预览落盘失败，回退原图: {_pv}")
+                    return file_uri
+                _preview_trim()
+            return _pv.as_uri().replace("&", "&amp;")
+        except Exception as _e:
+            _log.debug(f"预览落盘异常，回退原图: {_e}")
+            return file_uri
         """★ 1.9.2（用户真机实测"发 10 张图内存 +90MB"）：把要显示的图**先降采样**，
         再交给 QTextDocument；不要让它按原分辨率整张解码。
 
