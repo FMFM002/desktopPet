@@ -1410,9 +1410,27 @@ class ChatWidget(QWidget):
                     #   和文件卡片当年踩的是同一个坑 —— a190 里留着的
                     #   `'border="0"' in _h_bracket` 断言就是那时候加的：
                     #   Qt 会给没写 border 的图片画一个默认边框（看起来就是虚线框）。
-                    _cparts.append(f'<img src="clip://{_key}" width="{_w}" height="{_h}" '
-                                   f'border="0" '
-                                   f'style="border:0; border-radius:8px; margin:2px 0;">')
+                    # ★ 1.9.2（R55，用户）：粘贴图也要**能左键查看、右键复制路径**
+                    #   —— 所以不再用 `clip://` 内存资源，而是直接指向**磁盘缓存文件**
+                    #   （粘贴图没有原图，按用户说的：就写缓存路径）。
+                    #   顺带把"显示依赖 QTextDocument 资源缓存"这个坑彻底去掉。
+                    _cfp = _clip_cache_path(_key)
+                    if not _cfp.is_file():
+                        # 缓存文件被清过 → 走占位（文案与下面 else 分支一致）
+                        _cparts.append(
+                            f'<span style="color:#999; font-size:11px;">'
+                            f'[粘贴的图片「{_name or _dims}」：图片被清理了'
+                            f'（未落盘或缓存已过期）]</span>')
+                    else:
+                        _uri = _cfp.as_uri().replace("&", "&amp;")
+                        _disp = (_name or _dims or "粘贴的图片")
+                        _disp = (_disp.replace("&", "&amp;")
+                                 .replace("<", "&lt;").replace(">", "&gt;"))
+                        _cparts.append(
+                            f'<a href="{_uri}" style="text-decoration:none; cursor:pointer;"'
+                            f' title="{_disp} · 左键查看，右键复制路径">'
+                            f'<img src="{_uri}" width="{_w}" height="{_h}" border="0" '
+                            f'style="border:0; border-radius:8px; margin:2px 0;"></a>')
                 else:
                     _cparts.append(
                         f'<span style="color:#999; font-size:11px;">'
@@ -1586,8 +1604,14 @@ class ChatWidget(QWidget):
             if w > max_w:
                 h = int(h * max_w / w)
                 w = max_w
-            img_tag = (f'<img src="clip://{key}" width="{w}" height="{h}" '
-                       f'border="0" style="border:0; border-radius:8px;">')
+            # ★ 1.9.2（R55）：粘贴时也直接指向磁盘缓存文件，并套 <a> ——
+            #   这样"刚粘贴的这张"和"重启后历史里那张"行为完全一致
+            #   （左键查看 / 右键复制路径都可用）。
+            _uri = _clip_cache_path(key).as_uri().replace("&", "&amp;")
+            img_tag = (f'<a href="{_uri}" style="text-decoration:none; cursor:pointer;"'
+                       f' title="左键查看，右键复制路径">'
+                       f'<img src="{_uri}" width="{w}" height="{h}" '
+                       f'border="0" style="border:0; border-radius:8px;"></a>')
             row = (f'<td align="right" valign="top">{img_tag}</td>'
                    f'<td width="{av + 14}" align="right" valign="top">'
                    f'{self._avatar_html(False)}</td>')
@@ -1625,6 +1649,11 @@ class ChatWidget(QWidget):
             self._seal_think_panel()
         self._chat_display.moveCursor(QTextCursor.End)
         _start = self._chat_display.textCursor().position()
+        if role == "user":
+            # ★ 1.9.2（R55）：记下这条用户消息的起始位置 —— "发言即清屏"要拿它当切点。
+            #   不能用 bubble_spans 里的字段去猜（第一版猜 role 字段，字段名不符，
+            #   结果守卫把所有情况都挡掉，清屏压根没执行）。
+            self._last_user_start = _start
         self._chat_display.insertHtml(self._render_message_html(role, text))
         self._chat_display.moveCursor(QTextCursor.End)
         self._record_bubble(_start, self._chat_display.textCursor().position(), role)
@@ -1678,6 +1707,38 @@ class ChatWidget(QWidget):
                        f"保留最后 {keep} 轮")
         except Exception as e:
             _log.debug(f"[聊天分段加载] 卸载旧轮次失败: {e}")
+
+    def clear_before_last_user_message(self):
+        """★ 1.9.2（R55，用户新设计）：用户每次发言时，把**这条之前**的聊天记录
+        全部卸载 —— 话题不断、上下文不断（`session.messages` 一个字不动），
+        只是让"每一次对话都是干净的聊天界面"。
+
+        触发点放在 `main_window._on_user_message`（真实发送那一条链路），
+        **不放在 `_append_message`** —— 那里是所有路径共用的（含渲染历史、自测的
+        逐条追加），上一轮塞在那里实测打挂 7 条断言。
+        """
+        try:
+            spans = getattr(self._chat_display, "bubble_spans", None) or []
+            # ★ 切点用"最后一条用户消息的起始位置" —— 由 _append_message 直接记录。
+            cut = int(getattr(self, "_last_user_start", 0) or 0)
+            if cut <= 0:
+                return
+            cur = self._chat_display.textCursor()
+            cur.setPosition(0)
+            cur.setPosition(cut, QTextCursor.KeepAnchor)
+            cur.removeSelectedText()
+            for sp in spans:
+                try:
+                    sp["start"] = max(0, sp["start"] - cut)
+                    sp["end"] = max(0, sp["end"] - cut)
+                except Exception:
+                    pass
+            if getattr(self, "_stream_span", None):
+                self._stream_span["start"] = max(0, self._stream_span["start"] - cut)
+                self._stream_span["end"] = max(0, self._stream_span["end"] - cut)
+            _log.debug(f"[分段加载] 发言清屏：切掉前面 {cut} 个字符，只留刚发的这条")
+        except Exception as e:
+            _log.debug(f"[分段加载] 发言清屏失败: {e}")
 
     def append_streaming_text(self, text: str):
         """流式文本（桌宠风格，无底色）"""

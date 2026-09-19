@@ -2088,8 +2088,11 @@ check("★粘贴图片生成 [[CLIP:key|名字|尺寸]] 标记",
       _clean_c.replace("\u0000CLIP\u0000", "").strip() == "" and len(_clips) == 1
       and _clips[0][1] == "测试粘贴.png" and _clips[0][2] == "40x30")
 _html_live = w._render_message_html("user", f"{_marker}\n看看这个")
-check("★本次会话内能渲染出内存图片（clip:// 资源）",
-      "<img" in _html_live and "clip://" in _html_live)
+check("★粘贴图渲染成指向**磁盘缓存**的图（不再用 clip:// 内存资源）",
+      "<img" in _html_live and "chat_clips" in _html_live
+      and "clip://" not in _html_live)
+check("★粘贴图能左键查看 / 右键复制路径（外面套了 <a href=缓存文件>）",
+      "<a href=" in _html_live and "chat_clips" in _html_live)
 # ★ 1.9.2（用户真机反馈"图片左上角有虚线边框"）：Qt 会给**没写 border 的 <img>**
 #   画一个默认边框（看起来就是虚线框）。文件卡片当年踩过同一个坑（本文件下面
 #   `'border="0"' in _h_bracket` 那句），粘贴图这次漏了 → 这里钉死。
@@ -2107,7 +2110,7 @@ check("★粘贴图确实落盘了（WebP 文件存在且非空）",
       _p_clip.is_file() and _p_clip.stat().st_size > 0, str(_p_clip))
 _html_restart = w._render_message_html("user", _marker)
 check("★★重启后（内存已清）能从磁盘缓存恢复粘贴图，不再变占位",
-      "<img" in _html_restart and "clip://" in _html_restart
+      "<img" in _html_restart and "chat_clips" in _html_restart
       and "未落盘" not in _html_restart)
 w._clip_images.clear()
 if _p_clip.is_file():

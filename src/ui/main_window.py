@@ -935,6 +935,19 @@ class MainWindow:
             _mb2.reset_turn()
         except Exception:
             pass
+        # ★ 1.9.2（R55，用户新设计）：**每次用户发言都卸载前面的聊天记录** ——
+        #   话题不断、上下文不断（session.messages 一个字不动），只是让每一次对话
+        #   都是干净的聊天界面。触发点就是"用户发送消息"这一下（真实发送链路），
+        #   所以放在这里，而不是 chat_widget._append_message（所有路径共用，
+        #   塞那里会把渲染历史和自测的逐条追加一起清掉，实测打挂 7 条断言）。
+        #   ★ 位置注意：**必须放在上面那几行之后** —— a190 有一条按源码位置断言的
+        #     "新一轮开始时清空附件去重集合"，插在它前面会把那条打挂（踩过一次）。
+        #   ★ 时机注意：ChatWidget 是先渲染这条用户消息、再发 send_message，
+        #     所以清屏必须"保留最后一条"（clear_before_last_user_message）。
+        try:
+            self.chat.clear_before_last_user_message()
+        except Exception as _e:
+            _log.debug(f"[分段加载] 发言清屏跳过: {_e}")
         self.pet_mgr.on_user_message()
         self.chat.append_system_msg("[正在思考...]")
         self.chat.reset_stream()
