@@ -62,8 +62,12 @@ MAX_PREVIEW_IMAGES = 60
 
 
 def _clip_cache_dir() -> Path:
-    """粘贴图的磁盘缓存目录（运行时才解析 _BASE_DIR，避免模块级顺序问题）。"""
-    d = _BASE_DIR / "data" / "chat_clips"
+    """粘贴图的磁盘缓存目录（运行时才解析 _BASE_DIR，避免模块级顺序问题）。
+
+    ★ 1.9.2（R58，用户要求）：**所有缓存统一放到 `data/cache/` 下面**，
+      不再散落在 `data/` 根（以前是 data/chat_clips、data/chat_previews）。
+    """
+    d = _BASE_DIR / "data" / "cache" / "chat_clips"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -73,16 +77,18 @@ def _clip_cache_path(key: str) -> Path:
 
 
 def _clip_cache_trim():
-    """磁盘缓存压到 CLIP_CACHE_MAX 以内（最旧的先删），防止落盘变成新的泄漏点。"""
+    """★ 1.9.2（R58，用户决定）：**暂时不做清理程序** —— 缓存留着，不自动删。
+
+    保留这个函数体是为了以后想加清理时只改这一处；
+    现在直接返回，只把当前占用打一条日志（自己心里有数，但不删）。
+    """
     try:
-        files = sorted(_clip_cache_dir().glob("*.webp"), key=lambda p: p.stat().st_mtime)
-        for p in (files[:-CLIP_CACHE_MAX] if len(files) > CLIP_CACHE_MAX else []):
-            try:
-                p.unlink()
-            except Exception:
-                pass
+        files = list(_clip_cache_dir().glob("*.webp"))
+        _log.debug(f"[缓存] chat_clips 现有 {len(files)} 个文件，"
+                   f"{sum(f.stat().st_size for f in files)/1024/1024:.1f} MB（不清理）")
     except Exception:
         pass
+    return
 
 
 # ★ 1.9.2（R53）：聊天里**显示用**的 648 预览，落盘成 WebP 文件（和粘贴图那套分开）。
@@ -93,21 +99,21 @@ PREVIEW_CACHE_MAX = 300           # 磁盘上最多留多少张预览（按 mtim
 
 
 def _preview_dir() -> Path:
-    d = _BASE_DIR / "data" / "chat_previews"
+    """聊天显示用的 648 预览缓存目录（★ 统一在 data/cache/ 下面，见 R58）。"""
+    d = _BASE_DIR / "data" / "cache" / "chat_previews"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _preview_trim():
+    """★ 1.9.2（R58，用户决定）：**暂时不做清理程序**（同 _clip_cache_trim）。"""
     try:
-        files = sorted(_preview_dir().glob("*.webp"), key=lambda p: p.stat().st_mtime)
-        for p in (files[:-PREVIEW_CACHE_MAX] if len(files) > PREVIEW_CACHE_MAX else []):
-            try:
-                p.unlink()
-            except Exception:
-                pass
+        files = list(_preview_dir().glob("*.webp"))
+        _log.debug(f"[缓存] chat_previews 现有 {len(files)} 个文件，"
+                   f"{sum(f.stat().st_size for f in files)/1024/1024:.1f} MB（不清理）")
     except Exception:
         pass
+    return
 
 
 # 自带形象头像（桌宠默认头像）★ 1.5.0: 迁移到 data/桌宠形象/<角色>/

@@ -89,3 +89,6 @@ data/chat_clips/
 
 # 聊天显示用的 648 预览缓存（WebP，运行时自动生成/自动淘汰，不入库）
 data/chat_previews/
+
+# 所有运行时缓存的统一根目录（R58：缓存全部收拢到这里，不入库）
+data/cache/

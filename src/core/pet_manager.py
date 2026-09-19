@@ -27,6 +27,7 @@ import logging
 import queue
 import random
 import threading
+import time
 from pathlib import Path
 
 from src.core import character_settings as _cs
@@ -510,6 +511,43 @@ class PetManager:
 
     # ─── ★ 1.6.0: 启动默认 GIF「只播放一遍」→ 直接衔接待机 ───
 
+    def _gif_duration_seconds(self, gif_path: str) -> float:
+        """★ 1.9.2（R58）：读一个 GIF「播完一遍」要多久（帧数 × 每帧延时）。
+
+        为什么需要：启动 GIF 的"兜底衔接"定时器原来是**写死 12 秒** ——
+        子进程的"播完一遍"事件一旦丢掉/来晚，画面就会**停在最后一帧干等十几秒**
+        （正是你反馈的"长时间停留启动的最后一帧"）。
+        现在按它**自己的时长**定兜底，事件到了就立刻衔接。
+
+        只读元数据（PIL 不解码像素），同一文件只算一次，结果缓存。
+        """
+        if not gif_path:
+            return 0.0
+        cache = getattr(self, "_gif_dur_cache", None)
+        if cache is None:
+            cache = self._gif_dur_cache = {}
+        if gif_path in cache:
+            return cache[gif_path]
+        dur = 0.0
+        try:
+            from PIL import Image
+            with Image.open(gif_path) as im:
+                n = getattr(im, "n_frames", 1) or 1
+                total = 0.0
+                for i in range(n):
+                    try:
+                        im.seek(i)
+                    except Exception:
+                        break
+                    total += float(im.info.get("duration") or 0) / 1000.0
+                # 有些 GIF 不写 duration → 按 100ms/帧 估
+                dur = total if total > 0.05 else n * 0.1
+        except Exception as e:
+            _log.debug(f"[形象] 读 GIF 时长失败（按 4s 估算）: {gif_path} ({e})")
+            dur = 4.0
+        cache[gif_path] = dur
+        return dur
+
     def _schedule_startup_then_idle(self, startup_gif):
         """启动 GIF 已在播放（once=True）。
 
@@ -523,8 +561,15 @@ class PetManager:
         if not self._idle_gifs:
             return
         self._startup_gif_path = str(startup_gif) if startup_gif else ""
-        # 兜底：12 秒内没等到完成事件就直接衔接待机
-        t = threading.Timer(12.0, self._startup_fallback_fire)
+        # ★ 1.9.2（R58，用户反馈"长时间停在启动 GIF 的最后一帧"）：
+        #   兜底定时器**不再写死 12 秒**，改成"这个 GIF 自己的时长 + 2 秒余量"
+        #   （下限 2.5s / 上限 15s）。事件正常到达时兜底根本不会触发。
+        _dur = self._gif_duration_seconds(self._startup_gif_path)
+        _fb = max(2.5, min(15.0, (_dur or 4.0) + 2.0))
+        self._startup_started_at = time.time()
+        _log.info(f"[形象] 启动 GIF 兜底 {_fb:.1f}s（该 GIF 时长约 {_dur:.1f}s；"
+                  f"子进程事件到了会立刻衔接）")
+        t = threading.Timer(_fb, self._startup_fallback_fire)
         t.daemon = True
         self._startup_fallback_timer = t
         t.start()
@@ -536,13 +581,19 @@ class PetManager:
 
     def _startup_fallback_fire(self):
         if self._startup_pending:
-            _log.debug("[形象] 启动 GIF 完成事件超时，兜底衔接待机")
+            _el = time.time() - getattr(self, "_startup_started_at", time.time())
+            # ★ 1.9.2（R58）：提到 warning —— 这条一旦出现，就说明"子进程的播完事件
+            #   没到/来晚了"，是真机排查"启动 GIF 停住"的关键线索（以前是 debug，看不见）。
+            _log.warning(f"[形象] 没等到启动 GIF 的'播完一遍'事件，走兜底衔接"
+                         f"（等了 {_el:.1f}s）")
             self._q.put(("startup_gif_finished", None))
 
     def _do_startup_gif_finished(self, _):
         """启动 GIF 播放完毕（或兜底超时）→ 立即进入待机轮播"""
         if not self._startup_pending:
             return
+        _el = time.time() - getattr(self, "_startup_started_at", time.time())
+        _log.info(f"[形象] 启动 GIF 已衔接待机（实际等了 {_el:.1f}s）")
         self._startup_pending = False
         self._cancel_startup_fallback()
         self._enter_idle_from_startup()
