@@ -50,6 +50,12 @@ MAX_CLIP_SIDE = 1280              # 存前把长边缩到 ≤1280（单张 ~1.5 
 CLIP_WEBP_QUALITY = 85            # 落盘用 WebP（用户 R42："就用 webp"）
 CLIP_CACHE_MAX = 60               # 磁盘缓存上限（张），按 mtime 淘汰最旧
 
+# ★ 1.9.2（用户 R41）：聊天里显示的图**长边写死 648**（用户指定），并且预览**不落盘**。
+#   为什么必须降采样：`<img src="file://原图" width="260">` 的 width 不会让 Qt 少解码，
+#   它按原图整张解（内存 = 宽×高×4）→ 用户实测"发 10 张图 +90MB"。
+PREVIEW_SIDE = 648                # 长边上限（写死，不给开关 —— 用户明确要求）
+MAX_PREVIEW_IMAGES = 24           # 内存里最多留多少张预览（有界，防新的泄漏点）
+
 
 def _clip_cache_dir() -> Path:
     """粘贴图的磁盘缓存目录（运行时才解析 _BASE_DIR，避免模块级顺序问题）。"""
@@ -1136,6 +1142,64 @@ class ChatWidget(QWidget):
         clean = cls._MD_IMG_RE.sub(_collect, text)
         return clean, images
 
+    def _preview_src(self, path: Path, file_uri: str) -> str:
+        """★ 1.9.2（用户真机实测"发 10 张图内存 +90MB"）：把要显示的图**先降采样**，
+        再交给 QTextDocument；不要让它按原分辨率整张解码。
+
+        为什么必须这么做（读码 + 实测）：`<img src="file://原图" width="260">` 里的
+        `width` **不会**让 Qt 少解码 —— 它照样按原图整张解码（内存 = 宽×高×4），
+        缩的只是"画出来多大"。5200×5200 一张就是 103 MB。
+
+        做法：`QImageReader.setScaledSize()` —— **让解码器直接按目标尺寸解**，
+        所以中间连那张全分辨率的位图都不会出现（比"解完再 scaled()"省一倍峰值）。
+        缩好的图注册成内存资源 `img://<hash>`，`<img src>` 用它。
+
+        ★ 绝不动 `href`（用户 R45 硬约束）：点开原图 / 右键复制路径**仍是原图路径**。
+        ★ 任何一步出错都回退 `file://原图` —— 最差只是"没省到内存"，绝不会图裂。
+        """
+        try:
+            import hashlib as _hl
+            from PySide6.QtGui import QImageReader as _QIR
+            from PySide6.QtCore import QSize as _QSize
+
+            cache = getattr(self, "_preview_cache", None)
+            if cache is None:
+                cache = self._preview_cache = {}
+            _mtime = int(path.stat().st_mtime)
+            key = _hl.md5(f"{path}|{_mtime}|{PREVIEW_SIDE}".encode("utf-8")).hexdigest()
+            if key not in cache:
+                rd = _QIR(str(path))
+                try:
+                    rd.setAutoTransform(True)
+                except Exception:
+                    pass
+                sz = rd.size()                      # 只读图片头，很便宜
+                if sz.isValid() and max(sz.width(), sz.height()) > PREVIEW_SIDE:
+                    _f = PREVIEW_SIDE / float(max(sz.width(), sz.height()))
+                    rd.setScaledSize(_QSize(max(1, int(sz.width() * _f)),
+                                            max(1, int(sz.height() * _f))))
+                img = rd.read()
+                if img.isNull():
+                    _log.debug(f"预览解码失败，回退原图: {path} ({rd.errorString()})")
+                    return file_uri
+                cache[key] = img
+                # 超上限丢最旧的（dict 保序）；同时让文档资源表松手，否则像素不放
+                while len(cache) > MAX_PREVIEW_IMAGES:
+                    _old = next(iter(cache))
+                    cache.pop(_old, None)
+                    try:
+                        self._chat_display.document().addResource(
+                            QTextDocument.ImageResource, QUrl(f"img://{_old}"), QImage())
+                    except Exception:
+                        pass
+            _u = f"img://{key}"
+            self._chat_display.document().addResource(
+                QTextDocument.ImageResource, QUrl(_u), cache[key])
+            return _u
+        except Exception as e:
+            _log.debug(f"预览降采样异常，回退原图: {e}")
+            return file_uri
+
     def _render_inline_image_html(self, url: str, alt: str = "") -> str:
         """把一张图片（本地文件优先）渲染为 QQ 风格缩略图（左键系统查看器 / 右键复制路径）。
         远程 URL 退化为可点击文字链接，避免 QTextBrowser 无法加载。"""
@@ -1179,10 +1243,11 @@ class ChatWidget(QWidget):
             tw, th = 200, 120
         disp = (alt or path.name).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         esc_uri = file_uri.replace("&", "&amp;")
+        _src = self._preview_src(path, esc_uri)   # ★ 降采样（href 仍用原图，见 R45）
         return (
             f'<a href="{esc_uri}" style="text-decoration:none; cursor:pointer;" '
             f'title="{disp} · 左键查看原图，右键复制路径">'
-            f'<img src="{esc_uri}" width="{tw}" height="{th}" '
+            f'<img src="{_src}" width="{tw}" height="{th}" '
             f'style="border-radius:8px; cursor:pointer; margin:2px 0;"></a>')
 
     def _render_message_html(self, role: str, text: str) -> str:
@@ -2103,11 +2168,12 @@ class ChatWidget(QWidget):
 
             escaped = path.name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             file_uri = path.as_uri()   # 原图路径，点击/系统查看器都开它
+            _src = self._preview_src(path, file_uri)   # ★ 降采样（href 仍用原图，见 R45）
             av = AVATAR_DISPLAY_SIZE
             img_cell = (
                 f'<a href="{file_uri}" style="text-decoration:none; cursor:pointer;" '
                 f'title="{escaped} · 左键查看原图，右键复制路径">'
-                f'<img src="{file_uri}" width="{thumb_w}" height="{thumb_h}" '
+                f'<img src="{_src}" width="{thumb_w}" height="{thumb_h}" '
                 f'style="border-radius:8px; cursor:pointer;"></a>')
             if from_bot:
                 # 桌宠（助手）侧：头像在左，图片靠左
