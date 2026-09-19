@@ -2090,6 +2090,11 @@ check("★粘贴图片生成 [[CLIP:key|名字|尺寸]] 标记",
 _html_live = w._render_message_html("user", f"{_marker}\n看看这个")
 check("★本次会话内能渲染出内存图片（clip:// 资源）",
       "<img" in _html_live and "clip://" in _html_live)
+# ★ 1.9.2（用户真机反馈"图片左上角有虚线边框"）：Qt 会给**没写 border 的 <img>**
+#   画一个默认边框（看起来就是虚线框）。文件卡片当年踩过同一个坑（本文件下面
+#   `'border="0"' in _h_bracket` 那句），粘贴图这次漏了 → 这里钉死。
+check("★粘贴图 <img> 必须带 border=0（否则 Qt 画虚线默认边框）",
+      'border="0"' in _html_live)
 w._clip_images.clear()
 # ★ 1.9.2（用户 R44/R42）：粘贴图现在**会额外落盘一份 WebP**，所以"清掉内存"不再等于
 #   "重启后看不见" —— 那正是这次修复的目的。分两步验，别再退回旧断言：

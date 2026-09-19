@@ -1247,8 +1247,13 @@ class ChatWidget(QWidget):
                     if _w > 260:
                         _h = int(_h * 260 / _w)
                         _w = 260
+                    # ★ border="0" 必须写：用户真机实测"图片左上角有虚线边框"。
+                    #   和文件卡片当年踩的是同一个坑 —— a190 里留着的
+                    #   `'border="0"' in _h_bracket` 断言就是那时候加的：
+                    #   Qt 会给没写 border 的图片画一个默认边框（看起来就是虚线框）。
                     _cparts.append(f'<img src="clip://{_key}" width="{_w}" height="{_h}" '
-                                   f'style="border-radius:8px; margin:2px 0;">')
+                                   f'border="0" '
+                                   f'style="border:0; border-radius:8px; margin:2px 0;">')
                 else:
                     _cparts.append(
                         f'<span style="color:#999; font-size:11px;">'
@@ -1423,7 +1428,7 @@ class ChatWidget(QWidget):
                 h = int(h * max_w / w)
                 w = max_w
             img_tag = (f'<img src="clip://{key}" width="{w}" height="{h}" '
-                       f'style="border-radius:8px;">')
+                       f'border="0" style="border:0; border-radius:8px;">')
             row = (f'<td align="right" valign="top">{img_tag}</td>'
                    f'<td width="{av + 14}" align="right" valign="top">'
                    f'{self._avatar_html(False)}</td>')
