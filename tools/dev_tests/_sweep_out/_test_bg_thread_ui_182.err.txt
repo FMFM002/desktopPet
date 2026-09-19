@@ -1,1 +1,0 @@
-QObject::startTimer: current thread's event dispatcher has already been destroyed

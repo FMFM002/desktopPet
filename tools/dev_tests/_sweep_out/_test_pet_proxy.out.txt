@@ -1,5 +1,0 @@
-direct_widget: True
-startup exists: True
-behavior: 启动
-loop_gif(应为False): False | frames: 104
-scale ok (size 128*1.02=130): 130 130

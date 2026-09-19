@@ -1,2 +1,0 @@
-D:\Dtopdesk\普瑞赛斯在哪\倒腾\桌宠\PTRTS1.9.0\tools\dev_tests\_test_endfield.py:72: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
-  _px = list(_im.convert("L").getdata())

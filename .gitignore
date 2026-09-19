@@ -78,3 +78,8 @@ desktop.ini
 
 # 回归的配置保镖快照（跑完自动删；内含用户真实 config.json/.env，绝不入库）
 tools/dev_tests/_cfg_guard/
+
+# 回归的临时产物（每次都重写，入库只会制造无意义的 diff；它们都能重新生成）
+tools/dev_tests/_persist_bak/
+tools/dev_tests/_winsize_bak/
+tools/dev_tests/_sweep_out/
