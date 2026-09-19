@@ -1210,6 +1210,11 @@ class ChatWidget(QWidget):
                 _sz0 = None
             if _sz0 is not None and _sz0.isValid() \
                     and max(_sz0.width(), _sz0.height()) <= PREVIEW_SIDE:
+                # ★ 1.9.2（R56）：这条早退**原来没有日志**，结果真机上"大图也没生成预览"
+                #   时完全查不出走了哪条路（所有失败分支都被 debug 吞了）。
+                #   现在把实际长边打出来，一眼就能看出判断对不对。
+                _log.info(f"[预览] 长边 {max(_sz0.width(), _sz0.height())} ≤ "
+                          f"{PREVIEW_SIDE} → 直接用原图（不落盘）: {path.name}")
                 return file_uri
             _pv = _preview_dir() / f"{_key}.webp"
             if not _pv.is_file():
@@ -1224,19 +1229,19 @@ class ChatWidget(QWidget):
                                              max(1, int(_sz.height() * _f))))
                 _img = _rd.read()
                 if _img.isNull():
-                    _log.debug(f"预览解码失败，回退原图: {path} ({_rd.errorString()})")
+                    _log.warning(f"预览解码失败，回退原图: {path} ({_rd.errorString()})")
                     return file_uri
                 # ★ 1.9.2（R54）兜底再确认一次"648 只是上限"：
                 #   解码出来本来就不大（≤648）→ 用原图，别落盘、别放大。
                 if max(_img.width(), _img.height()) <= PREVIEW_SIDE:
                     return file_uri
                 if not _img.save(str(_pv), "WEBP", CLIP_WEBP_QUALITY):
-                    _log.debug(f"预览落盘失败，回退原图: {_pv}")
+                    _log.warning(f"预览落盘失败，回退原图: {_pv}")
                     return file_uri
                 _preview_trim()
             return _pv.as_uri().replace("&", "&amp;")
         except Exception as _e:
-            _log.debug(f"预览落盘异常，回退原图: {_e}")
+            _log.warning(f"预览落盘异常，回退原图: {_e}")
             return file_uri
         """★ 1.9.2（用户真机实测"发 10 张图内存 +90MB"）：把要显示的图**先降采样**，
         再交给 QTextDocument；不要让它按原分辨率整张解码。
