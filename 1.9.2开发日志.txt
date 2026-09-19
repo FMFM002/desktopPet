@@ -1361,6 +1361,71 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
     保镖自身用探针验证通过。
 
 ==================================================================
+二十二、★★ 紧急更正：二十一里那句"已恢复你的配置"—— **我恢复错了，已重做**
+==================================================================
+  [R38]（不是你的批注；是我自查时发现自己上一轮把**用户的真实配置**改掉了）
+
+  ★ 我上一轮干了什么（错的）：
+    看到 `git status` 里 `config.json` 被改成 `character: deepseek`，我直接断定
+    "这是测试把用户配置写坏了"，于是 `git checkout -- config.json` 回到 HEAD 的
+    `character: 铃兰`。**方向完全反了。**
+
+  ★ 证据链（全部来自真机日志/角色文件，不是我的推断）：
+    1. `logs/prts_20260919_*.log`：09-19 的 **01:12 / 15:02 / 16:17 / 16:56**
+       四次**真人**会话（里面有"收到用户消息:"、LLM 思考文本、工具调用），
+       启动形象全是 `[形象] 切换角色: deepseek (GIF×20, 待机轮播×5)`；
+       只有 14:32 那次是 `铃兰 (GIF×1)`。
+       → 你**两个形象都在用**，最后一次（也是持续最久的）是 **deepseek**。
+    2. `logs/prts_20260919_165653.log` **17:07:46 你亲口发的消息**：
+       「我吧多模态关闭了，尝试一次看图，报错直接停止。」
+       → 工作区那份的 `vision.multimodal = false` 是**你自己关的**，不是测试写的。
+    3. 同一份日志 16:56:55：`RESIDENT 工具 [long_term_memory] 已绑定正式模块`
+       + `[+] long_term_memory … [resident]`，而且 16:58、17:01 它**真的在干活**
+       （`[LTM] 喂给长期记忆 2 条聊天记录` / `[LTM] LLM 判断: 无长期记忆价值`）
+       → 工作区那份的 `tool_policies.long_term_memory = "resident"` 也是**真实配置**。
+    4. `data/桌宠形象/deepseek/settings.json`：scale=1.02、detailed/heavy、
+       no_markdown=true —— 与工作区那份 config.json **逐项吻合**；
+       `铃兰/settings.json`：1.03/concise/light —— 与 **HEAD 那份**逐项吻合。
+    → 所以：**工作区那份才是你在用的配置；HEAD 那份才是脏的。**
+      脏是怎么进 git 的：`config.json` 最后一次提交是 09-19 01:24 的 `cb57bf4`，
+      而 01:12 的真机会话已经在用 deepseek —— 说明 01:24 之前测试就把「铃兰」
+      写进了 config.json，我又把它提交了。**这个错从 01:24 一直躺到现在。**
+
+  ★ 补救（已做）：
+    · 不手抄、用**程序自己的**合成器与写入器重建：
+      persona ← `character_settings.persona_text(deepseek/settings.json)`；
+      输出控制/行为控制/model/scale ← 同一份 settings.json；
+      再设 `vision.multimodal=False`、`tool_policies.long_term_memory="resident"`、
+      `enabled_tools` 补回 `long_term_memory`，最后走 `config.save()`。
+    · **交叉验证（两条独立证据）**：
+      ① 重建后 `git diff --stat config.json` = `17 +++++++++--------`
+         （9 增 8 删）—— 与我误删前看到的那份**完全一致**；
+      ② 日志 16:56:54 打的 `deepseek 配置已应用 (persona=1098字)`，
+         我重建出来的 persona 正好 **1098 字**。
+    · 当前 config.json = `character deepseek / scale 1.02 / multimodal false /
+      long_term_memory resident / reply_style detailed / emoji_level heavy /
+      no_markdown true`（逐项与上面证据一致）。
+    · 我改错的那份也留了档，没彻底删：
+      `data/downloads/_scratch/_config.wrong_linglan.json`。
+    · `.env` 校验**未被改动**（sha256 一致；里面有 api key，永远不入库）。
+    · 回归：`_test_startup_chain` 6 PASS、`_test_settings_persist_182` 41 PASS、
+      `_test_tool_state_192` 43 PASS，全绿；且跑完 config.json 哈希不变。
+
+  ★ 二十一、[1] 那条的**结论要按这条更正**：
+    · "配置保镖"机制**保留、仍然有用** —— 确实有测试会写 config.json
+      （`_persist_bak` / `_winsize_bak` 两份夹具跑完变成 `multimodal:false` /
+      `resident`，而它们本该是快照）。
+    · 但我当时写的"你的真实配置是 铃兰 / 1.03 / ltm disabled"是**错的**，
+      那是被测试写脏、又被我提交进 HEAD 的版本。**别拿那条去核对。**
+    · 那条里"以后跑回归不会再动它"这部分**依然成立**（已实测）。
+
+  ★ 教训（写给我自己，也写在这里免得重犯）：
+    "git 里一份、工作区一份、两者不同"时，**绝不能假设 git 那份是对的**。
+    这次正确的是**工作区**那份。判断依据必须是**真机日志**（谁在用、正在用什么），
+    而不是"哪个看起来更像用户的默认值"。我差一点让你的桌宠从满血 deepseek
+    变成一个只有 1 张 GIF 的空壳铃兰，而且是在你离线期间。
+
+==================================================================
 【需要你操作】
 ==================================================================
   0. ★ 你现在**不用做任何事**（你说长期离线，我按上面的 P1→P5 自己排）。
@@ -1376,10 +1441,15 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
   2. 那份 HTML 演示我**已更正**（加了"同尺寸 JPEG vs WebP"的真数字，并说明
      上一版为什么看起来一样），并且把大图素材挪进了演示目录（16/16 张图都能显示）
      —— 你回来双击 `data/downloads/_compress_demo/压缩方案对比.html` 看一眼即可。
-  3. ★ **你的配置被测试改过，我已经恢复了**（详见二十一、[1]）：
-     现在 `config.json` = `character 铃兰 / scale 1.03 / multimodal true /
-     long_term_memory disabled`。以后跑回归不会再动它（加了保镖 + sha256 校验）。
-     如果你回来发现桌宠"变样了"，第一时间看这里，别怀疑是别的改动。
+  3. ★ **配置的事请看二十二**（我上一轮"恢复"恢复错了，已按真机日志重做）：
+     现在 `config.json` = `character deepseek / scale 1.02 / multimodal false /
+     long_term_memory resident / detailed / heavy / no_markdown true`
+     —— 与你 09-19 17:18 退出时那份**逐项一致**。
+     以后跑回归不会再动它（配置保镖 + sha256 校验，已实测）。
+     ⚠️ 唯一我**不敢 100% 保证**的是 persona 文本里有没有那行「人设标记：…」：
+        我按程序自己的合成器写（含该行，1098 字，与日志里 `persona=1098字` 吻合）；
+        它每次切角色/开机都会被程序重新合成，所以就算差一点也不影响使用。
+     如果你回来发现"形象/性格不对"，第一时间看这一条。
   4. OCR：按你说的**维持 easyocr**（选 b），我不再动这块；调研文档留着存档。
   5. 我按二十一、[3] 的 P1→P5 自己推进，不需要等你回复；
      如果有哪条需要装新依赖，我会**停下来**写在这里等你，不会自己装。
