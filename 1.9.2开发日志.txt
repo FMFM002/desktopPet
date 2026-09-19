@@ -1837,6 +1837,33 @@ PTRTS1.9.2 —— 开发日志（总纲 · 遗留问题总清单）
     完整的（40 个套件），把结果一并报给你。
 
 ==================================================================
+三十四、1.9.2 第二十四轮 —— 全量回归结果（R41 三段改动后跑的完整一遍）
+==================================================================
+  ★ 命令：`& tools\dev_tests\_sweep190.ps1`（**全量，不是 -Only**）
+  ★ 结果：**40 个套件全部 FAIL=0**，并且**没有任何套件带
+    「★没有汇总行（疑似中途崩溃/被杀）」标记**（这次我特意同时看了这个标记）。
+
+    _test_a190 462 ｜ _test_pet_window_heal_191 101 ｜ _test_bt_download_192 92
+    _test_download_192 92 ｜ _test_comfyui_191 87 ｜ _test_app_launch_192 61
+    _test_audit_fixes_1810 49 ｜ _test_tool_state_192 43 ｜ _test_settings_persist_182 41
+    _test_mem_bounds_192 39 ｜ _test_meme_desc_192 38 ｜ _test_ui_160 35
+    _test_topic_buttons_191 34 ｜ _test_attach_persist_184 32 ｜ _test_proxy_split_192 30
+    _test_bg_thread_ui_182 27 ｜ _test_ocr_idle_192 26 ｜ _test_phase5_startup_185 25
+    _test_endfield 24 ｜ _test_pipeline_clean_188 24 ｜ _test_reasoning_content_183 22
+    _test_bulk_clean_189 21 ｜ _test_plugins 19 ｜ _test_window_size_184 19
+    _test_session_windows 17 ｜ _test_file_card_182 15 ｜ _test_pipeline_shutdown_186 15
+    _test_multimodal 14 ｜ _test_dataflow_170 11 ｜ _test_file_flow_180 11
+    _test_ltm_reasoning 10 ｜ _test_pipeline_trigger_187 9 ｜ _test_tts_memory 9
+    _test_message_sanitize 8 ｜ _test_tools_layout 8 ｜ _test_ltm_summarizer_173 7
+    _test_startup_chain 6 ｜ _test_ltm_171 ALL PASS ｜ _test_pet_proxy（本就不打计数）
+    `_test_ltm_171_live`：按惯例 **SKIP**（要真机 API）。
+
+  ★ 另外：`_test_endfield` 这次**没有**出现以前那种 HTTP 522 网络抖动，24 PASS 直接过。
+  ★ 配置保镖收尾正常：`config.json` / `.env` **跑动期间没被动过**（sha256 与开跑前一致）。
+  ★ 也就是说：本轮三段改动（预览降采样 648、粘贴图落盘+恢复、历史分段式加载）
+    **没有打破任何既有行为**。
+
+==================================================================
 【需要你操作】
 ==================================================================
   0. ★ 你现在**不用做任何事**（你说长期离线，我按上面的 P1→P5 自己排）。
