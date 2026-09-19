@@ -83,3 +83,6 @@ tools/dev_tests/_cfg_guard/
 tools/dev_tests/_persist_bak/
 tools/dev_tests/_winsize_bak/
 tools/dev_tests/_sweep_out/
+
+# 粘贴图的磁盘缓存（WebP，运行时自动生成/自动淘汰，不入库）
+data/chat_clips/

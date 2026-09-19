@@ -43,6 +43,36 @@ BUBBLE_RADIUS = 12                # 圆角半径（Qt 富文本不支持，改�
 #   原来这个 dict 无上限、只在 clear_chat 清，key 还是毫秒时间戳（会撞车覆盖）。
 MAX_CLIP_IMAGES = 8               # 最多留最近 8 张（聊天里也只看得见最近几张）
 MAX_CLIP_SIDE = 1280              # 存前把长边缩到 ≤1280（单张 ~1.5 MB）
+# ★ 1.9.2（用户 R44/R42）：粘贴图**额外落盘一份 WebP**。
+#   以前它只在内存里（clip:// 资源）→ 用户问"重启后是否可见？"，答案是**不可见**。
+#   文件名就用标记里那个 key → 正文标记格式**一个字都不用改、不需要迁移历史**；
+#   老记录（没有对应文件）读不到时自然走原来的占位分支。
+CLIP_WEBP_QUALITY = 85            # 落盘用 WebP（用户 R42："就用 webp"）
+CLIP_CACHE_MAX = 60               # 磁盘缓存上限（张），按 mtime 淘汰最旧
+
+
+def _clip_cache_dir() -> Path:
+    """粘贴图的磁盘缓存目录（运行时才解析 _BASE_DIR，避免模块级顺序问题）。"""
+    d = _BASE_DIR / "data" / "chat_clips"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _clip_cache_path(key: str) -> Path:
+    return _clip_cache_dir() / f"{key}.webp"
+
+
+def _clip_cache_trim():
+    """磁盘缓存压到 CLIP_CACHE_MAX 以内（最旧的先删），防止落盘变成新的泄漏点。"""
+    try:
+        files = sorted(_clip_cache_dir().glob("*.webp"), key=lambda p: p.stat().st_mtime)
+        for p in (files[:-CLIP_CACHE_MAX] if len(files) > CLIP_CACHE_MAX else []):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 # 自带形象头像（桌宠默认头像）★ 1.5.0: 迁移到 data/桌宠形象/<角色>/
@@ -1183,6 +1213,30 @@ class ChatWidget(QWidget):
             _cparts = []
             for _key, _name, _dims in clips:
                 _qimg = self._clip_images.get(_key)
+                if _qimg is None:
+                    # ★ 1.9.2（R44）：内存里没有（重启后 / 被 LRU 淘汰）→ 从磁盘缓存恢复。
+                    #   这就是"重启后还能不能看见"的答案：能，只要缓存文件还在。
+                    try:
+                        _cf = _clip_cache_path(_key)
+                        if _cf.is_file():
+                            # 用 QImageReader 显式读（比 QImage(路径) 构造函数更可控，
+                            # 也能拿到失败原因）；读不到就退回占位。
+                            from PySide6.QtGui import QImageReader as _QIR
+                            _rd = _QIR(str(_cf))
+                            _loaded = _rd.read()
+                            if _loaded.isNull():
+                                _log.warning(f"粘贴图缓存读取失败: {_cf} "
+                                             f"({_rd.errorString()})")
+                            else:
+                                _qimg = _loaded
+                                self._clip_images[_key] = _qimg
+                                self._chat_display.document().addResource(
+                                    QTextDocument.ImageResource,
+                                    QUrl(f"clip://{_key}"), _qimg)
+                        else:
+                            _log.debug(f"粘贴图无磁盘缓存，走占位: {_cf}")
+                    except Exception as _e:
+                        _log.warning(f"从磁盘恢复粘贴图异常: {_e}")
                 if _qimg is not None:
                     try:
                         self._chat_display.document().addResource(
@@ -1198,7 +1252,8 @@ class ChatWidget(QWidget):
                 else:
                     _cparts.append(
                         f'<span style="color:#999; font-size:11px;">'
-                        f'[粘贴的图片「{_name or _dims}」：未落盘，重启后不可预览]</span>')
+                        f'[粘贴的图片「{_name or _dims}」：图片被清理了'
+                        f'（未落盘或缓存已过期）]</span>')
             img_html += '<div style="margin:2px 0;">' + "".join(_cparts) + '</div>'
 
         # ★ 1.8.4: 文件卡片块 —— 和图片一样贴在发送方气泡里，
@@ -1317,6 +1372,16 @@ class ChatWidget(QWidget):
                     Qt.KeepAspectRatio, Qt.SmoothTransformation)
         except Exception as e:
             _log.debug(f"粘贴图缩放失败（按原图存）: {e}")
+        # ★ 1.9.2（R44/R42）：**同时落盘一份 WebP** —— 这就是"重启后可见"的修复。
+        #   失败也只降级成"老行为"（仍在内存里能看），绝不因此让粘贴失败。
+        try:
+            _cp = _clip_cache_path(key)
+            if qimage.save(str(_cp), "WEBP", CLIP_WEBP_QUALITY):
+                _clip_cache_trim()
+            else:
+                _log.debug(f"粘贴图落盘失败（继续走内存）: {_cp}")
+        except Exception as _e:
+            _log.debug(f"粘贴图落盘异常（继续走内存）: {_e}")
         self._clip_images[key] = qimage          # 持引用，别让 QImage 被回收
         # 超上限就丢最旧的（dict 保序 → 第一个就是最旧）
         #
@@ -1330,6 +1395,14 @@ class ChatWidget(QWidget):
         while len(self._clip_images) > MAX_CLIP_IMAGES:
             _old = next(iter(self._clip_images))
             self._clip_images.pop(_old, None)
+            # ★ 1.9.2: 内存淘汰时**连磁盘文件一起删** —— 否则落盘会变成新的无界增长点
+            #   （内存有界了，磁盘却一直涨）。
+            try:
+                _oldf = _clip_cache_path(_old)
+                if _oldf.is_file():
+                    _oldf.unlink()
+            except Exception as _e:
+                _log.debug(f"淘汰粘贴图磁盘缓存失败: {_e}")
             try:
                 self._chat_display.document().addResource(
                     QTextDocument.ImageResource, QUrl(f"clip://{_old}"),

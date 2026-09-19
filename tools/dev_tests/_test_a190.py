@@ -2091,9 +2091,26 @@ _html_live = w._render_message_html("user", f"{_marker}\n看看这个")
 check("★本次会话内能渲染出内存图片（clip:// 资源）",
       "<img" in _html_live and "clip://" in _html_live)
 w._clip_images.clear()
+# ★ 1.9.2（用户 R44/R42）：粘贴图现在**会额外落盘一份 WebP**，所以"清掉内存"不再等于
+#   "重启后看不见" —— 那正是这次修复的目的。分两步验，别再退回旧断言：
+#   ① 只清内存（等价重启）→ 应从磁盘缓存恢复出图；
+#   ② 连磁盘缓存一起删（用户清理过 / 缓存过期）→ 才显示占位，且不露出原始标记。
+from src.ui.chat_widget import _clip_cache_path as _ccp  # noqa: E402
+
+_p_clip = _ccp(_clips[0][0])
+check("★粘贴图确实落盘了（WebP 文件存在且非空）",
+      _p_clip.is_file() and _p_clip.stat().st_size > 0, str(_p_clip))
+_html_restart = w._render_message_html("user", _marker)
+check("★★重启后（内存已清）能从磁盘缓存恢复粘贴图，不再变占位",
+      "<img" in _html_restart and "clip://" in _html_restart
+      and "未落盘" not in _html_restart)
+w._clip_images.clear()
+if _p_clip.is_file():
+    _p_clip.unlink()
 _html_dead = w._render_message_html("user", _marker)
-check("★像素清掉后（等价于重启）→ 显示「未落盘」占位，且不露出原始标记",
-      "未落盘" in _html_dead and "[[CLIP:" not in _html_dead and "clip://" not in _html_dead)
+check("★连磁盘缓存也被清理后 → 显示「图片被清理了」占位，且不露出原始标记",
+      "图片被清理了" in _html_dead and "[[CLIP:" not in _html_dead
+      and "clip://" not in _html_dead)
 
 from tools.file_view import describe_image as _describe_image  # noqa: E402
 _seen_p = {}
