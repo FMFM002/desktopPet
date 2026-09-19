@@ -42,7 +42,8 @@ BUBBLE_RADIUS = 12                # 圆角半径（Qt 富文本不支持，改�
 #   实测背景：每张 1920×1080 的 QImage 约 6.5 MB，粘 10 张 = +64.7 MB；
 #   原来这个 dict 无上限、只在 clear_chat 清，key 还是毫秒时间戳（会撞车覆盖）。
 MAX_CLIP_IMAGES = 8               # 最多留最近 8 张（聊天里也只看得见最近几张）
-MAX_CLIP_SIDE = 1280              # 存前把长边缩到 ≤1280（单张 ~1.5 MB）
+MAX_CLIP_SIDE = 648               # ★ 1.9.2（R57，用户要求）：粘贴图也统一到 648
+#   （原来是 1280：真机 chat_clips 里是 1280×720 = 3.52MB/张，和显示预览的 648 不一致）
 # ★ 1.9.2（用户 R44/R42）：粘贴图**额外落盘一份 WebP**。
 #   以前它只在内存里（clip:// 资源）→ 用户问"重启后是否可见？"，答案是**不可见**。
 #   文件名就用标记里那个 key → 正文标记格式**一个字都不用改、不需要迁移历史**；
@@ -1231,10 +1232,14 @@ class ChatWidget(QWidget):
                 if _img.isNull():
                     _log.warning(f"预览解码失败，回退原图: {path} ({_rd.errorString()})")
                     return file_uri
-                # ★ 1.9.2（R54）兜底再确认一次"648 只是上限"：
-                #   解码出来本来就不大（≤648）→ 用原图，别落盘、别放大。
-                if max(_img.width(), _img.height()) <= PREVIEW_SIDE:
-                    return file_uri
+                # ★★ 1.9.2（R57）**删掉了一个致命的自检**：
+                #   上一版（R54）我在这里写了"解码出来 ≤648 就用原图"，但**缩到
+                #   长边 648 的图，长边正好等于 648** → 这个条件**永远成立**
+                #   → 每张 >648 的图都被解码、又被丢掉、**静默**返回原图。
+                #   结果：这个功能等于完全没生效（真机 12 张图 225MB 一分没省），
+                #   而且因为没有日志，我白查了三轮才逼出来。
+                #   正确逻辑：原始长边 ≤648 的情况在第 39-46 行**已经返回**了，
+                #   这里不需要再判断一次 —— 解码成功就直接落盘。
                 if not _img.save(str(_pv), "WEBP", CLIP_WEBP_QUALITY):
                     _log.warning(f"预览落盘失败，回退原图: {_pv}")
                     return file_uri
@@ -1249,6 +1254,9 @@ class ChatWidget(QWidget):
                               f"{_pv.stat().st_size} 字节)")
                 except Exception:
                     pass
+            # ★ 1.9.2（R57）：**命中已有预览也要留痕** —— 之前这条路是静默的，
+            #   我因此误判过"这张大图没走预览"（其实只是缓存命中）。
+            _log.debug(f"[预览] 命中已有预览 {_pv.name} ← {path.name}")
             return _pv.as_uri().replace("&", "&amp;")
         except Exception as _e:
             _log.warning(f"预览落盘异常，回退原图: {_e}")
