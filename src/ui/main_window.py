@@ -1043,14 +1043,32 @@ class MainWindow:
         self._reload_chat_view()
         self._update_header_info()
 
-    def _reload_chat_view(self):
+    def _reload_chat_view(self, keep_position: bool = False):
         """★ 1.6.0: 重画聊天区 = 该角色的旧话题历史 + 当前话题消息
 
         每段话题前插一条 `####` 分割线。
         ★ 1.9.1: 这里原来还写隐形标记 `⟦T<id>⟧` 供侧栏书签跳转定位；
         书签已按你的要求删除，标记与 `_topic_marks` 一并去掉。
+        ★ 1.9.2（用户 R41）：**分段式加载** —— 默认只渲染最后 `_chat_load_rounds` 轮
+        （1 轮 = 一用户 + 一助手），上面更早的先不渲染；用户翻到最顶还继续往上翻时，
+        `_on_chat_scrolled_top` 会每次再多放 2 轮进来。keep_position 用来在"多放几轮"
+        之后把视线留在原来那条消息上（不然会跳到别处）。
         """
         try:
+            # 记住当前滚动位置（多放几轮之后要按"离底部多远"还原视线）
+            try:
+                _sb = self.chat._chat_display.verticalScrollBar()
+                _old_gap = max(0, _sb.maximum() - _sb.value())
+            except Exception:
+                _old_gap = 0
+            # 懒连接"翻到顶→加载更多"（只连一次，避免重复触发）
+            if not getattr(self, "_chat_scroll_hooked", False):
+                self._chat_scroll_hooked = True
+                try:
+                    self.chat._chat_display.verticalScrollBar().valueChanged.connect(
+                        self._on_chat_scrolled_top)
+                except Exception as _e:
+                    _log.debug(f"[聊天分段加载] 连接滚动信号失败: {_e}")
             self.chat.clear_chat()
             char = getattr(self.session, "character", "") or self.config.pet.character
             topic_id = self.session.topic_id
@@ -1085,6 +1103,16 @@ class MainWindow:
             self.chat.append_topic_divider("当前话题", topic_id="CUR")
             with self.session._lock:
                 msgs = [dict(m) for m in self.session.messages]
+            # ★ 1.9.2（用户 R41）：只渲染最后 N 轮，剩下的等用户往上翻再放
+            _budget = max(1, int(getattr(self, "_chat_load_rounds", 2))) * 2
+            _keep = [m for m in msgs
+                     if (m.get("content") or "").strip()
+                     and m.get("role") in ("user", "assistant", "system")]
+            self._chat_hidden_count = max(0, len(_keep) - _budget)
+            if self._chat_hidden_count:
+                _log.debug(f"[聊天分段加载] 本轮渲染最后 {_budget} 条，"
+                           f"另有 {self._chat_hidden_count} 条等上翻")
+                msgs = _keep[-_budget:]
             for m in msgs:
                 role = m.get("role")
                 content = m.get("content") or ""
@@ -1096,9 +1124,42 @@ class MainWindow:
                     self.chat._append_message("assistant", content)
                 elif role == "system":
                     self.chat.append_system_msg(content)
+            # ★ 1.9.2（R41）：明确告诉用户"上面还有，往上翻会加载"
+            if getattr(self, "_chat_hidden_count", 0):
+                self.chat.append_system_msg(
+                    f"↑ 上面还有 {self._chat_hidden_count} 条更早的记录 —— "
+                    f"继续往上翻会自动加载")
             self.chat.on_stream_done()
+            if keep_position:
+                try:
+                    _sb = self.chat._chat_display.verticalScrollBar()
+                    _sb.setValue(max(0, _sb.maximum() - _old_gap))
+                except Exception as _e:
+                    _log.debug(f"[聊天分段加载] 还原滚动位置失败: {_e}")
         except Exception as e:
             _log.warning(f"重载聊天视图失败: {e}")
+
+    def _on_chat_scrolled_top(self, value: int):
+        """★ 1.9.2（用户 R41）：用户翻到**最顶**、还继续往上翻 → 每次多放 2 轮进来。
+
+        `_chat_loading_more` 是防重入的：还原滚动位置时会再触发一次 valueChanged，
+        没有这个闸就会一路把所有历史都加载完（那就白做分段了）。
+        """
+        try:
+            if getattr(self, "_chat_loading_more", False):
+                return
+            if value > 0 or not getattr(self, "_chat_hidden_count", 0):
+                return
+            self._chat_loading_more = True
+            try:
+                self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 2)) + 2
+                _log.info(f"[聊天分段加载] 再放 2 轮进来（当前上限 "
+                          f"{self._chat_load_rounds} 轮）")
+                self._reload_chat_view(keep_position=True)
+            finally:
+                self._chat_loading_more = False
+        except Exception as e:
+            _log.debug(f"[聊天分段加载] 失败: {e}")
 
     # ============ 拖拽文件到形象 ============
 
