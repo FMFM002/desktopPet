@@ -1175,6 +1175,7 @@ class MainWindow:
             if len(_u_idx0) > _rounds0:
                 _cur_shown = len(_cur_keep) - _u_idx0[-_rounds0]
             _slots = max(0, _rounds0 * 2 - _cur_shown)   # 归档话题只吃剩下的名额
+            _skipped_sys = 0   # 历史渲染时跳过的 system 行数（它们不该造思考子窗口）
             self.chat._history_rendering = True
             try:
                 # ★ 1.9.2（R61，用户："点加载历史把该话题全部上下文都加载进来了"）：
@@ -1241,13 +1242,20 @@ class MainWindow:
                 elif role == "assistant":
                     self.chat._append_message("assistant", content)
                 elif role == "system":
-                    self.chat.append_system_msg(content)
+                    # ★ 1.9.2（R67，用户："历史信息不加载子窗口"）：
+                    #   历史里那些 system 行是**当时的瞬时状态**（[正在思考...]/[调用: ...] 等），
+                    #   而 `append_system_msg` 现在的设计是"写进思考子窗口" ——
+                    #   于是一重画历史就会**给每条 system 行造一个子窗口**：
+                    #   界面又乱、位置也容易错，还白占内存。
+                    #   → 渲染历史时**直接跳过**（不造面板、也不占位）。
+                    _skipped_sys += 1
             # ★ 1.9.2（R64）：把"这一屏到底渲染了多少条"打出来 ——
             #   用户报过"加载历史还是把当前话题全加载了"，有这条就能一眼对上：
             #   渲染条数 = 预算内该有的条数，还是真的把全部塞进去了。
             try:
                 _log.info(f"[聊天历史] 本轮渲染 {len(msgs)} 条"
-                          f"（口径 {_rounds} 轮；归档名额 {_slots}）")
+                          f"（口径 {_rounds} 轮；归档名额 {_slots}；"
+                          f"跳过 system 状态行 {_skipped_sys} 条 —— 不加载子窗口）")
             except Exception:
                 pass
             self.chat._history_rendering = False
