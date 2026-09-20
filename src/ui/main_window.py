@@ -933,11 +933,11 @@ class MainWindow:
             import json as _json
             p = self._chat_rounds_path()
             if p.is_file():
-                return max(2, int(_json.loads(p.read_text(encoding="utf-8"))
-                                  .get("chat_rounds", 2)))
+                return max(1, int(_json.loads(p.read_text(encoding="utf-8"))
+                                  .get("chat_rounds", 1)))
         except Exception as e:
-            _log.debug(f"[聊天历史] 读显示轮数失败（按 2 轮）: {e}")
-        return 2
+            _log.debug(f"[聊天历史] 读显示轮数失败（按 1 轮）: {e}")
+        return 1
 
     def _save_chat_rounds(self, n: int):
         try:
@@ -952,7 +952,7 @@ class MainWindow:
     def _load_more_history(self):
         """★ 1.9.2（R60，用户要求）：聊天窗口右上角按钮 —— **按一次加载上一轮**。"""
         try:
-            self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 2)) + 1
+            self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 1)) + 1
             self._save_chat_rounds(self._chat_load_rounds)
             _log.info(f"[聊天历史] 加载上一轮（现在显示 {self._chat_load_rounds} 轮）")
             self._reload_chat_view(keep_position=True)
@@ -995,6 +995,14 @@ class MainWindow:
             self.chat.clear_before_last_user_message()
         except Exception as _e:
             _log.debug(f"[分段加载] 发言清屏跳过: {_e}")
+        # ★ 1.9.2（R66，用户澄清："用户消息到下一条用户消息之前为一轮"）：
+        #   发言即清屏 → 你退出时看到的就是**当前这一轮**，所以显示口径也回到 1 轮，
+        #   重启后才是"精确恢复你看到的状态"（之前默认 2 轮，总会多出一轮）。
+        try:
+            self._chat_load_rounds = 1
+            self._save_chat_rounds(1)
+        except Exception as _e:
+            _log.debug(f"[聊天历史] 重置显示轮数失败: {_e}")
         self.pet_mgr.on_user_message()
         self.chat.append_system_msg("[正在思考...]")
         self.chat.reset_stream()
@@ -1146,13 +1154,13 @@ class MainWindow:
                 if getattr(self, "_chat_load_rounds", None) is None:
                     self._chat_load_rounds = self._load_chat_rounds()
             except Exception as _e:
-                self._chat_load_rounds = 2
-                _log.debug(f"[聊天历史] 轮数初始化失败，按 2 轮: {_e}")
+                self._chat_load_rounds = 1
+                _log.debug(f"[聊天历史] 轮数初始化失败，按 1 轮: {_e}")
             # ★ 1.9.2（R61）：预算对**整个视图**（归档 + 当前）生效 ——
             #   一次只多放一轮，不再"一按就全灌进来"。
             #   ★ 1.9.2（R61）：**轮 = 以"用户消息"为界**，不是"两条消息" ——
             #     一次发言后面还会跟系统提示/工具记录等，所以"轮数×2 条"根本对不上。
-            _rounds0 = max(2, int(getattr(self, "_chat_load_rounds", 2)))
+            _rounds0 = max(1, int(getattr(self, "_chat_load_rounds", 1)))
             _cur_keep = []
             try:
                 with self.session._lock:
@@ -1205,7 +1213,7 @@ class MainWindow:
                 msgs = [dict(m) for m in self.session.messages]
             # ★ 1.9.2（R60，用户要求）：只显示最后 N 轮（1 轮 = 一用户 + 一助手），
             #   按一次"↑ 历史"按钮就 +1 轮。N 会存盘、重启后沿用（= 上一次退出的状态）。
-            _rounds = max(2, int(getattr(self, "_chat_load_rounds", 2)))
+            _rounds = max(1, int(getattr(self, "_chat_load_rounds", 1)))
             _keep = [m for m in msgs
                      if (m.get("content") or "").strip()
                      and m.get("role") in ("user", "assistant", "system")]
@@ -1264,7 +1272,7 @@ class MainWindow:
                 return
             self._chat_loading_more = True
             try:
-                self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 2)) + 2
+                self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 1)) + 2
                 _log.info(f"[聊天分段加载] 再放 2 轮进来（当前上限 "
                           f"{self._chat_load_rounds} 轮）")
                 self._reload_chat_view(keep_position=True)
