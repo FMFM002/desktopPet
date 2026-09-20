@@ -352,16 +352,19 @@ check("★★三个占位图的资源名互不相同（不是共用一张图）"
 check("★★面板数量上界 = MAX_THINK_PANELS（不随会话无限增长）",
       cw.MAX_THINK_PANELS >= 3, str(cw.MAX_THINK_PANELS))
 
-# 超量后旧的被摘掉
+# ★ 1.9.2（R68，用户："不保留历史记录的子窗口了，不需要限制子窗口个数了"）：
+#   淘汰逻辑已去掉 —— 现在应该**一个都不丢**，数量只增不减。
+_before = cw.think_panel_count()
 for _i in range(cw.MAX_THINK_PANELS + 3):
     _round(cw, f"压{_i}", f"压思考{_i}", f"压回复{_i}")
-check(f"★★超过上界后只保留 MAX_THINK_PANELS({cw.MAX_THINK_PANELS}) 个",
-      cw.think_panel_count() == cw.MAX_THINK_PANELS,
-      str(cw.think_panel_count()))
-check("★★被摘掉的最旧占位图真的从文档里删了",
-      # ★ 1.9.2: _find_think_block 现在返回「无效 block」而不是 None（崩溃修复），
-      #   所以这里要用 isValid() 判断，不能再写 `is None`。
-      not cw._find_think_block("prts-think-1").isValid())
+check("★不再淘汰面板（R68：历史不再建面板 → 上限没必要；当前轮的都要留着）",
+      cw.think_panel_count() == _before + cw.MAX_THINK_PANELS + 3,
+      f"{_before} + {cw.MAX_THINK_PANELS + 3} != {cw.think_panel_count()}")
+# ★ 占位图在不在文档里取决于"这中间有没有清过文档"，不适合当断言；
+#   换成对"上限淘汰逻辑已删除"的**源码回归守卫**（与流程无关，钉死这个契约）。
+_cw_src = (Path(__file__).resolve().parents[2] / "src" / "ui" / "chat_widget.py").read_text(encoding="utf-8")
+check("★★不再有'超过上限就摘掉最旧面板'的逻辑（R68：上限已去掉）",
+      "_drop_think_panel(self._think_panels[0])" not in _cw_src)
 check("★最近那一轮的面板还在、且有内容",
       cw._think_panels[-1]["panel"].text().strip().endswith(
           f"压思考{cw.MAX_THINK_PANELS + 2}"),

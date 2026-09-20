@@ -2082,9 +2082,10 @@ class ChatWidget(QWidget):
         entry = {"key": key, "panel": panel, "fmt": fmt}
         self._think_panels.append(entry)
         self._think_current = entry
-        # 超量 → 把最旧的连占位图一起摘掉（用户只看得到最近几轮）
-        while len(self._think_panels) > self.MAX_THINK_PANELS:
-            self._drop_think_panel(self._think_panels[0])
+        # ★ 1.9.2（R68，用户："不保留历史记录的子窗口了，不需要限制子窗口个数了"）：
+        #   历史重画时**不再创建**子窗口（见 _reload_chat_view 里跳过 system 行），
+        #   所以同时存在的面板只有"当前这一轮"的 → **上限没有必要**，去掉淘汰逻辑。
+        #   （MAX_THINK_PANELS 常量保留但不再使用，方便以后想恢复。）
         return panel
 
     def _drop_think_panel(self, entry):
