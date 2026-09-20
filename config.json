@@ -102,7 +102,7 @@
     "ollama_host": "http://localhost:11434/v1",
     "ocr_engine": "easyocr",
     "ocr_lang": "chi_sim+eng",
-    "multimodal": false,
+    "multimodal": true,
     "multimodal_mode": "api"
   },
   "enabled_tools": [
@@ -135,11 +135,11 @@
     "meme": "lazy",
     "office": "lazy",
     "pixiv": "lazy",
+    "progress_report": "resident",
     "shell_exec": "lazy",
     "system_command": "lazy",
     "weather_query": "lazy",
-    "web_search": "lazy",
-    "progress_report": "resident"
+    "web_search": "lazy"
   },
   "llm": {
     "provider": "deepseek",
