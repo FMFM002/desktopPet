@@ -2247,8 +2247,15 @@ class ChatWidget(QWidget):
                     y = int(r.top()) - dy
                     x = max(0, int(r.left()) - dx + 4)
                     if y + p.height() < 0 or y > vh:
-                        p.hide()          # 滚出可视区 → 藏起来，别堆在边缘
-                        continue
+                        # ★★ 1.9.2（R74，用户："只有内容更新才会显示，一直闪烁，
+                        #   最后边界轮子窗口正常"）：**当前正在写的那一个绝不隐藏**。
+                        #   长任务里文档一直变长、视口没跟上 → 它被判"离屏"→ hide()，
+                        #   下一次思考内容更新又 show() → 就是那个闪烁。
+                        #   现在：当前面板夹进可视区、保持显示；只有**历史面板**才隐藏。
+                        if e is not getattr(self, "_think_current", None):
+                            p.hide()      # 滚出可视区的历史面板 → 藏起来，别堆在边缘
+                            continue
+                        y = max(0, min(y, max(0, vh - max(1, p.height()))))
                     if w != p.width():
                         p.setFixedWidth(w)
                         p._relayout_height()
