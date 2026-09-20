@@ -2030,12 +2030,18 @@ class MainWindow:
         #   第一次读图**仍然走了多模态**，第二次才对 —— 就是缓存里的
         #   视觉客户端还是旧配置（mode=api）。这里统一失效，下次读图重新判定。
         try:
-            from src.core.llm_client import invalidate_vision_cache, effective_vision_mode
+            # ★ 1.9.2（R64）：这里原来从 `src.core.llm_client` import
+            #   `effective_vision_mode` —— 那个函数**不在** llm_client 里，
+            #   而在 `tools.file_view`。所以这行**一直在抛 ImportError**，
+            #   被下面的 except 吞成 debug 日志 → 视觉客户端缓存从来没失效过，
+            #   表现就是"改完视觉/多模态设置，第一次读图仍走旧配置"（1.9.0 就记着的老问题）。
+            from src.core.llm_client import invalidate_vision_cache
+            from tools.file_view import effective_vision_mode
             invalidate_vision_cache()
             _log.info(f"视觉客户端缓存已失效，下次读图按当前设置走: "
                       f"{effective_vision_mode()}")
         except Exception as e:
-            _log.debug(f"刷新视觉客户端缓存失败: {e}")
+            _log.warning(f"刷新视觉客户端缓存失败: {e}")
         name = self.config.pet.character
         # ★ 1.5.0: 同步把当前角色 settings.json 的 persona/style/emoji/model 应用到 config。
         #   必须在 switch_character（异步 pet 线程）之前完成，否则 pet 线程 reload 后会把
@@ -2135,7 +2141,7 @@ class MainWindow:
         self._reposition_windows()
 
         # 延迟重启监控，避免同步 join 阻塞 UI 30s
-        QTimer.singleShot(200, self.monitor.restart)
+        self._restart_monitor_if_changed()
         _log.info("配置已更新")
 
     def _apply_config_to_ui(self):
@@ -2216,9 +2222,57 @@ class MainWindow:
         """LLM 提供商热切换"""
         switch_provider(provider)
 
+    def _restart_monitor_if_changed(self):
+        """★ 1.9.2（R64）：**只有监控相关设置真的变了才重启监控**。
+
+        真机铁证（logs/prts_20260920_161452.log）：
+            16:15:19 配置已更新（界面此时已显示"保存成功"）
+            ~~~ 空白 3 秒，无任何日志 ~~~
+            16:15:22 监控已停止 ×2 → [keyboard] 键盘监听启动 → 监控启动: 2 个
+        也就是**每次保存设置**都会重启一遍 pynput 键盘监听 + 系统监控，约 3 秒，
+        全程占着 GUI 线程 → 用户点右上角 x 没反应（"关闭设置界面卡 2 秒"）。
+
+        修法：跟上次的快照比，**没变就不重启**；变了才重启并把耗时打进日志。
+        """
+        try:
+            import dataclasses as _dc
+            now = _dc.asdict(self.config.monitor)
+            snap = getattr(self, "_monitor_cfg_snap", None)
+            if snap is None:
+                self._monitor_cfg_snap = now
+                _log.debug("[监控] 首次记录监控配置快照，跳过重启")
+                return
+            changed = sorted(k for k, v in now.items() if snap.get(k) != v)
+            self._monitor_cfg_snap = now
+            if not changed:
+                _log.debug("[监控] 监控设置未变化 → 跳过重启"
+                           "（不再为保存设置卡 2~3 秒）")
+                return
+            if not hasattr(self, "monitor"):
+                return
+            _log.info(f"[监控] 监控设置变化 {changed} → 重启监控")
+            QTimer.singleShot(200, self._do_restart_monitor_timed)
+        except Exception as e:
+            _log.warning(f"[监控] 重启判断失败，按老逻辑重启: {e}")
+            try:
+                QTimer.singleShot(200, self._do_restart_monitor_timed)
+            except Exception:
+                pass
+
+    def _do_restart_monitor_timed(self):
+        """真正重启监控，并打出耗时（好让"到底卡在哪"一眼可见）。"""
+        import time as _time
+        t0 = _time.time()
+        try:
+            self.monitor.restart()
+        except Exception as e:
+            _log.warning(f"[监控] 重启失败: {e}")
+        finally:
+            _log.info(f"[监控] 重启完成，耗时 {(_time.time() - t0) * 1000:.0f} ms")
+
     def _restart_monitor(self):
         if hasattr(self, 'monitor'):
-            QTimer.singleShot(100, self.monitor.restart)
+            self._restart_monitor_if_changed()
 
     # ============ 增强输入监控 ============
 
