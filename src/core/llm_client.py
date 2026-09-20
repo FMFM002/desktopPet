@@ -615,6 +615,24 @@ class ChatClient:
             _log.debug(f"拼装输出/行为控制失败: {e}")
             return ""
 
+    def _progress_prompt_section(self) -> str:
+        """★ 1.9.2（R71，用户设计）：长任务中途汇报一次，别让人干等。
+
+        为什么写在**系统提示词本体**，而不是只写在工具描述里：
+        真机日志证据 —— 模型跑了 **5 轮工具调用**（做一个 PPT）**一次都没调
+        `progress_report`**；16 个工具里某一条描述对它的"注意力"不够，
+        而且我在那条描述里还写了很强的"不要滥用"，反而更容易被跳过。
+        所以在系统提示词里再明确说一次：**长任务至少汇报一次**，短聊不要用。
+        """
+        return ("\n\n## 长任务要报进度（重要）\n"
+                "- 处理复杂任务（要多步工具调用、批量下载、长文档、多轮搜索、画图/转写等"
+                "要等的事）时，**在合适的时候调用 `progress_report` 汇报一次**："
+                "让用户知道你在做什么、大概还要多久，**别让人干等**。"
+                "一个长任务**至少汇报一次**。\n"
+                "- 汇报完**继续把任务做完**，不要因为汇报就收尾或省略后续步骤。\n"
+                "- 日常简短聊天、一两句话能答完的事**不要**用它"
+                "（那会把本来很快的对话拖慢）。\n")
+
     def _build_system_prompt(self) -> str:
         """根据当前配置动态构建系统提示词（包含工具列表）"""
         from src.utils.config import get_config
@@ -641,7 +659,7 @@ class ChatClient:
             prompt = prompt.replace("{emoji}", cfg.emoji_level)
             prompt = prompt.replace("{tools}", tools_text)
             prompt += rules
-            prompt += self._gif_prompt_section() + self._meme_prompt_section()
+            prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
             self._cached_prompt = prompt
             self._cached_prompt_hash = cache_key
             return prompt
@@ -666,7 +684,7 @@ class ChatClient:
             tools_list=tools_text,
         )
         prompt += rules          # ★ 1.9.0: 默认模板分支也要带上输出/行为控制
-        prompt += self._gif_prompt_section() + self._meme_prompt_section()
+        prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
         self._cached_prompt = prompt
         self._cached_prompt_hash = cache_key
         return prompt
