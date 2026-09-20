@@ -100,9 +100,20 @@ def _sandbox_guard(command: str, cwd: str) -> str | None:
     if any(k in low for k in destructive):
         targets.extend(abs_paths)
 
+    # ★★ 1.9.2（R72）：**空设备不是文件**。
+    #   `>nul` / `2>nul`（cmd）、`>/dev/null`（bash）、`>$null`（PowerShell）都是
+    #   "把输出丢掉"，不是"写文件"。以前这里会把 `2>nul` 里的 `nul` 解析成
+    #   `<项目>\nul` → 判定"向只读区写入" → **拒绝**。
+    #   真机后果（日志 prts_20260920_185829.log）：模型在 cmd 里极常用 `2>nul`，
+    #   被拒后不断换写法重试 → 13 轮工具循环 → 全空回复 → "多轮空回复，放弃"
+    #   → 用户看到的是"长任务最后没有任何回复"。
+    _NULL_DEVICES = {"nul", "nul:", "/dev/null", "con", "con:", "prn", "prn:",
+                     "aux", "aux:", "$null", "null"}
     for t in targets:
-        t = t.strip('"')
+        t = t.strip('"').strip()
         if not t:
+            continue
+        if t.lower() in _NULL_DEVICES:
             continue
         if not os.path.isabs(t):
             t = os.path.normpath(os.path.join(cwd or str(PROJECT_ROOT), t))
