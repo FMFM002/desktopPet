@@ -956,6 +956,13 @@ class MainWindow:
             self._save_chat_rounds(self._chat_load_rounds)
             _log.info(f"[聊天历史] 加载上一轮（现在显示 {self._chat_load_rounds} 轮）")
             self._reload_chat_view(keep_position=True)
+            # ★ 1.9.2（R64）：**在聊天里给一句回执** —— 用户反馈"按了看不出来"，
+            #   以后按一次就能看到"现在显示最近 N 轮"，不用靠猜。
+            try:
+                self.chat.append_system_msg(
+                    f"[已加载上一轮：当前显示最近 {self._chat_load_rounds} 轮]")
+            except Exception:
+                pass
         except Exception as e:
             _log.warning(f"[聊天历史] 加载上一轮失败: {e}")
 
@@ -1227,6 +1234,14 @@ class MainWindow:
                     self.chat._append_message("assistant", content)
                 elif role == "system":
                     self.chat.append_system_msg(content)
+            # ★ 1.9.2（R64）：把"这一屏到底渲染了多少条"打出来 ——
+            #   用户报过"加载历史还是把当前话题全加载了"，有这条就能一眼对上：
+            #   渲染条数 = 预算内该有的条数，还是真的把全部塞进去了。
+            try:
+                _log.info(f"[聊天历史] 本轮渲染 {len(msgs)} 条"
+                          f"（口径 {_rounds} 轮；归档名额 {_slots}）")
+            except Exception:
+                pass
             self.chat._history_rendering = False
             self.chat.on_stream_done()
         except Exception as e:
