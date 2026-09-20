@@ -973,6 +973,19 @@ class MainWindow:
         except Exception as e:
             _log.warning(f"[聊天历史] 加载上一轮失败: {e}")
 
+    def _on_progress_report(self, text: str):
+        """★ 1.9.2（R69）：LLM 的临时汇报 → **立刻**显示在聊天窗口（桌宠说的话）。
+
+        ★ 关键设计（用户要求）：这是**临时**回复 ——
+          · 只进聊天窗口给「你」看，**不写进 session.messages**（不进模型上下文、不落库），
+            所以不会污染对话、下一轮也不会重复看到它；
+          · **不结束本轮**：模型调完工具继续干活，汇报只是「说一句」。
+        """
+        try:
+            self.chat._append_message("assistant", text)
+        except Exception as e:
+            _log.warning(f"[临时汇报] 显示失败: {e}")
+
     def _on_user_message(self, text: str):
         _log.info(f"收到用户消息: {text}")
         # ★ 1.9.1: 标记"一轮对话正在进行" —— 后台异步来的东西（比如画好的图）
