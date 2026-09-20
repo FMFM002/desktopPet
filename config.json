@@ -117,6 +117,7 @@
     "meme",
     "office",
     "pixiv",
+    "progress_report",
     "shell_exec",
     "system_command",
     "weather_query",
@@ -137,7 +138,8 @@
     "shell_exec": "lazy",
     "system_command": "lazy",
     "weather_query": "lazy",
-    "web_search": "lazy"
+    "web_search": "lazy",
+    "progress_report": "resident"
   },
   "llm": {
     "provider": "deepseek",

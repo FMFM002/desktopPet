@@ -367,6 +367,13 @@ class MainWindow:
 
     def _setup_chat(self):
         self.chat.send_message.connect(self._on_user_message)
+        # ★ 1.9.2（R69，用户设计）：把 LLM 的「临时汇报」通道接到聊天窗口
+        #   （工具侧见 tools/progress_report_tool.py + src/core/progress_bus.py）
+        try:
+            from src.core import progress_bus as _pb
+            _pb.set_sink(self._on_progress_report)
+        except Exception as _e:
+            _log.debug(f"[临时汇报] 通道注册失败: {_e}")
         # ★ 1.9.2（R60，用户要求）：聊天窗口右上角那个按钮 → "加载上一轮历史"
         try:
             self.chat.load_more_cb = self._load_more_history
@@ -991,6 +998,12 @@ class MainWindow:
         #     "新一轮开始时清空附件去重集合"，插在它前面会把那条打挂（踩过一次）。
         #   ★ 时机注意：ChatWidget 是先渲染这条用户消息、再发 send_message，
         #     所以清屏必须"保留最后一条"（clear_before_last_user_message）。
+        # ★ 1.9.2（R69）：新一轮开始时清掉上一轮排队的临时汇报
+        try:
+            from src.core import progress_bus as _pb2
+            _pb2.reset_turn()
+        except Exception:
+            pass
         try:
             self.chat.clear_before_last_user_message()
         except Exception as _e:
