@@ -371,7 +371,12 @@ class MainWindow:
         #   （工具侧见 tools/progress_report_tool.py + src/core/progress_bus.py）
         try:
             from src.core import progress_bus as _pb
-            _pb.set_sink(self._on_progress_report)
+            # ★★ 1.9.2（R75）：工具是后台线程跑的，**绝不能在它里面碰 Qt 控件**
+            #   （真机 19:40:56 执行 progress_report 时就是这么硬崩的，没有 Python 栈）。
+            #   这里复用 ChatWidget 已有的线程安全信号 `bot_text_in`
+            #   —— 它的槽就是 `_append_message("assistant", t)`，正好是我们要的效果，
+            #   而且 emit 跨线程会把槽排到 GUI 线程执行。
+            _pb.set_sink(lambda t: self.chat.bot_text_in.emit(t))
         except Exception as _e:
             _log.debug(f"[临时汇报] 通道注册失败: {_e}")
         # ★ 1.9.2（R60，用户要求）：聊天窗口右上角那个按钮 → "加载上一轮历史"
@@ -982,6 +987,12 @@ class MainWindow:
           · **不结束本轮**：模型调完工具继续干活，汇报只是「说一句」。
         """
         try:
+            from PySide6.QtCore import QThread
+            from PySide6.QtWidgets import QApplication as _QApp
+            _app = _QApp.instance()
+            if _app is not None and QThread.currentThread() is not _app.thread():
+                _log.warning("[临时汇报] 不在 GUI 线程，丢弃这条以免崩溃")
+                return
             self.chat._append_message("assistant", text)
         except Exception as e:
             _log.warning(f"[临时汇报] 显示失败: {e}")
