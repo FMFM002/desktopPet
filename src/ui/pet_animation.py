@@ -37,7 +37,8 @@ class _MsgHdr(_ctypes.Structure):
     _fields_ = [("hwnd", _ctypes.c_void_p), ("message", _ctypes.c_uint)]
 
 
-_MSG_HDR_PTR = _ctypes.POINTER(_MsgHdr)      # ★ 只建一次，之后反复 cast 复用它
+_MSG_HDR_PTR = _ctypes.POINTER(_MsgHdr)
+_NATIVE_ERR_LOGGED = False    # ★ R73：nativeEvent 失败只报一次，防止刷屏      # ★ 只建一次，之后反复 cast 复用它
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -481,7 +482,7 @@ class PetAnimationWidget(QWidget):
         try:
             addr = message if isinstance(message, int) else int(message)
             if addr:
-                m = ctypes.cast(addr, _MSG_HDR_PTR).contents
+                m = _ctypes.cast(addr, _MSG_HDR_PTR).contents
                 if m.message in (0x007E, 0x02E0, 0x031E):
                     self._heal_pending = True
                     self._heal_reason = {
@@ -490,7 +491,13 @@ class PetAnimationWidget(QWidget):
                         0x031E: "WM_DWMCOMPOSITIONCHANGED",
                     }.get(m.message, "系统消息")
         except Exception as e:
-            _log.debug(f"nativeEvent 解析失败: {e}")
+            # ★ 1.9.2（R73）：**只报一次**。这条原本是 debug，但 nativeEvent 是
+            #   超热路径（每条 Windows 消息都走），一旦真的出错就会**每秒刷几千行**、
+            #   把日志刷到几 MB，并且让主进程卡死/崩溃（真机 2026-09-20 就是这么崩的）。
+            global _NATIVE_ERR_LOGGED
+            if not _NATIVE_ERR_LOGGED:
+                _NATIVE_ERR_LOGGED = True
+                _log.warning(f"nativeEvent 解析失败（只报这一次）: {e}")
         # ★ PySide6 要求返回 (handled, result) 的元组；False = 这条消息我们没吃
         return False, 0
 

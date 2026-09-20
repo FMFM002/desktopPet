@@ -186,8 +186,23 @@ def run_pet_process(conn: Connection):
         #   以前会直接冒到 Qt 定时器回调 → 未捕获 → **形象子进程整个崩掉**
         #   （我那条 int(windowState()) 就是这么把形象打死的）。
         #   现在最坏情况只是这条命令失败，进程活着、下一帧继续。
+        # ★★ 1.9.2（R73）：**管道断了必须停下来**。
+        #   主进程没了 → `conn.poll()` 抛 BrokenPipeError → 以前这里只"兜住、下一帧继续"
+        #   → 每秒几千次失败 → 日志被刷到 6MB+、子进程 100% CPU 空转、**永不退出**
+        #   （真机 2026-09-20 19:09 就是这么挂的：用户等 10 秒也恢复不了）。
+        #   现在：只报一次，然后直接退出这个子进程（父进程都没了，留着也没意义）。
+        if getattr(_check_commands, "_dead", False):
+            return
         try:
             _check_commands_inner()
+        except (BrokenPipeError, EOFError) as _e:
+            _check_commands._dead = True
+            _log.warning(f"[形象] 与主进程的管道已断 → 停止轮询并退出: {_e}")
+            try:
+                QApplication.quit()
+            except Exception:
+                pass
+            return
         except Exception as _e:
             _log.error(f"[形象] 处理命令时出错（已兜住，进程继续）: {_e}", exc_info=True)
 
