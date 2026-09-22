@@ -878,6 +878,183 @@ check("★★main.py 开了 faulthandler 且写独立文件（下次硬崩溃能
 check("★注册了 SIGABRT/SIGSEGV 等信号的 dump", "SIGABRT" in _mn)
 check("★all_threads=True（崩溃时能看到所有线程）", "all_threads=True" in _mn)
 
+# ══════════════════════════════════════════════════════════════
+head("H. ★ 1.9.3 prepend 模式：加载历史不再销毁思考面板")
+#
+# 用户 R68 原话："重画历史为什么要清理聊天记录？不是直接读取上一轮消息，
+#                然后加载到上面吗？先讨论。"
+# 老实现 = clear_chat() + 从头重画 → 文档一清，挂在文档锚点上的思考面板
+# **全被销毁** → 用户真机看到的"子窗口刚开始完全不显示、后面又突然显示、
+# 位置异常（覆盖在两张图之间）"。
+# 本节钉死四件事：
+#   ① 更早的消息插到**上面**且顺序正确；② 面板与锚点都活着、跟着下移；
+#   ③ 位置登记（气泡区间 / 最后一条用户消息）整体后移；
+#   ④ 主窗口的 prepend 判定：能插才插，插不了必须回退（不许错序）。
+import threading as _threading                                    # noqa: E402
+from src.ui.main_window import MainWindow as _MW                  # noqa: E402
+
+
+def _new_cw8(w=420, h=640):
+    c = ChatWidget()
+    c.resize(w, h)
+    c.show()
+    for _ in range(6):
+        app.processEvents()
+    return c
+
+
+_cw8 = _new_cw8()
+_cw8._append_message("user", "第一轮-用户")
+_cw8._append_message("assistant", "第一轮-回复")
+for _ in range(4):
+    app.processEvents()
+# ★ 面板要建在**当前轮**里 —— 因为"发言即清屏"会把当前用户消息之前的内容
+#   整段切掉，建在上一轮里的面板锚点会跟着被切走（那是应有行为）。
+_cw8._append_message("user", "当前轮-用户")
+_cw8.think_write("当前轮的思考", "think")
+for _ in range(4):
+    app.processEvents()
+check("H0 前置：思考面板已建立", _cw8.think_panel_count() == 1,
+      str(_cw8.think_panel_count()))
+_panel8 = _cw8._think_panels[0]["panel"]
+_key8 = _cw8._think_panels[0]["key"]
+_cw8._append_message("assistant", "当前轮-回复")
+for _ in range(4):
+    app.processEvents()
+
+# 模拟"发言即清屏"：切掉当前用户消息之前的内容
+_cw8.clear_before_last_user_message()
+for _ in range(4):
+    app.processEvents()
+_txt8a = _cw8._chat_display.document().toPlainText()
+check("H1 发言清屏后只剩当前轮", "第一轮-用户" not in _txt8a
+      and "当前轮-用户" in _txt8a, repr(_txt8a[-50:]))
+check("H2 ★★ 发言清屏**不销毁**思考面板（老 bug：clear_chat 会全杀）",
+      _cw8._alive(_panel8) and _cw8.think_panel_count() == 1)
+
+_doc8 = _cw8._chat_display.document()
+_count8_before = int(_doc8.characterCount())
+_user8_before = int(_cw8._last_user_start)
+_blk8_before = _cw8._find_think_block(_key8).blockNumber()
+# 造一条"已登记的气泡区间"来验证整体后移（offscreen 下默认配色多为透明，
+# 不登记，所以这里手工注入一条，专测位移逻辑）
+_cw8._chat_display.bubble_spans.append(
+    {"start": _user8_before, "end": _user8_before + 3,
+     "role": "user", "color": "#dddddd"})
+_span8_start_before = int(_cw8._chat_display.bubble_spans[-1]["start"])
+
+_delta8 = _cw8.prepend_messages([
+    {"role": "user", "content": "更早-用户"},
+    {"role": "assistant", "content": "更早-回复"},
+])
+for _ in range(6):
+    app.processEvents()
+_txt8 = _doc8.toPlainText()
+
+check("H3 ★核心：更早的消息插在文档**上面**（不清空、不重画）",
+      _txt8.find("更早-用户") >= 0 and _txt8.find("更早-用户") < _txt8.find("当前轮-用户")
+      and _txt8.find("更早-回复") < _txt8.find("当前轮-用户"), repr(_txt8[:60]))
+check("H4 ★核心：插入顺序正确（用户在上、回复在下）",
+      _txt8.find("更早-用户") < _txt8.find("更早-回复"), repr(_txt8[:60]))
+check("H5 prepend 返回位移 > 0", _delta8 > 0, str(_delta8))
+check("H6 位移 == 文档字符增量",
+      int(_doc8.characterCount()) - _count8_before == _delta8,
+      f"{int(_doc8.characterCount()) - _count8_before} vs {_delta8}")
+check("H7 ★★ 思考面板没被销毁", _cw8._alive(_panel8) and _cw8.think_panel_count() == 1)
+check("H8 ★★ 面板锚点仍然有效", _cw8._find_think_block(_key8).isValid())
+check("H9 ★★ 锚点随内容整体下移（block 序号变大）",
+      _cw8._find_think_block(_key8).blockNumber() > _blk8_before,
+      f"{_blk8_before} → {_cw8._find_think_block(_key8).blockNumber()}")
+check("H10 ★★ 已登记的气泡区间整体后移 delta",
+      int(_cw8._chat_display.bubble_spans[-1]["start"]) == _span8_start_before + _delta8,
+      f"{_span8_start_before} → "
+      f"{int(_cw8._chat_display.bubble_spans[-1]['start'])}")
+check("H11 ★★ 最后一条用户消息的位置也跟着后移（发言清屏的切点不能错）",
+      int(_cw8._last_user_start) == _user8_before + _delta8,
+      f"{_user8_before} → {_cw8._last_user_start}")
+
+# 有"当前话题"分割线时：更早的内容要插在**分割线下面**，不能插到它上面
+_cw9 = _new_cw8()
+_cw9.append_topic_divider("当前话题", topic_id="CUR")
+_cw9._append_message("user", "CUR-用户")
+for _ in range(4):
+    app.processEvents()
+_d9 = _cw9.prepend_messages([{"role": "user", "content": "OLDER-用户"}])
+for _ in range(4):
+    app.processEvents()
+_txt9 = _cw9._chat_display.document().toPlainText()
+check("H12 ★分割线仍在其上方（else 会插到它上面，顺序就乱了）",
+      _d9 > 0 and 0 <= _txt9.find("当前话题") < _txt9.find("OLDER-用户"),
+      repr(_txt9[:80]))
+check("H13 分割线的位置登记在文档清空后失效",
+      (_cw9.clear_chat() or _cw9._topic_divider_end == -1))
+
+# ══ 主窗口侧的 prepend 判定（用桩对象直接调真函数）══
+class _StubMW:
+    def __init__(self, msgs, chat, rounds=1, archived=False):
+        class _S:
+            pass
+        self.session = _S()
+        self.session.messages = msgs
+        self.session._lock = _threading.Lock()
+        self.chat = chat
+        self._chat_load_rounds = rounds
+        self._chat_archived_rendered = archived
+
+    def _save_chat_rounds(self, n):
+        pass
+
+    def _current_topic_tail(self, rounds):
+        # 桩不是 MainWindow 实例，方法要显式转发到真实现
+        return _MW._current_topic_tail(self, rounds)
+
+
+def _msgs(*pairs):
+    return [{"role": r, "content": c} for r, c in pairs]
+
+
+_MSGS = _msgs(("user", "u1"), ("assistant", "a1"),
+              ("user", "u2"), ("assistant", "a2"),
+              ("user", "u3"), ("assistant", "a3"))
+
+_stub_keep = _StubMW(_MSGS, _new_cw8())
+_keep_a, _start_a = _MW._current_topic_tail(_stub_keep, 1)
+_keep_b, _start_b = _MW._current_topic_tail(_stub_keep, 2)
+check("H14 轮数口径以用户消息为界（1 轮→从 u3 起；2 轮→从 u2 起）",
+      _keep_a[_start_a].get("content") == "u3"
+      and _keep_b[_start_b].get("content") == "u2",
+      f"{_keep_a[_start_a].get('content')} / {_keep_b[_start_b].get('content')}")
+
+_cw10 = _new_cw8()
+_cw10._append_message("user", "u3")
+_cw10._append_message("assistant", "a3")
+for _ in range(4):
+    app.processEvents()
+_stub_ok = _StubMW(_MSGS, _cw10, rounds=1)
+_ok10 = _MW._try_prepend_history_round(_stub_ok)
+_txt10 = _cw10._chat_display.document().toPlainText()
+check("H15 ★★ 主窗口判定：能插 → 插上一轮并 +1 轮",
+      _ok10 is True and _stub_ok._chat_load_rounds == 2, str(_ok10))
+check("H16 ★★ 插进去的正好是上一轮（u2/a2），当前轮 u3 仍在",
+      "u2" in _txt10 and "a2" in _txt10 and "u3" in _txt10
+      and _txt10.find("u2") < _txt10.find("u3"), repr(_txt10[:60]))
+_cw11 = _new_cw8()
+_cw11._append_message("user", "u3")
+_stub_arch = _StubMW(_MSGS, _cw11, rounds=1, archived=True)
+check("H17 ★顶上有归档段 → 不 prepend，回退整段重画（宁可慢不能错序）",
+      _MW._try_prepend_history_round(_stub_arch) is False)
+_cw12 = _new_cw8()
+_cw12._append_message("user", "u1")
+_stub_none = _StubMW(_MSGS[:2], _cw12, rounds=1)
+check("H18 当前话题没有更早的轮 → 回退整段重画",
+      _MW._try_prepend_history_round(_stub_none) is False)
+
+for _c in (_cw8, _cw9, _cw10, _cw11, _cw12):
+    try:
+        _c.close()
+    except Exception:
+        pass
+
 print("\n" + "=" * 60)
 print(f"★ 1.9.2 任务4 思考/系统信息子窗口：{PASS} PASS / {FAIL} FAIL")
 for f in FAILS:

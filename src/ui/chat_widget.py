@@ -414,6 +414,11 @@ class ChatWidget(QWidget):
         self._last_role = ""
         self._stream_start = 0
         self._stream_span = None      # ★ 1.9.0: 流式气泡的区间登记（自绘圆角用）
+        # ★ 1.9.3: 最后一个话题分割线在文档里的**结束位置**（-1 = 当前没有）。
+        #   `prepend_messages` 要把更早的内容插在它**下面** —— 否则内容会跑到
+        #   "当前话题"分割线的上面，顺序就乱了（文档开头那句分割线会被压到中间）。
+        #   由 `append_topic_divider` 记录，`clear_chat` / 发言清屏 会复位。
+        self._topic_divider_end = -1
         # ★ 1.9.0: 剪贴板粘贴的图片（key → QImage）。**只在内存里**：
         #   正文里放 [[CLIP:key|名字|尺寸]] 标记指向它，重启后像素没了，
         #   重画会显示占位提示（文字描述仍保留在历史里）。
@@ -1710,6 +1715,133 @@ class ChatWidget(QWidget):
         #     self._note_round_start(_start)
         # self._unload_old_rounds()
 
+    def prepend_messages(self, items: list) -> int:
+        """★ 1.9.3（用户 R68）：把更早的几条消息**插到文档开头**，不清空重画。
+
+        返回插入的字符数（0 = 什么都没插）。
+
+        为什么要有它（用户原话："重画历史为什么要清理聊天记录？不是直接读取上一轮
+        消息，然后加载到上面吗？"）：
+          "↑ 历史"以前是 `clear_chat()` + 从头重画整段历史。文档一清，**挂在文档
+          锚点上的思考面板就全被销毁** → 用户真机报的"子窗口刚开始完全不显示、
+          后面又突然显示、位置异常（覆盖在两张图之间）"。
+          改成"往上插"之后：
+            · 已有内容**一个字符都不动** → 当前轮的思考面板不会被销毁；
+            · 已解码的图片不重来，快得多；
+            · 不会再出现"重画之后位置乱"。
+
+        必须一起处理的副作用（漏一个必错位）：
+          ① 插入点**之后**的 bubble_spans 整体后移 delta（之前的归档段不动）；
+          ② 插入点之后的 `_stream_span` / `_last_user_start` 后移 delta；
+          ③ 思考面板按 block 定位，会自动跟着下移 → 插完重定位一次；
+          ④ 滚动位置：把"因插入而多出来的可滚高度"补回当前值，视线不跳。
+
+        插入点：有"当前话题"分割线时插在**它下面**（`_topic_divider_end`），
+        没有（发言清屏之后）就插在文档最开头。
+        """
+        if not items:
+            return 0
+        try:
+            doc = self._chat_display.document()
+            sb = self._chat_display.verticalScrollBar()
+            old_val = int(sb.value())
+            old_max = int(sb.maximum())
+            old_count = int(doc.characterCount())
+
+            insert_at = 0
+            try:
+                _de = int(getattr(self, "_topic_divider_end", -1))
+                if 0 <= _de <= old_count:
+                    insert_at = _de
+            except Exception:
+                insert_at = 0
+
+            base_spans = [dict(s) for s in
+                          (getattr(self._chat_display, "bubble_spans", None) or [])]
+            base_stream = (dict(self._stream_span)
+                           if getattr(self, "_stream_span", None) else None)
+            base_user = int(getattr(self, "_last_user_start", 0) or 0)
+
+            cur = QTextCursor(doc)
+            cur.setPosition(max(0, min(insert_at, old_count - 1)))
+            new_spans = []
+            for it in items:
+                it = it or {}
+                role = it.get("role")
+                if role == "divider":
+                    cur.insertHtml(self._divider_html(it.get("label", "")))
+                    continue
+                if role not in ("user", "assistant"):
+                    continue
+                _start = int(cur.position())
+                cur.insertHtml(self._render_message_html(
+                    role, it.get("content") or ""))
+                _end = int(cur.position())
+                if _end > _start:
+                    try:
+                        _color = self._bubble_color_for(role)
+                        if not self._is_transparent(_color):
+                            new_spans.append({"start": _start, "end": _end,
+                                              "role": role, "color": _color})
+                    except Exception:
+                        pass
+
+            delta = int(doc.characterCount()) - old_count
+            if delta <= 0:
+                _log.warning("[聊天历史] prepend 没有产生位移，按失败处理")
+                return 0
+
+            # ①② 插入点之后的位置整体后移（插入点之前的归档内容不受影响）
+            shifted = []
+            for s in base_spans:
+                s = dict(s)
+                try:
+                    if int(s.get("start", 0)) >= insert_at:
+                        s["start"] = int(s.get("start", 0)) + delta
+                        s["end"] = int(s.get("end", 0)) + delta
+                except Exception:
+                    pass
+                shifted.append(s)
+            try:
+                self._chat_display.bubble_spans = sorted(
+                    new_spans + shifted, key=lambda x: int(x.get("start", 0)))
+            except Exception as _e:
+                _log.debug(f"[聊天历史] prepend 重排气泡区间失败: {_e}")
+            if base_stream is not None:
+                try:
+                    if int(base_stream.get("start", 0)) >= insert_at:
+                        base_stream["start"] = int(base_stream.get("start", 0)) + delta
+                        base_stream["end"] = int(base_stream.get("end", 0)) + delta
+                except Exception:
+                    pass
+                self._stream_span = base_stream
+            if base_user >= insert_at and base_user > 0:
+                self._last_user_start = base_user + delta
+
+            self._chat_display.moveCursor(QTextCursor.End)
+
+            # ③④ 等布局落定再补偿（插入完立刻读 maximum 可能还没更新）
+            def _after_prepend():
+                try:
+                    sb2 = self._chat_display.verticalScrollBar()
+                    add = max(0, int(sb2.maximum()) - old_max)
+                    sb2.setValue(max(0, old_val + add))
+                except Exception:
+                    pass
+                try:
+                    self._sync_think_anchor()
+                    self._reposition_think_panels()
+                except Exception:
+                    pass
+
+            QTimer.singleShot(0, _after_prepend)
+            _log.info(f"[聊天历史] prepend {len(items)} 条（+{delta} 字符，"
+                      f"插入点 {insert_at}）—— 已有内容与思考面板都不销毁")
+            return delta
+        except Exception as e:
+            _log.warning(f"[聊天历史] prepend 失败: {e}")
+            return 0
+
     def _note_round_start(self, pos: int):
         marks = getattr(self, "_round_marks", None)
         if marks is None:
@@ -1778,6 +1910,13 @@ class ChatWidget(QWidget):
             if getattr(self, "_stream_span", None):
                 self._stream_span["start"] = max(0, self._stream_span["start"] - cut)
                 self._stream_span["end"] = max(0, self._stream_span["end"] - cut)
+            # ★ 1.9.3：切掉的是文档最前面那一段 —— 分割线（如果有）也在里面，
+            #   所以它的位置要么跟着左移，要么直接失效。
+            try:
+                _de = int(getattr(self, "_topic_divider_end", -1))
+                self._topic_divider_end = (_de - cut) if _de > cut else -1
+            except Exception:
+                self._topic_divider_end = -1
             _log.debug(f"[分段加载] 发言清屏：切掉前面 {cut} 个字符，只留刚发的这条")
         except Exception as e:
             _log.debug(f"[分段加载] 发言清屏失败: {e}")
@@ -2451,6 +2590,14 @@ class ChatWidget(QWidget):
             _log.warning(f"图片预览失败: {e}")
             self.append_system_msg(f"[图片预览失败: {path.name}]")
 
+    def _divider_html(self, label: str = "") -> str:
+        """话题分割线的 HTML（`append_topic_divider` 与 `prepend_messages` 共用）。"""
+        marks = "#" * 28
+        shown = self._truncate(label, 24) if label else ""
+        body = f"{marks}  {shown}  {marks}" if shown else marks
+        return (f'<div style="margin:10px 0; text-align:center; color:#c0c0cc; '
+                f'font-size:10px; letter-spacing:1px;">{body}</div>')
+
     def append_topic_divider(self, label: str = "", topic_id=0):
         """话题分割线（一排 #），返回插入位置。
 
@@ -2458,15 +2605,16 @@ class ChatWidget(QWidget):
         定位。书签删了 → 标记也一起去掉（留着只会白占文档长度）。
         `topic_id` 参数保留，因为主窗口还在按话题传（将来想恢复跳转不用改调用方）。
         """
-        marks = "#" * 28
-        shown = self._truncate(label, 24) if label else ""
-        body = f"{marks}  {shown}  {marks}" if shown else marks
         self._chat_display.moveCursor(QTextCursor.End)
         pos = self._chat_display.textCursor().position()
-        self._chat_display.insertHtml(
-            f'<div style="margin:10px 0; text-align:center; color:#c0c0cc; '
-            f'font-size:10px; letter-spacing:1px;">{body}</div>')
+        self._chat_display.insertHtml(self._divider_html(label))
         self._chat_display.moveCursor(QTextCursor.End)
+        # ★ 1.9.3：记下分割线的**结束位置**（此刻它就是文档末尾）——
+        #   prepend 要把更早的内容插在分割线下面，不能插到它上面。
+        try:
+            self._topic_divider_end = int(self._chat_display.textCursor().position())
+        except Exception:
+            self._topic_divider_end = -1
         sb = self._chat_display.verticalScrollBar()
         sb.setValue(sb.maximum())
         return pos
@@ -2728,6 +2876,8 @@ class ChatWidget(QWidget):
         self._last_role = ""
         self._stream_start = 0
         self._stream_span = None
+        # ★ 1.9.3：文档清空 → 分割线位置也失效（prepend 会回落到"插在开头"）
+        self._topic_divider_end = -1
         # ★ 1.9.2（用户任务 4）：清空聊天时，思考面板的占位图也跟着没了
         #   （_chat_display.clear() 会把文档清掉）→ 全部安全销毁并复位，
         #   下次 think_write 会重新插占位图（每轮一个）。

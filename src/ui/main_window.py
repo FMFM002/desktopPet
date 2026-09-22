@@ -961,12 +961,84 @@ class MainWindow:
         except Exception as e:
             _log.debug(f"[聊天历史] 存显示轮数失败: {e}")
 
-    def _load_more_history(self):
-        """★ 1.9.2（R60，用户要求）：聊天窗口右上角按钮 —— **按一次加载上一轮**。"""
+    def _current_topic_tail(self, rounds: int):
+        """★ 1.9.3：按 `_reload_chat_view` **同一口径**取"当前话题最后 rounds 轮"。
+
+        返回 `(keep, start)`：`keep` 是过滤后的消息列表（非空内容 + user/assistant/
+        system），`start` 是"最后 rounds 轮"在 `keep` 里的起始下标
+        （轮 = 以**用户消息**为界，与主视图一致）。
+        """
+        with self.session._lock:
+            cur_all = [dict(m) for m in self.session.messages]
+        keep = [m for m in cur_all
+                if (m.get("content") or "").strip()
+                and m.get("role") in ("user", "assistant", "system")]
+        u_idx = [i for i, m in enumerate(keep) if m.get("role") == "user"]
+        start = u_idx[-rounds] if len(u_idx) > rounds else 0
+        return keep, start
+
+    def _try_prepend_history_round(self) -> bool:
+        """★ 1.9.3（用户 R68）：能"往上插"就插，插不了返回 False 让调用方重画。
+
+        为什么要"往上插"：老实现是 `clear_chat()` + 从头重画整段历史，文档一清，
+        挂在文档锚点上的**思考面板全被销毁** → 用户真机报的"子窗口刚开始完全
+        不显示、后面又突然显示、位置异常（覆盖在两张图之间）"。
+        往上插不动已有内容，面板自然保住，视线也不用重算。
+
+        什么时候**不能**插（一律回退到整段重画，宁可慢也不能错序）：
+          · 文档顶上还压着"归档话题"段 —— 插在它上面会把顺序弄反；
+          · 当前话题已经没有更早的轮可插（`start` 没往前走）。
+        """
         try:
+            if getattr(self, "_chat_archived_rendered", False):
+                _log.debug("[聊天历史] 顶上有归档段 → 回退整段重画")
+                return False
+            n_old = max(1, int(getattr(self, "_chat_load_rounds", 1)))
+            n_new = n_old + 1
+            keep, start_old = self._current_topic_tail(n_old)
+            _, start_new = self._current_topic_tail(n_new)
+            if start_new >= start_old:
+                _log.debug("[聊天历史] 当前话题没有更早的轮可插 → 回退整段重画")
+                return False
+            older = keep[start_new:start_old]
+            items = []
+            for m in older:
+                role = m.get("role")
+                if role in ("user", "assistant"):
+                    items.append({"role": role, "content": m.get("content") or ""})
+                # system 行按既有设计不进视图（也不该为它造子窗口）
+            if not items:
+                return False
+            if self.chat.prepend_messages(items) <= 0:
+                return False
+            self._chat_load_rounds = n_new
+            self._save_chat_rounds(n_new)
+            _log.info(f"[聊天历史] prepend 上一轮成功（现在 {n_new} 轮，"
+                      f"插入 {len(items)} 条）—— 未清屏、面板未销毁")
+            return True
+        except Exception as e:
+            _log.debug(f"[聊天历史] prepend 判定失败，回退重画: {e}")
+            return False
+
+    def _load_more_history(self):
+        """★ 1.9.2（R60，用户要求）：聊天窗口右上角按钮 —— **按一次加载上一轮**。
+
+        ★ 1.9.3（R68 的落点）：优先走 **prepend**（把上一轮插到文档开头，
+        不清空重画）—— 这样当前轮的思考子窗口不会被销毁、位置也不会乱。
+        只有在"顶上有归档段"或"没有更早的轮"时才回退到老的整段重画。
+        """
+        try:
+            if self._try_prepend_history_round():
+                n = int(getattr(self, "_chat_load_rounds", 1))
+                _log.info(f"[聊天历史] 加载上一轮（现在显示 {n} 轮，prepend）")
+                self.chat.append_system_msg(
+                    f"[已加载上一轮：当前显示最近 {n} 轮]")
+                return
+            # 回退：整段重画（会销毁并重建思考面板，但顺序一定正确）
             self._chat_load_rounds = int(getattr(self, "_chat_load_rounds", 1)) + 1
             self._save_chat_rounds(self._chat_load_rounds)
-            _log.info(f"[聊天历史] 加载上一轮（现在显示 {self._chat_load_rounds} 轮）")
+            _log.info(f"[聊天历史] 加载上一轮（现在显示 {self._chat_load_rounds} 轮，"
+                      f"整段重画）")
             self._reload_chat_view(keep_position=True)
             # ★ 1.9.2（R64）：**在聊天里给一句回执** —— 用户反馈"按了看不出来"，
             #   以后按一次就能看到"现在显示最近 N 轮"，不用靠猜。
@@ -1030,6 +1102,9 @@ class MainWindow:
             pass
         try:
             self.chat.clear_before_last_user_message()
+            # ★ 1.9.3：发言清屏会把"归档段 + 当前话题分割线"一起切掉，
+            #   所以 prepend 的"顶上有归档段"判断必须跟着复位。
+            self._chat_archived_rendered = False
         except Exception as _e:
             _log.debug(f"[分段加载] 发言清屏跳过: {_e}")
         # ★ 1.9.2（R66，用户澄清："用户消息到下一条用户消息之前为一轮"）：
@@ -1213,6 +1288,9 @@ class MainWindow:
                 _cur_shown = len(_cur_keep) - _u_idx0[-_rounds0]
             _slots = max(0, _rounds0 * 2 - _cur_shown)   # 归档话题只吃剩下的名额
             _skipped_sys = 0   # 历史渲染时跳过的 system 行数（它们不该造思考子窗口）
+            # ★ 1.9.3：这一段到底有没有渲染"归档话题"内容 —— prepend 时要用它判断
+            #   文档顶上是不是还压着归档段（压着就不能往上插，否则顺序会乱）。
+            self._chat_archived_rendered = False
             self.chat._history_rendering = True
             try:
                 # ★ 1.9.2（R61，用户："点加载历史把该话题全部上下文都加载进来了"）：
@@ -1232,6 +1310,7 @@ class MainWindow:
                         continue
                     first = (msgs[0].get("content") or "").strip().replace("\n", " ")
                     self.chat.append_topic_divider(first, topic_id=t.get("id"))
+                    self._chat_archived_rendered = True
                     for m in msgs:
                         content = m.get("content") or ""
                         if m.get("role") == "user":
