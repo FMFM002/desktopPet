@@ -39,6 +39,19 @@ os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
 os.environ.setdefault("DEEPSEEK_API_KEY", "test")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _doc(name: str):
+    """★ 1.9.3（第 3 轮）：这两个文档**可能在根目录，也可能被"清理脚本"移进 临时文件/**。
+
+    这条断言来回红过两次（被搬走→红、搬回来→绿，来回拉锯）。治本做法是让测试
+    对两种摆放都成立 —— 测试不该依赖"用户/脚本恰好把文档放在哪"。
+    """
+    for _c in (ROOT / name, ROOT / "临时文件" / name):
+        if _c.exists():
+            return _c
+    return ROOT / name
+
 sys.path.insert(0, str(ROOT))
 
 import src.core.database as _dbmod  # noqa: E402
@@ -1782,7 +1795,7 @@ check("★主窗口把主动说话接进会话（idle_trigger 信号回主线程
 
 print("\n== ★tools功能.txt（你说的「写一份 tools 功能说明」）==")
 
-_tf = ROOT / "tools功能.txt"
+_tf = _doc("tools功能.txt")
 check("★说明书存在且覆盖全部工具",
       _tf.exists() and all(f"■ {n}" in _tf.read_text(encoding="utf-8")
                            for n in ("web_search", "download", "bilibili_video",
@@ -2382,7 +2395,7 @@ check("★输出控制 / 行为控制两组仍在（你说其他都 ok）",
       and "_pet_gif_reaction" in _sw_src2)
 
 print("\n== ★UI 演示文件（你说先做 html 演示）==")
-_ui_html = ROOT / "UI演示-工具设置.html"
+_ui_html = _doc("UI演示-工具设置.html")
 check("★工具设置页的 HTML 提案已生成",
       _ui_html.exists() and "工具设置" in _ui_html.read_text(encoding="utf-8"))
 _ui_txt = _ui_html.read_text(encoding="utf-8") if _ui_html.exists() else ""
