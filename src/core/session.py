@@ -993,6 +993,24 @@ class ChatSession:
         while round_count < self.MAX_ROUNDS and not self._abort_chat:
             round_count += 1
             _log.debug(f"第 {round_count} 轮对话")
+            # ★★ 1.9.3（第 3 轮批注 2）：**每轮工具调用结束后，由代码兜底发一句进度**。
+            #   为什么不由模型发：实测（09-22 三次运行）模型主动调 `progress_report`
+            #   的次数是 0/0/0，有一次整整 2 分钟没吐一个字（用户还发了个"？"）
+            #   → 按批注 2 改成代码兜底，不依赖模型自觉。
+            #   位置说明：这里"新一轮开始"= 上一轮的工具调用已经跑完，正是批注说的时机。
+            #   限流 20 秒一条，避免长任务里把聊天窗口刷屏。
+            if round_count > 1:
+                try:
+                    import time as _t_prog
+                    from src.core import progress_bus as _pb_prog
+                    _now_prog = _t_prog.time()
+                    if _now_prog - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
+                        self._last_progress_at = _now_prog
+                        _pb_prog.report(
+                            f"还在处理中：已经跑了 {round_count} 轮工具调用，我继续弄～")
+                        _log.info(f"[进度兜底] 已发第 {round_count} 轮后的进度汇报")
+                except Exception as _e_prog:
+                    _log.debug(f"[进度兜底] 汇报失败: {_e_prog}")
 
             try:
                 with self._lock:
