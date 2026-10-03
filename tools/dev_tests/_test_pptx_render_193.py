@@ -224,6 +224,21 @@ check("★工具描述也不再自称「优先用它、不要自己写脚本」"
       "**做 PPT 优先用它，不要自己写脚本**" not in P.TOOL_DESCRIPTION
       and "自己写 python-pptx 脚本更好" in P.TOOL_DESCRIPTION)
 
+print("\n== F. ★1.9.3 第 29 轮：COM 释放顺序（否则每次 render 都往 faulthandler 写崩溃 dump）==")
+# 真机证据 `logs/main_faulthandler.log`：每次 render 都多一段
+#   `Windows fatal exception: code 0x80010108`（RPC_E_DISCONNECTED），
+#   当前线程正停在 `pythoncom.CoUninitialize()` —— 四次 render，四段 dump。
+# 原因：pywin32 的 COM 指针随 Python 对象 GC 才释放，而 CoUninitialize 会先把
+#   本线程的 COM 套间拆掉 → 那些还活着的对象随后释放就报"已断开"。
+_src_pt = (ROOT / "tools" / "pptx_tool.py").read_text(encoding="utf-8")
+_i_uninit = _src_pt.index("pythoncom.CoUninitialize()")
+_i_drop = _src_pt.index("pres = None")
+check("★丢掉 COM 引用（pres/app = None + gc）必须排在 CoUninitialize **之前**",
+      _i_drop < _i_uninit, f"drop={_i_drop} uninit={_i_uninit}")
+check("★注释里记着真机证据（0x80010108）", "0x80010108" in _src_pt)
+check("★依然会 CoUninitialize（不能因为怕出错就不收尾）",
+      "pythoncom.CoUninitialize()" in _src_pt)
+
 
 def _powerpnt_alive():
     try:

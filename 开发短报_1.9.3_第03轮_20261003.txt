@@ -672,3 +672,51 @@ compileall 0；**全量回归 48 套件 FAIL=0**。
 
 **下次验收**：再让它做一份 PPT，看它**是不是用 `pptx action=render`**、
 以及 render 之后**有没有 view 那张总览图**。
+
+
+---
+
+## 1.9.3 第 29 轮（"看 log"：前几轮的修**真机全中**了）
+
+**先说好消息** —— 这次（`prts_20261004_042739.log`）第 26/27/28 轮那几处修**一个不落全生效**：
+
+- `04:27:41 [max_tokens] 已把 8192 写回配置（以后不会再报这个警告）` —— **自愈生效**。
+- 你说"做一个明日方舟迷迭香介绍PPT"，它这次：`pptx create` → `pptx render` →
+  **`file_ops view …总览.png`** —— **用了我们的工具，而且看了总览图**，
+  全程 **9 轮**结束（上一轮是 30 轮撞预算）。
+- 它还**正确理解**了那条规则的边界：*"禁止的是渲染 pptx 的拼图脚本，因为 pptx render 已经提供总览图"* ✔
+- 你接着提"图片有点少、页数有点多"，它压到 7 页、补了图，再 render+看总览后交付。
+
+**但这轮 log 里挖到一个我们自己的真 bug：render 每次都写一段"崩溃 dump"。**
+
+`logs/main_faulthandler.log` 里，**每做一次 render 就多一段**：
+
+```
+Windows fatal exception: code 0x80010108
+  ...（一百来行全线程栈）
+Current thread ...:  tools/pptx_tool.py line 771 in _do_render
+```
+
+第 771 行正是 **`pythoncom.CoUninitialize()`**。
+**原因**：pywin32 的 COM 指针是**跟着 Python 对象被 GC 才释放**的，
+而 `CoUninitialize()` 会**先把本线程的 COM 套间拆掉** —— 那些还没释放的对象随后再释放，
+就报 `RPC_E_DISCONNECTED`。我们的收尾顺序是 `Close()` → `Quit()` → `CoUninitialize()`，
+中间**没有丢掉引用**，正好踩中。渲染本身没坏（每次 `success: true`），
+但日志里天天多一段"致命异常"，看着像崩了。
+
+**已修**：改成 `Close()` → `Quit()` → **丢引用 + `gc.collect()`** → `CoUninitialize()`。
+
+**实测验证**：
+
+```
+修后：跑一次 7 页 render → main_faulthandler.log 增长 0 字节 ✅
+```
+
+**验证**：`_test_pptx_render_193` **67 → 70 断言**（新增源码顺序守卫：丢引用必须排在
+`CoUninitialize()` 之前、注释里留着 `0x80010108` 证据、该收尾的仍要收尾）；
+compileall 0；**全量回归 48 套件 FAIL=0**。
+
+**另外两条记档（都不是 bug）**：模型曾自言自语"描述说共6页但实际7页"——复核过，
+我们的计数取自实际文件，是它拿自己大纲的标题数去比（封面不占标题）；
+它想"把多张素材拼成一张再看"来省轮次，判断为"允许"——合理，
+以后若频繁遇到，可以考虑让 `file_ops view` 支持一次看多图。

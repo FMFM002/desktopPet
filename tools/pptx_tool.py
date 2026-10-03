@@ -767,6 +767,22 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
                 app.Quit()
         except Exception:
             pass
+        # ★★ 1.9.3 第 29 轮：**先把 COM 引用丢干净，再 CoUninitialize**。
+        #   真机证据：`logs/main_faulthandler.log` 里**每次 render 都留一段**
+        #     `Windows fatal exception: code 0x80010108`（= RPC_E_DISCONNECTED）
+        #   当前线程正好停在下面 `pythoncom.CoUninitialize()` 这一行 ——
+        #   四次 render，四段 dump（每次一百来行的线程栈，看着像崩了）。
+        #   原因：pywin32 的 COM 指针是**跟着 Python 对象被 GC 才释放**的；
+        #   而 `CoUninitialize()` 直接把本线程的 COM 套间拆了 ——
+        #   那些还没释放的对象随后再释放，就报"对象已与客户端断开"。
+        #   所以顺序必须是：Close/Quit → **丢掉引用 + 回收** → CoUninitialize。
+        try:
+            pres = None
+            app = None
+            import gc as _gc
+            _gc.collect()
+        except Exception:
+            pass
         try:
             pythoncom.CoUninitialize()
         except Exception:
