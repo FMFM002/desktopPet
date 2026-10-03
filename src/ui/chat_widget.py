@@ -1958,35 +1958,13 @@ class ChatWidget(QWidget):
         sb.setValue(sb.maximum())
 
     def append_system_msg(self, text: str):
-        """★★ 1.9.2（用户 22:34 批注）：系统消息**不再在聊天区画「灰底白字」气泡**，
-        一律进「思考 / 系统信息」子窗口。
+        """★ 1.9.3（第 3 轮批注 1）：**聊天窗口不再显示思考 / 工具调用 / 系统信息**。
 
-        你原话："成功了，但是我看见系统消息还在外面，哪些灰低白字可以全删了。
-        另外，调用工具前的思考也要显示到这个窗口，所有的思考，所有的系统信息。"
-
-        做法：**只改去向，不改方法名** —— 全项目有 35 处调用
-        （工具调用/工具返回/转写/语音/图片识别/文件提示…），
-        在这里统一改投面板，那 35 处一行都不用动，也就不会漏掉某一类系统信息。
-        于是"所有的系统信息"自然都在面板里了。
+        用户原话：「聊天窗口不再显示思考内容和工具调用，系统信息。删除相关代码。」
+        → 这三条入口先**停用显示**（只留一条 debug 日志便于排查）。
+          面板子系统的物理删除放下一轮（它被一整套测试钉着，要一起改）。
         """
-        if text is None or not str(text).strip():
-            return
-        # ★★ 1.9.2：**线程安全**。本方法现在会走到 think_write → 动 Qt 控件，
-        #   而它可能被 session 的后台线程调用（真机就因此吃过一次
-        #   "access violation"，见 think_flush 的注释）。非 GUI 线程一律改走信号。
-        try:
-            from PySide6.QtWidgets import QApplication as _QApp
-            from PySide6.QtCore import QThread as _QThread
-            _app = _QApp.instance()
-            if _app is not None and _QThread.currentThread() is not _app.thread():
-                self.think_in.emit(str(text), "system")
-                return
-        except Exception:
-            pass
-        try:
-            self.think_write(str(text), "system")
-        except Exception as e:
-            _log.debug(f"系统消息改投思考面板失败: {e}")
+        _log.debug(f"[已隐藏] append_system_msg: {str(locals().get('text', ''))[:60]}")
 
     def on_stream_done(self):
         self._last_role = ""
@@ -2410,34 +2388,22 @@ class ChatWidget(QWidget):
         self._reposition_think_panels(*a)
 
     def think_write(self, text: str, kind: str = "think"):
-        """★ 对外主入口：往**本轮**的「思考 / 系统信息」面板写一行。"""
-        p = self._ensure_think_panel()
-        if not self._alive(p):
-            return
-        p.show()
-        if kind == "system":
-            p.append_system(text)
-        else:
-            p.append(text, "think")
-        p.flush_now()                 # 非流式 → 立即渲染（_render 钩子会做同步）
-        sb = self._chat_display.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        """★ 1.9.3（第 3 轮批注 1）：**聊天窗口不再显示思考 / 工具调用 / 系统信息**。
+
+        用户原话：「聊天窗口不再显示思考内容和工具调用，系统信息。删除相关代码。」
+        → 这三条入口先**停用显示**（只留一条 debug 日志便于排查）。
+          面板子系统的物理删除放下一轮（它被一整套测试钉着，要一起改）。
+        """
+        _log.debug(f"[已隐藏] think_write: {str(locals().get('text', ''))[:60]}")
 
     def think_delta(self, delta: str):
-        """★ 流式思考增量（LLM 的 reasoning_content 碎片）。
+        """★ 1.9.3（第 3 轮批注 1）：**聊天窗口不再显示思考 / 工具调用 / 系统信息**。
 
-        ★ 1.9.2 卡死修复：这里**只记账**。渲染、占位图尺寸同步、重定位全部交给
-        ThinkPanel 的节拍器（~12 次/秒）。以前每个碎片都做一遍全文 setText +
-        heightForWidth + 文档重排，碎片一多就把 UI 线程占死（真机 21:55 那次
-        "终止话题卡死、形象/托盘全无响应"）。
+        用户原话：「聊天窗口不再显示思考内容和工具调用，系统信息。删除相关代码。」
+        → 这三条入口先**停用显示**（只留一条 debug 日志便于排查）。
+          面板子系统的物理删除放下一轮（它被一整套测试钉着，要一起改）。
         """
-        if not delta:
-            return
-        p = self._ensure_think_panel()
-        if not self._alive(p):
-            return
-        p.show()
-        p.append_thinking(delta)
+        _log.debug(f"[已隐藏] think_delta: {str(locals().get('text', ''))[:60]}")
 
     def think_flush(self):
         """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。
