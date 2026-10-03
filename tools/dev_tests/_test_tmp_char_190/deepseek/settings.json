@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "name": "deepseek",
+  "avatar": "",
+  "icon": "",
+  "scale": 1.0,
+  "model": {},
+  "gif": {
+    "gif_dir": "",
+    "startup": "启动",
+    "idle": [
+      "点头悠闲"
+    ],
+    "idle_switch_rule": {
+      "mode": "fixed",
+      "value": 2
+    }
+  },
+  "性格": {
+    "identity": [],
+    "self_name": "",
+    "call_user": "",
+    "tone": [],
+    "traits": [],
+    "free_text": "人设"
+  },
+  "输出控制": {
+    "no_action_description": false,
+    "no_markdown": false,
+    "allow_code_block": false,
+    "allow_json": false,
+    "emoji_level": "light",
+    "reply_style": "concise",
+    "lang": "",
+    "extra": ""
+  },
+  "行为控制": {
+    "meme_tendency": "normal",
+    "meme_tags_prefer": [],
+    "gif_reaction": false,
+    "proactive_talk": false
+  }
+}

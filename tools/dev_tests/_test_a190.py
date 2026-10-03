@@ -2455,7 +2455,12 @@ check("★前三天带「今天/明天/后天」标签",
       "今天" in _f3 and "明天" in _f3 and "后天" in _f3)
 _f7 = _wt.execute(city="上海", days=7)
 check("★days=7 走 7d 端点、给满 7 行", "未来 7 天预报" in _f7
-      and len([l for l in _f7.splitlines() if l.strip().startswith("0")]) == 7,
+      # 1.9.3（第3轮）：原来数"以 0 开头的行"（日期 09-22 那种）——
+      #   只对 1~9 月成立：10 月起是 10-03、1 月起是 01-03，
+      #   于是 10-03 真机上这条直接红（典型的"时间敏感断言"）。
+      #   改成认 MM-DD 格式，与月份无关。
+      and len([l for l in _f7.splitlines()
+               if re.match(r"\d{2}-\d{2}", l.strip())]) == 7,
       str(len(_f7.splitlines())))
 check("★days 超上限会被夹到 7（不会把 99 原样甩给 API）",
       "未来 7 天预报" in _wt.execute(city="上海", days=99))
