@@ -115,6 +115,13 @@ def _sandbox_guard(command: str, cwd: str) -> str | None:
             continue
         if t.lower() in _NULL_DEVICES:
             continue
+        # ★★ 1.9.3（第 7 轮，真机 PPT 曲折的真凶）：
+        #   `2>&1` / `>&1` / `&2` 是**句柄复制**（stderr 并到 stdout），不是写文件。
+        #   以前会被提取成"写入目标 &1" → 整条命令被沙箱拒绝 →
+        #   模型只能改用"把脚本写到磁盘再跑"的绕路（真机 10-03 23:24 就是这样：
+        #   `cd "data\桌宠私有data" && python -c "..."` 被拒，报 `\&1`）。
+        if t.startswith("&") or t.strip("&").isdigit():
+            continue
         if not os.path.isabs(t):
             t = os.path.normpath(os.path.join(cwd or str(PROJECT_ROOT), t))
         if not _is_within_writable(t):

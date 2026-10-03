@@ -1001,20 +1001,35 @@ class ChatSession:
             #   → 按批注 2 改成代码兜底，不依赖模型自觉。
             #   位置说明：这里"新一轮开始"= 上一轮的工具调用已经跑完，正是批注说的时机。
             #   限流 20 秒一条，避免长任务里把聊天窗口刷屏。
+            if round_count == 1:
+                self._progress_nudged = False      # 每条用户消息：提醒只插一次
             if round_count > 1:
                 try:
                     import time as _t_prog
                     from src.core import progress_bus as _pb_prog
-                    _now_prog = _t_prog.time()
-                    if _now_prog - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
-                        self._last_progress_at = _now_prog
-                        # ★ 1.9.3（第 5 轮）：这句话只是**兜底**（模型没主动说时用），
-                        #   所以别写成"已经跑了 N 轮工具调用"那种机械句 ——
-                        #   用户明确说不需要内部细节，一句自然的"还在弄"就够。
-                        _pb_prog.report("还在弄，我继续～")
-                        _log.info(f"[进度兜底] 已发第 {round_count} 轮后的进度汇报")
+                    _reported = int(_pb_prog.count_this_turn() or 0)
+                    # ① 主路径：在**上下文里**提醒它自己汇报（一轮一次）。
+                    #   真机证据：只在系统提示词顶部写一句时，模型主动调用次数是 0；
+                    #   把提醒放到"刚跑完工具、正要决定下一步"这个位置才有效。
+                    if not getattr(self, "_progress_nudged", False) and _reported == 0:
+                        self._progress_nudged = True
+                        with self._lock:
+                            self.messages.append({
+                                "role": "system",
+                                "content": ("（系统提醒）你正在做多步任务。请**先调用 "
+                                            "progress_report** 用一句话告诉用户你当前在做什么，"
+                                            "然后继续下一步；不要输出正文、不要结束任务。"),
+                            })
+                        _log.info("[进度提醒] 已在上下文里插入提醒（让模型自己汇报）")
+                    # ② 保底：模型始终不报时才由程序发（20 秒限流；报过就不发）。
+                    elif _reported == 0:
+                        _now_prog = _t_prog.time()
+                        if _now_prog - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
+                            self._last_progress_at = _now_prog
+                            _pb_prog.report("还在弄，我继续～")
+                            _log.info(f"[进度兜底] 已发第 {round_count} 轮后的进度汇报")
                 except Exception as _e_prog:
-                    _log.debug(f"[进度兜底] 汇报失败: {_e_prog}")
+                    _log.debug(f"[进度提醒/兜底] 失败: {_e_prog}")
 
             try:
                 with self._lock:
