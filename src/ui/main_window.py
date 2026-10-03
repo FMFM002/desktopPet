@@ -1809,14 +1809,21 @@ class MainWindow:
         self.chat.system_msg_in.emit(msg)
 
     def _on_clip_image_pasted(self, qimage):
-        """★ 1.9.0: 剪贴板里的图片**直接**发进聊天（**不写磁盘**）。
+        """★ 1.9.0 / ★ 1.9.3 第 33 轮（用户选 b）：剪贴板里的图片直接发进聊天。
 
-        流程：
-          1. 立刻在聊天里显示（`append_clip_image` 把 QImage 注册成文档内存资源）
-          2. 后台用**同一套视觉后端**（file_view.describe_image，禁思考、如实描述）
-             读出图里有什么
-          3. 把「标记 + 描述」作为一条用户消息发给 LLM —— 所以即使重启后
-             预览变占位提示，"这张图里有什么"仍然留在对话历史里
+        ★★ 用户 2026-10-04 拍了板：**"只把图片发进去，描述不拼进消息"（选项 b）**。
+        但查证后发现：**原来"不落盘"等于模型根本收不到这张图** ——
+          `session` 的多模态直传（`attach_image` / `_pending_images`）收的是
+          **本地文件路径**，而粘贴图一直只活在内存里（QImage），
+          所以老代码只能把 `describe_image()` 的**描述文本**拼进用户消息当"眼睛"。
+        也就是说：**真按 b 做（只删描述）会让模型彻底看不见这张图**。
+
+        现在的正确做法（既满足 b、又不让模型变瞎）：
+          1. 把 QImage **落盘**到 `data/桌宠私有data/粘贴图片/`（顺手裁掉超龄文件）；
+          2. `session.attach_image(path)` → 走**多模态直传**，图真的发给模型；
+          3. 用户消息里**只留图片标记**，不再拼描述文本。
+        ★ **兜底**：多模态没开（或落盘/登记失败）→ 退回老做法（拼描述），
+          否则模型看到的就是一张它读不到的图 + 一句"请看图"，等于没给。
         """
         try:
             from io import BytesIO
@@ -1833,8 +1840,43 @@ class MainWindow:
         import time as _time
         name = f"粘贴的图片_{_time.strftime('%H%M%S')}.png"
         marker = self.chat.append_clip_image(qimage, name)
-        self.chat.append_system_msg("[正在看这张图…]")
         self.pet_mgr.set_behavior("思考")
+
+        # ① 落盘 + 登记多模态直传（失败就退化成"拼描述"）
+        _sent_as_image = False
+        try:
+            if bool(getattr(self.config.vision, "multimodal", False)):
+                _dir = _BASE_DIR / "data" / "桌宠私有data" / "粘贴图片"
+                _dir.mkdir(parents=True, exist_ok=True)
+                _path = _dir / name
+                pil.save(_path, "PNG")
+                self.session.attach_image(str(_path))
+                _sent_as_image = True
+                _log.info(f"[粘贴图片] 已落盘并登记多模态直传: {_path.name}")
+                # 顺手清理：只留最近 30 张，别让这个目录无限长大
+                try:
+                    _old = sorted(_dir.glob("粘贴的图片_*.png"),
+                                  key=lambda q: q.stat().st_mtime, reverse=True)[30:]
+                    for q in _old:
+                        q.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        except Exception as e:
+            _log.warning(f"[粘贴图片] 多模态直传登记失败，退回拼描述: {e}")
+
+        if _sent_as_image:
+            self.chat.append_system_msg("[图片已发给你，正在看图…]")
+
+            def _work_ok():
+                self._task_relay.user_msg.emit(
+                    f"{marker}\n"
+                    f"[用户从剪贴板粘贴了一张图片 {name}（图已直接发给你，请看图回答）]")
+
+            threading.Thread(target=_work_ok, daemon=True).start()
+            return
+
+        # ② 兜底：多模态不可用 → 仍然靠描述（否则模型完全看不到图）
+        self.chat.append_system_msg("[正在看这张图…]")
 
         def _work():
             try:

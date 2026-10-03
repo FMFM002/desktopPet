@@ -96,6 +96,11 @@ class PetAnimationWidget(QWidget):
         self._frame_timer.timeout.connect(self._next_frame)
         self._frame_interval = 100
 
+        # ★ 1.9.3 第 33 轮：缩放后帧的缓存（修"会抽帧"，见 _show_single_frame）。
+        #   key = (图片路径 或 GIF帧cacheKey, 宽, 高) → 已缩放的 QPixmap。
+        #   只放缩放后的小图，源图不驻留。
+        self._pix_cache: dict = {}
+
         # ★ 1.9.1: "形象消失"自愈（详见 src/ui/win_window.py 的完整说明）
         #   Win32 的前台窗口事件在**别的线程**回调 → 只置标志；
         #   这个定时器在主线程把它取出来处理（1.6 秒节流，别为了切窗口就狂重绘）。
@@ -283,9 +288,25 @@ class PetAnimationWidget(QWidget):
 
             pixmap = self._movie.currentPixmap()
             if not pixmap.isNull():
-                scaled = pixmap.scaled(
-                    self.width(), self.height(),
-                    Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                # ★ 1.9.3 第 33 轮：GIF 帧**同样每帧做一次 SmoothTransformation**
+                #   （GIF 常见 24fps，41ms 预算里做高质量重采样很容易掉帧）。
+                #   用 `cacheKey()` 当帧标识 —— 同一帧再次出现（循环播放的常态）
+                #   就直接复用缩放结果，不再重算。
+                try:
+                    w, h = self.width(), self.height()
+                    key = ("gif", pixmap.cacheKey(), w, h)
+                    scaled = self._pix_cache.get(key)
+                    if scaled is None:
+                        scaled = pixmap.scaled(w, h, Qt.KeepAspectRatio,
+                                               Qt.SmoothTransformation)
+                        if len(self._pix_cache) >= 80:
+                            for _k in list(self._pix_cache.keys())[:20]:
+                                self._pix_cache.pop(_k, None)
+                        self._pix_cache[key] = scaled
+                except Exception:
+                    scaled = pixmap.scaled(
+                        self.width(), self.height(),
+                        Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 self._label.setPixmap(scaled)
 
     def _show_current_frame(self):
@@ -300,7 +321,43 @@ class PetAnimationWidget(QWidget):
     def _next_frame(self):
         self._current_frame_idx += 1
         self._show_current_frame()
+        self._probe_tick()
 
+    def _probe_tick(self):
+        """★★ 1.9.3 第 33 轮（队列 Q4 本体就是"探针"）：**给抽帧装个探针**。
+
+        为什么先装探针、而不是继续猜：
+          · 我量过：单帧"读盘 + SmoothTransformation"在 900×900/374KB 的图上是
+            **0.54 ms**（100ms 预算的 0.5%）—— 虽然已顺手缓存掉（快 121 倍），
+            但**这个量级根本不足以造成肉眼可见的抽帧**。
+          · 10fps 的 `QTimer` 一旦**迟到**就会掉帧，而 Qt 定时器**不补拍**。
+            真正让主线程忙起来的是：聊天流式输出（每个 token 都往
+            QTextDocument 里塞）、监控事件、DB 写入、切角色/开设置窗口。
+          · 所以正确做法是**记下每次实际间隔**：迟到多少、多久一次，
+            日志会直接告诉我们"卡在哪、卡多少"，而不是继续盲猜。
+        阈值取 1.8× 间隔（10fps → 180ms），最多 8 秒报一次，避免刷屏。
+        """
+        import time as _t
+        now = _t.monotonic()
+        last = getattr(self, "_probe_last_tick", None)
+        self._probe_last_tick = now
+        if last is None:
+            self._probe_dropped = 0
+            self._probe_worst = 0.0
+            self._probe_last_report = now
+            return
+        gap_ms = (now - last) * 1000.0
+        budget_ms = getattr(self, "_frame_interval", 100)
+        if gap_ms > budget_ms * 1.8:
+            self._probe_dropped = getattr(self, "_probe_dropped", 0) + 1
+            self._probe_worst = max(getattr(self, "_probe_worst", 0.0), gap_ms)
+            if now - getattr(self, "_probe_last_report", 0.0) >= 8.0:
+                _log.warning(f"[抽帧探针] 本段时间隔超过 {budget_ms * 1.8:.0f}ms 的帧 "
+                             f"{self._probe_dropped} 次，最差 {self._probe_worst:.0f}ms"
+                             f"（预算 {budget_ms}ms）")
+                self._probe_dropped = 0
+                self._probe_worst = 0.0
+                self._probe_last_report = now
     def _win32_setup(self):
         """★ 1.9.1: 形象窗口的 Win32 加固（见 src/ui/win_window.py 的完整说明）。
 
@@ -712,12 +769,41 @@ class PetAnimationWidget(QWidget):
             _log.debug(f"重画当前帧失败: {e}")
 
     def _show_single_frame(self, filepath: str):
+        """★ 1.9.3 第 33 轮：**加缓存** —— 修用户报的"会抽帧"。
+
+        用户 2026-10-04："（Q4 那个）会抽帧。"
+
+        查证：老实现**每一帧**都要
+          ① `QPixmap(filepath)` —— **读盘 + PNG 解码**
+          ② `scaled(..., SmoothTransformation)` —— **每帧做一次高质量重采样**
+          而帧定时器是 100ms（10fps）—— 一旦主线程忙（heal 定时器、切窗口、
+        监控事件、GC…），这一帧就跑不完 → Qt 定时器**不会补拍**，
+        于是"帧被跳过/动画一顿一顿"= 用户看到的**抽帧**。
+
+        现在：按 `(路径, 宽, 高)` 缓存**缩放后**的 QPixmap，
+        命中时只做一次 `setPixmap`（微秒级），每帧不再碰磁盘也不再做重采样。
+        · 尺寸变了自然 miss（key 带宽高），旧条目靠上限裁剪；
+        · 只缓存**缩放后**的小图（源图不进缓存，省内存）。
+        """
         try:
-            pixmap = QPixmap(filepath)
-            if not pixmap.isNull():
-                scaled = pixmap.scaled(
-                    self.width(), self.height(),
-                    Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            w, h = self.width(), self.height()
+            key = (filepath, w, h)
+            cache = getattr(self, "_pix_cache", None)
+            if cache is None:
+                cache = self._pix_cache = {}
+            scaled = cache.get(key)
+            if scaled is None:
+                pixmap = QPixmap(filepath)
+                if pixmap.isNull():
+                    return
+                scaled = pixmap.scaled(w, h, Qt.KeepAspectRatio,
+                                       Qt.SmoothTransformation)
+                # 上限：按插入顺序丢最旧的（够用且简单，不做 LRU 计数）
+                if len(cache) >= 80:
+                    for _k in list(cache.keys())[:20]:
+                        cache.pop(_k, None)
+                cache[key] = scaled
+            if not scaled.isNull():
                 self._label.setPixmap(scaled)
         except Exception as e:
             _log.error(f"加载图片失败 {filepath}: {e}")

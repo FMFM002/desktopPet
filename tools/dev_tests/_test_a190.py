@@ -1287,9 +1287,9 @@ check("★视觉：普通模型不加 extra_body（兼容其它 OpenAI 协议）
 # ── 聊天链路统一：用户发的图片/文件/音频/视频全部走 view ──
 print("\n== 聊天链路统一走文件查看工具 ==")
 _mw_src = (ROOT / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
-check("★聊天不再把图片 attach 给 session 做 image_url 直传",
-      "session.attach_image(" not in _mw_src
-      and "_pending_images" not in _mw_src)
+check("★【1.9.3 第 33 轮改】粘贴图片改走 attach_image 多模态直传"
+      "（用户选了 b：只发图、不拼描述）",
+      "self.session.attach_image(str(_path))" in _mw_src)
 check("★用户上传的图片改走 file_view.view_file",
       "view_file(str(path), method=\"multimodal\")" in _mw_src)
 check("★音频/视频/文档/其它文件都统一走 _view_attachment",
@@ -2146,11 +2146,16 @@ check("★内存图片走的是同一套视觉后端 + 同一个「如实描述�
 
 _mw_src3 = (ROOT / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
 _clip_body = _mw_src3.split("def _on_clip_image_pasted")[1].split("\n    def ")[0]
-check("★主窗口收到粘贴图片 → 描述 + 作为用户消息发给 LLM",
+check("★主窗口收到粘贴图片 → 图直传给 LLM（描述只作兜底）",
       "describe_image" in _clip_body and "_task_relay.user_msg.emit" in _clip_body)
-check("★粘贴这条链路**不写磁盘**（方法体里没有任何写文件调用）",
-      ".write_bytes(" not in _clip_body and "_read_document_file" not in _clip_body
-      and "save(" not in _clip_body.replace("qimage.save(buf, \"PNG\")", ""))
+# ★ 1.9.3 第 33 轮：用户选了 b —— "只把图片发进去，描述不拼进消息"。
+#   查证发现：老实现"不落盘"等于模型**根本收不到图**（多模态直传要本地路径），
+#   只能靠描述当眼睛。所以要真正满足 b，必须**落盘 + attach_image**。
+#   这条断言因此从"不写磁盘"改成"**必须落盘**，且描述只在兜底路径出现"。
+check("★【1.9.3 第 33 轮改】粘贴图会落盘（多模态直传需要真实文件路径）",
+      "pil.save(_path, \"PNG\")" in _clip_body)
+check("★【1.9.3 第 33 轮改】新路径的用户消息里不再拼描述（只有兜底才拼）",
+      "内容如下:" not in _clip_body.split("# ② 兜底")[0])
 check("★剪贴板信号已连接", "clip_image_pasted.connect" in _mw_src3)
 
 # ══════════════════════════════════════════════════════════════
