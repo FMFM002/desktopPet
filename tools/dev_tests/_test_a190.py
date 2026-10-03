@@ -2460,7 +2460,8 @@ check("★days=7 走 7d 端点、给满 7 行", "未来 7 天预报" in _f7
       #   于是 10-03 真机上这条直接红（典型的"时间敏感断言"）。
       #   改成认 MM-DD 格式，与月份无关。
       and len([l for l in _f7.splitlines()
-               if re.match(r"\d{2}-\d{2}", l.strip())]) == 7,
+               if len(l.strip()) >= 5 and l.strip()[:2].isdigit()
+               and l.strip()[2] == "-"]) == 7,   # 认 MM-DD，不依赖 re / 不挑月份
       str(len(_f7.splitlines())))
 check("★days 超上限会被夹到 7（不会把 99 原样甩给 API）",
       "未来 7 天预报" in _wt.execute(city="上海", days=99))
