@@ -13,6 +13,9 @@ from typing import Optional, Callable
 
 _log = logging.getLogger("InputMonitor")
 
+# ★ 1.9.3 第 36 轮：复用 monitor.py 的"可打断睡眠"（见该类注释）
+from src.core.monitor import StoppableSleep
+
 
 # ============================================================================
 # PII 过滤器
@@ -38,13 +41,14 @@ class PIIFilter:
 # ============================================================================
 # 剪贴板监控
 # ============================================================================
-class ClipboardMonitor:
+class ClipboardMonitor(StoppableSleep):
     """剪贴板变化监控 — 轮询 + 快捷键触发"""
 
     def __init__(self, poll_interval: float = 1.0, preview_max_len: int = 200):
         self.poll_interval = poll_interval
         self.preview_max_len = preview_max_len
         self._running = False
+        self._init_stop_event()
         self._thread: Optional[threading.Thread] = None
         self._callback: Optional[Callable[[str, dict], None]] = None
         self._last_text: Optional[str] = None
@@ -57,12 +61,15 @@ class ClipboardMonitor:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name="mon-clipboard")
         self._thread.start()
         _log.info("[clipboard] 剪贴板监控启动")
 
     def stop(self):
         self._running = False
+        # ★ 1.9.3 第 36 轮：**先叫醒它**再去 join —— 否则就是干等 time.sleep 走完
+        self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
@@ -83,7 +90,9 @@ class ClipboardMonitor:
                     })
             except Exception as e:
                 _log.debug(f"[clipboard] 轮询异常: {e}")
-            time.sleep(self.poll_interval)
+            # ★ 第 36 轮：可打断睡眠（原来 stop() 要干等这次睡眠走完）
+            if self._nap(self.poll_interval):
+                break
 
     def on_shortcut(self, op: str):
         """快捷键触发立即检查 (由键盘监控调用: copy/cut/paste)"""
@@ -139,12 +148,13 @@ class ClipboardMonitor:
 # ============================================================================
 # 窗口元数据监控
 # ============================================================================
-class WindowMetadataMonitor:
+class WindowMetadataMonitor(StoppableSleep):
     """活动窗口 + 进程元数据监控（含浏览器 URL 检测）"""
 
     def __init__(self, poll_interval: float = 0.5):
         self.poll_interval = poll_interval
         self._running = False
+        self._init_stop_event()
         self._thread: Optional[threading.Thread] = None
         self._callback: Optional[Callable[[str, dict], None]] = None
         self._last_app: Optional[str] = None
@@ -160,12 +170,15 @@ class WindowMetadataMonitor:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name="mon-window")
         self._thread.start()
         _log.info("[window_metadata] 窗口元数据监控启动")
 
     def stop(self):
         self._running = False
+        # ★ 1.9.3 第 36 轮：**先叫醒它**再去 join —— 否则就是干等 time.sleep 走完
+        self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
@@ -197,7 +210,9 @@ class WindowMetadataMonitor:
                     self._emit(data)
             except Exception as e:
                 _log.debug(f"[window_metadata] 轮询异常: {e}")
-            time.sleep(self.poll_interval)
+            # ★ 第 36 轮：可打断睡眠（原来 stop() 要干等这次睡眠走完）
+            if self._nap(self.poll_interval):
+                break
 
     def _get_active_window_info(self) -> tuple:
         app_name, window_title, process_path, pid, browser_url = None, None, None, None, None
@@ -277,7 +292,7 @@ class WindowMetadataMonitor:
 # ============================================================================
 # 进程元数据监控
 # ============================================================================
-class ProcessMetadataMonitor:
+class ProcessMetadataMonitor(StoppableSleep):
     """运行进程追踪 — TOP CPU/内存、应用检测、启停事件"""
 
     CATEGORIES = {
@@ -294,6 +309,7 @@ class ProcessMetadataMonitor:
         self.poll_interval = poll_interval
         self.top_n = top_n
         self._running = False
+        self._init_stop_event()
         self._thread: Optional[threading.Thread] = None
         self._callback: Optional[Callable[[str, dict], None]] = None
         self._known_pids: set[int] = set()
@@ -306,12 +322,15 @@ class ProcessMetadataMonitor:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name="mon-process")
         self._thread.start()
         _log.info("[process_metadata] 进程元数据监控启动")
 
     def stop(self):
         self._running = False
+        # ★ 1.9.3 第 36 轮：**先叫醒它**再去 join —— 否则就是干等 time.sleep 走完
+        self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
@@ -366,7 +385,9 @@ class ProcessMetadataMonitor:
                 self._known_pids = current_pids
             except Exception as e:
                 _log.debug(f"[process_metadata] 轮询异常: {e}")
-            time.sleep(self.poll_interval)
+            # ★ 第 36 轮：可打断睡眠（原来 stop() 要干等这次睡眠走完）
+            if self._nap(self.poll_interval):
+                break
 
     def _emit(self, data: dict):
         if self._callback:

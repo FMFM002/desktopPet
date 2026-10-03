@@ -17,7 +17,36 @@ from typing import Optional, Callable
 _log = logging.getLogger("Monitor")
 
 
-class BaseMonitor:
+class StoppableSleep:
+    """★★ 1.9.3 第 36 轮：**可被 stop() 立刻打断的睡眠**。
+
+    真机证据（`logs/prts_20261004_065116.log`）：
+      · 退出：`06:51:51 正在退出 → 06:51:55`
+        并稳定打 `[退出] 收尾线程超过 4s 预算仍未结束（t1=活 t2=停）` —— **每次都超**；
+      · 改监控设置：`[监控] 重启完成，耗时 2287 ms`（另一次 2013 ms）。
+
+    根因：监控循环里用 `time.sleep(...)`（`SystemMonitor` 一睡就是 **60 秒**！），
+    而 `stop()` 是 `thread.join(timeout=2)` —— **只能干等那次睡眠走完**。
+    于是"退出慢"和"改设置要等 2 秒"是**同一个原因**。
+
+    改成 `self._stop_event.wait(n)`：`stop()` 里 `set()` 一下，线程**立刻醒来**，
+    stop 从"最多 2 秒"变成毫秒级。收益：
+      ① 退出真正快，不必再靠 4 秒硬超时兜底；
+      ② 不会出现"关库时监控线程还活着"（旧注释警告过的那个场景）；
+      ③ 改监控设置几乎瞬时。
+    ★ 保留 `join(timeout=...)` 作为**兜底**：万一线程真的卡在别处（比如 pynput
+      监听器里），超时后照样返回，不会把界面拖死。
+    """
+
+    def _init_stop_event(self):
+        self._stop_event = threading.Event()
+
+    def _nap(self, seconds: float) -> bool:
+        """可打断的睡眠。返回 True 表示 `stop()` 已经叫停，调用方应当 `break`。"""
+        return self._stop_event.wait(seconds)
+
+
+class BaseMonitor(StoppableSleep):
     """监控基类"""
 
     def __init__(self, name: str):
@@ -27,6 +56,7 @@ class BaseMonitor:
         self._callback: Optional[Callable[[str, dict], None]] = None
         self._error_count = 0
         self._max_errors = 10
+        self._init_stop_event()          # ★ 第 36 轮：可打断睡眠
 
     def set_callback(self, cb: Callable[[str, dict], None]):
         self._callback = cb
@@ -34,12 +64,19 @@ class BaseMonitor:
     def start(self):
         if self._running:
             return
+        self._stop_event.clear()         # ★ 第 36 轮：重启前复位，否则 wait 会立刻返回
         self._running = True
         self._thread = threading.Thread(target=self._safe_run, daemon=True, name=f"mon-{self.name}")
         self._thread.start()
 
     def stop(self):
         self._running = False
+        # ★★ 第 36 轮：**先叫醒它**再去 join —— 否则就是干等 time.sleep 走完
+        #   （SystemMonitor 一睡 60 秒，join 只能等满 timeout=2）。
+        try:
+            self._stop_event.set()
+        except Exception:
+            pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
 
@@ -112,10 +149,14 @@ class ScreenMonitor(BaseMonitor):
                             "image": img, "timestamp": datetime.now().isoformat(),
                             "hash": img_hash, "file_path": str(photo_path)})
 
-                    time.sleep(self.interval)
+                    # ★ 第 36 轮：可打断睡眠（原来是 time.sleep(self.interval)，
+                    #   会让 stop() 干等到睡眠结束）
+                    if self._nap(self.interval):
+                        break
                 except Exception as e:
                     _log.error(f"[screen] 截图错误: {e}")
-                    time.sleep(5)
+                    if self._nap(5):
+                        break
 
     def _enforce_photo_limit(self, photo_dir):
         """限制截图文件夹中的文件数量"""
@@ -187,7 +228,9 @@ class KeyboardMonitor(BaseMonitor):
             with keyboard.Listener(on_press=on_press) as listener:
                 while self._running:
                     # 每 2 秒检查一次是否触发 30s 超时
-                    time.sleep(2)
+                    # ★ 第 36 轮：可打断（原来是 time.sleep(2)）
+                    if self._nap(2):
+                        break
                     if self._buffer and time.time() - self._last_emit > self._idle_timeout:
                         self._flush()
                 # listener 退出
@@ -245,9 +288,11 @@ class AudioMonitor(BaseMonitor):
                     volume = np.abs(data).mean()
                     if volume > self._threshold:
                         self._emit({"volume": float(volume), "timestamp": datetime.now().isoformat()})
-                    time.sleep(0.5)
+                    if self._nap(0.5):      # ★ 第 36 轮：可打断
+                        break
                 except Exception:
-                    time.sleep(2)
+                    if self._nap(2):        # ★ 第 36 轮：可打断
+                        break
         except Exception as e:
             _log.error(f"[audio] 音频流错误: {e}")
         finally:
@@ -367,10 +412,15 @@ class SystemMonitor(BaseMonitor):
                 except Exception:
                     pass
 
-                time.sleep(self._interval)  # 系统监控间隔（从配置读取）
+                # ★★ 第 36 轮：**这一行是"退出慢"的头号元凶** ——
+                #   系统监控间隔默认 60 秒，原来 time.sleep(60) 会让 stop() 干等满 2 秒。
+                #   换成可打断睡眠后，stop() 毫秒级返回。
+                if self._nap(self._interval):
+                    break
             except Exception as e:
                 _log.error(f"[system] 错误: {e}")
-                time.sleep(30)
+                if self._nap(30):
+                    break
 
 
 class UnifiedMonitor:
