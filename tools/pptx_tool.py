@@ -19,7 +19,13 @@ import os
 from pathlib import Path
 
 TOOL_NAME = "pptx"
-TOOL_DESCRIPTION = """在本机生成或增补 PowerPoint（.pptx）。**做 PPT 优先用它，不要自己写脚本**。
+TOOL_DESCRIPTION = """在本机生成或增补 PowerPoint（.pptx）。
+
+★ 什么时候用它（1.9.3 第 24 轮按用户决定调整定位）：
+  · **结构简单、要快**的稿子 → 给它大纲，一次出片，省事；
+  · **想要设计感**（深色底、满版大图、自己排的版式）→ **自己写 python-pptx 脚本更好**，
+    不必迁就模板；这两种方式都可以。
+  · 不论哪种，做完都建议用下面的 `action=render` + `file_ops view` 自检一遍。
 
 规范（照 office-pptx 那套，已内置默认值，你只需给大纲与素材）：
 · 16:9（13.333×7.5 英寸）；显式设置版式、字号、图表数据；用本地图片，不用网图。
@@ -291,7 +297,32 @@ def _fit_body_size(bullets, box_w_in: float, box_h_in: float, start: int = 18) -
     return 9
 
 
-def _place_image(slide, p: Path, max_box, theme, skipped, tag: str = ""):
+def _asset_check(name: str, w: int, h: int):
+    """★ 1.9.3 第 24 轮：**素材体检** —— 提醒"这张图可能只有半身/会糊"。
+
+    为什么需要（真机证据）：模型给铃兰那套片子配图时，抓了
+    `suzuran_3.jpg`（1013×427）和 `suzuran_b.png`（800×420）—— 这两张是官方
+    **干员档案横幅卡**，画面本来就只画到腰/胸。工具原样插进去（没裁，尺寸与源文件
+    逐个比对过），可用户看到的就是"人被切了"。
+    工具没法替模型判断"这张图好不好看"，但**能判断宽高比像个横幅卡**，说一句提醒
+    比什么都不说有用地多。只提示、不拦。
+    """
+    if not w or not h:
+        return None
+    ratio = w / h
+    if ratio >= 1.9:
+        return (f"{name}({w}×{h} 宽高比 {ratio:.2f}：看着是**横幅卡**，"
+                f"人物多半只有半身——当立绘用会显得「被切了」，建议换一张全身图)")
+    if ratio <= 0.5:
+        return (f"{name}({w}×{h} 宽高比 {ratio:.2f}：超长竖条，"
+                f"可能是手机壁纸/详情长图，放幻灯片里会很小)")
+    if max(w, h) < 400:
+        return f"{name}({w}×{h}：分辨率偏低，放大后可能糊)"
+    return None
+
+
+def _place_image(slide, p: Path, max_box, theme, skipped, tag: str = "",
+                 warnings=None):
     """把一张图按**原图比例**放进 max_box=(x, y, max_w, max_h)，居中；返回是否成功。
 
     ★ 只缩放、不裁剪 —— 见 `_fit_box` 的说明（硬裁正方形会把立绘切头）。
@@ -301,6 +332,10 @@ def _place_image(slide, p: Path, max_box, theme, skipped, tag: str = ""):
     if img is None:
         skipped.append(f"{p.name}(坏图/无法解码)")
         return False
+    if warnings is not None:
+        _w = _asset_check(p.name, img.width, img.height)
+        if _w:
+            warnings.append(_w)
     mx, my, mw, mh = max_box
     bw, bh = _fit_box(img.width, img.height, mw, mh)
     bx = mx + (mw - bw) / 2.0                 # 在可用区域里居中
@@ -322,7 +357,8 @@ def _resolve(name: str, assets_dir) -> Path:
     return p
 
 
-def _add_cover(prs, title: str, lines, imgs, theme, assets_dir, skipped):
+def _add_cover(prs, title: str, lines, imgs, theme, assets_dir, skipped,
+               warnings=None):
     """封面（★ 1.9.3 第 23 轮新增）：大标题 + 强调色条 + 副题/要点 + 可选右侧主图。
 
     以前封面和内容页**用同一套坐标**（标题 30pt 顶在左上角），完全不像封面。
@@ -340,7 +376,8 @@ def _add_cover(prs, title: str, lines, imgs, theme, assets_dir, skipped):
             if not p.exists():
                 skipped.append(f"{name}(找不到)")
                 continue
-            _place_image(slide, p, (7.15, 0.75, 5.65, 6.0), theme, skipped, tag="_cover")
+            _place_image(slide, p, (7.15, 0.75, 5.65, 6.0), theme, skipped,
+                         tag="_cover", warnings=warnings)
         for extra in imgs[1:]:
             skipped.append(f"{Path(extra).name}(封面只放一张，未排版)")
 
@@ -372,7 +409,7 @@ def _add_cover(prs, title: str, lines, imgs, theme, assets_dir, skipped):
 
 
 def _add_page(prs, title: str, bullets, imgs, theme, assets_dir: Path, page_no: int,
-              skipped: list):
+              skipped: list, warnings=None):
     """内容页：主题底色 + 强调色条 + 标题 + 正文 + 右侧自适应图片 + 页码。"""
     from pptx.util import Inches, Pt
     slide = prs.slides.add_slide(prs.slide_layouts[6])       # 6 = 空白版式
@@ -431,7 +468,8 @@ def _add_page(prs, title: str, bullets, imgs, theme, assets_dir: Path, page_no: 
         if not p.exists():
             skipped.append(f"{name}(找不到)")
             continue
-        if _place_image(slide, p, slots[placed], theme, skipped, tag=f"_p{placed}"):
+        if _place_image(slide, p, slots[placed], theme, skipped, tag=f"_p{placed}",
+                        warnings=warnings):
             placed += 1
 
     # 页码（★ 1.9.3 第 21 轮：page_no 为 0/None 表示**这是封面，不打页码** ——
@@ -454,6 +492,7 @@ def _do_create(outline: str, title: str, subtitle: str, out_dir, filename: str,
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(SLIDE_W_IN), Inches(SLIDE_H_IN)
     skipped = []
+    warnings = []                     # ★ 第 24 轮：素材体检的提示（只提醒，不拦截）
     adir = Path(assets_dir) if assets_dir else None
 
     # 首页（封面）
@@ -467,14 +506,16 @@ def _do_create(outline: str, title: str, subtitle: str, out_dir, filename: str,
     if take_first:
         _add_cover(prs, first["title"],
                    ([subtitle] if subtitle else []) + list(first["bullets"]),
-                   leading or list(first["imgs"]), theme, adir, skipped)
+                   leading or list(first["imgs"]), theme, adir, skipped, warnings)
         body = slides[1:]
     else:
         t = title or first["title"] or "演示文稿"
-        _add_cover(prs, t, ([subtitle] if subtitle else []), leading, theme, adir, skipped)
+        _add_cover(prs, t, ([subtitle] if subtitle else []), leading, theme, adir,
+                   skipped, warnings)
         body = slides
     for i, s in enumerate(body, start=1):
-        _add_page(prs, s["title"], s["bullets"], s["imgs"], theme, adir, i, skipped)
+        _add_page(prs, s["title"], s["bullets"], s["imgs"], theme, adir, i, skipped,
+                  warnings)
 
     od = Path(out_dir) if out_dir else DEFAULT_OUT
     od.mkdir(parents=True, exist_ok=True)
@@ -487,9 +528,11 @@ def _do_create(outline: str, title: str, subtitle: str, out_dir, filename: str,
     total = len(prs.slides._sldIdLst)
     return json.dumps({
         "success": True, "action": "create", "path": str(path),
-        "slides": total, "skipped_images": skipped,
+        "slides": total, "skipped_images": skipped, "asset_warnings": warnings,
         "text": (f"PPT 已生成：{path}（共 {total} 页）"
-                 + (f"；跳过 {len(skipped)} 张素材：{'、'.join(skipped[:3])}" if skipped else "")),
+                 + (f"；跳过 {len(skipped)} 张素材：{'、'.join(skipped[:3])}" if skipped else "")
+                 + (f"\n★ 素材体检 {len(warnings)} 条：\n  " + "\n  ".join(warnings[:4])
+                    if warnings else "")),
     }, ensure_ascii=False)
 
 
@@ -507,14 +550,19 @@ def _do_edit(path: str, outline: str, assets_dir: str, theme_name: str) -> str:
         slides[0]["imgs"] = leading + list(slides[0]["imgs"])
     prs = Presentation(str(p))                 # ★ 保留原有页，只往后追加
     skipped = []
+    warnings = []
     adir = Path(assets_dir) if assets_dir else None
     base = len(prs.slides._sldIdLst)
     for i, s in enumerate(slides, start=1):
-        _add_page(prs, s["title"], s["bullets"], s["imgs"], theme, adir, base + i, skipped)
+        _add_page(prs, s["title"], s["bullets"], s["imgs"], theme, adir, base + i,
+                  skipped, warnings)
     prs.save(str(p))
     return json.dumps({"success": True, "action": "edit", "path": str(p),
                        "added": len(slides), "skipped_images": skipped,
-                       "text": f"已在 {p.name} 后面追加 {len(slides)} 页（原有页保留）"},
+                       "asset_warnings": warnings,
+                       "text": f"已在 {p.name} 后面追加 {len(slides)} 页（原有页保留）"
+                               + (f"\n★ 素材体检 {len(warnings)} 条：\n  "
+                                  + "\n  ".join(warnings[:4]) if warnings else "")},
                       ensure_ascii=False)
 
 

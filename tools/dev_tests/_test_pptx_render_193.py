@@ -180,6 +180,50 @@ for _sh in _prs2.slides[0].shapes:
 check("★封面用大标题（44pt），与内容页区分开",
       max(_sizes or [0]) >= 40, str(sorted(set(_sizes))))
 
+print("\n== E. ★1.9.3 第 24 轮：素材体检（横幅卡要提醒）+ 定位改回「以自己写脚本为主」==")
+# 真机证据：模型给铃兰那套片子配图时用了 `suzuran_3.jpg`(1013×427) 与
+# `suzuran_b.png`(800×420) —— 都是官方**干员档案横幅卡**，本来就只画到腰/胸。
+# 工具原样插进去（尺寸与源文件逐个比对过，没裁），但用户看到的就是"人被切了"。
+check("横幅卡要被点名（1013×427 → 比例 2.37）",
+      bool(P._asset_check("suzuran_3.jpg", 1013, 427))
+      and "横幅卡" in P._asset_check("suzuran_3.jpg", 1013, 427),
+      str(P._asset_check("suzuran_3.jpg", 1013, 427)))
+check("800×420（比例 1.905）也要点名",
+      bool(P._asset_check("suzuran_b.png", 800, 420)),
+      str(P._asset_check("suzuran_b.png", 800, 420)))
+check("正常竖图不吵（690×1215 → 比例 0.57）",
+      P._asset_check("news_whale.png", 690, 1215) is None)
+check("正常方图不吵（700×700）", P._asset_check("lisa.png", 700, 700) is None)
+check("超长竖条要提醒（400×1200 → 0.33）",
+      bool(P._asset_check("tall.png", 400, 1200)),
+      str(P._asset_check("tall.png", 400, 1200)))
+check("小图要提醒（300×300）", P._asset_check("small.png", 300, 300) is not None)
+
+_banner = _out / "banner_probe.jpg"
+Image.new("RGB", (1013, 427), (40, 40, 60)).save(_banner)
+_rw = json.loads(P.execute(action="create",
+                           outline="# 横幅卡测试\n- 这张是横幅卡\n@" + str(_banner),
+                           out_dir=str(_out), filename="banner_probe.pptx"))
+check("★create 返回里带 asset_warnings（不只放在正文里）",
+      isinstance(_rw.get("asset_warnings"), list) and len(_rw["asset_warnings"]) >= 1,
+      str(_rw.get("asset_warnings"))[:120])
+check("★返回文案里也写了体检结论（模型读的是 text）",
+      "素材体检" in _rw.get("text", "") and "横幅卡" in _rw.get("text", ""),
+      _rw.get("text", "")[-120:].replace("\n", " "))
+
+_lc = (ROOT / "src" / "core" / "llm_client.py").read_text(encoding="utf-8")
+check("★系统提示词不再强制「必须用 pptx 工具、不要自己写脚本」",
+      "不要**自己写 python-pptx 脚本" not in _lc and "**不要**自己写 python-pptx 脚本" not in _lc)
+check("★系统提示词改回「想要设计感就自己写脚本」",
+      "自己写 python-pptx 脚本" in _lc and "有设计感" in _lc)
+check("★系统提示词要求做完用 render + file_ops view 自检",
+      "action=render" in _lc and "file_ops view" in _lc)
+check("★系统提示词提醒分辨横幅卡（宽高比 ≥1.9）",
+      "1.9" in _lc and "横幅卡" in _lc)
+check("★工具描述也不再自称「优先用它、不要自己写脚本」",
+      "**做 PPT 优先用它，不要自己写脚本**" not in P.TOOL_DESCRIPTION
+      and "自己写 python-pptx 脚本更好" in P.TOOL_DESCRIPTION)
+
 
 def _powerpnt_alive():
     try:
