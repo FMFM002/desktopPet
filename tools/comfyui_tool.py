@@ -211,7 +211,23 @@ def _do_free() -> str:
 def _do_start() -> str:
     """★ 1.9.1: 启动 ComfyUI（没跑就拉起来，已经在跑就什么都不做）"""
     st = _cc.start(wait_seconds=180)
-    return json.dumps({"success": bool(st.get("ok")), "action": "start",
+    if st.get("ok"):
+        # ★ 1.9.3 第 25 轮：告诉 jobs 层"这是特意拉起来的" ——
+        #   免得它因为工具空闲卸载、在模型还没来得及 draw 时就把服务关掉
+        #   （真机 03:04:09 启动 → 03:04:12 就被关了，一张图没画成）。
+        try:
+            from src.core import comfyui_jobs as _jobs
+            _jobs.note_explicit_start()
+        except Exception:
+            pass
+        return json.dumps({
+            "success": True, "action": "start", "already": bool(st.get("already")),
+            "text": (st.get("text", "") +
+                     "\n★ 已就绪，**尽快接着调 `draw`**（一次可入队多张，不阻塞）。"
+                     "注意：这个工具空闲约 30 秒会被卸载，ComfyUI 会跟着关掉 —— "
+                     "所以别「先启动、再去搜半小时素材、最后才画」。"),
+        }, ensure_ascii=False)
+    return json.dumps({"success": False, "action": "start",
                        "already": bool(st.get("already")),
                        "text": st.get("text", "")}, ensure_ascii=False)
 

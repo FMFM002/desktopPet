@@ -101,6 +101,11 @@ def submit_draw(prompt: str, raw: bool = False, width: int = 512, height: int = 
     if not prompt:
         return {"success": False, "error": "prompt 是空的。请把你规范化重写后的 XML 提示词放进 prompt。"}
 
+    # ★ 1.9.3 第 25 轮：入队即视为"真的用过了" → 撤销"刚启动还没用过"的宽限
+    global _draw_seen_since_start
+    with _lock:
+        _draw_seen_since_start = True
+
     # ★ 1.9.1 修正：**只查一次** alive()，后面复用这个结果。
     #   原来在"检查能不能启动"和"拼返回话术"两处各查一次，
     #   两次之间状态可能变（后台 worker 正好把 ComfyUI 拉起来了），
@@ -374,6 +379,29 @@ def wait_all(timeout: float = 600.0) -> bool:
 #   工具空闲 30 秒被卸载（IDLE_UNLOAD_TIMEOUT）→ 这里把 ComfyUI 也关掉。
 #   ComfyUI 一关，模型和那一大坨提交额度自然全还回去了 —— 同加载同卸载。
 
+# ★★ 1.9.3 第 25 轮：**"刚启动就被卸载关掉"的护栏**。
+#   真机现场（logs/prts_20261004_025634.log）：
+#     03:03:39 模型调 `comfyui start` → 03:04:09 就绪（耗时 30 秒）
+#     03:04:12 工具因空闲被卸载 → `on_tool_unloaded` **把刚拉起来的 ComfyUI 关了**
+#     之后模型以为 ComfyUI 还开着，转去下载素材，**一张图都没画成**
+#   两个原因：
+#     ① 那次调用耗时正好吃满空闲阈值（已在 tool_manager 里修：调用结束也重新盖章）；
+#     ② 就算盖对了章，模型**紧接着去干别的**，30 秒一到照样关 —— 而"启动"本身
+#        是没有产出的动作，一关等于白干。
+#   所以补一条：**显式 `start` 起、且此后一张图都还没画过**时，给一段宽限期不关。
+_explicit_start_ts: float = 0.0     # 最近一次显式 start 的时间
+_draw_seen_since_start: bool = False
+EXPLICIT_START_GRACE = 600.0        # 10 分钟：够模型回头来画，又不会无限占着显存
+
+
+def note_explicit_start():
+    """`comfyui` 工具的 `action=start` 成功后调这里（说明"是特意拉起来的"）。"""
+    global _explicit_start_ts, _draw_seen_since_start
+    with _lock:
+        _explicit_start_ts = time.time()
+        _draw_seen_since_start = False
+
+
 def on_tool_unloaded():
     """LAZY 工具被空闲卸载时调用（主窗口通过 register_post_unload_hook 注册）。
 
@@ -390,6 +418,16 @@ def on_tool_unloaded():
     if busy:
         _log.info("[ComfyUI] 工具被卸载，但后台还有画图任务 → 这次不关，等它画完")
         return
+    # ★ 第 25 轮：刚被显式启动、还没画过任何图 → 别关，给模型留出调用 draw 的时间
+    #   （否则"start 成功"这个动作本身永远拿不到产出，等于白拉一次 30 秒）
+    global _explicit_start_ts, _draw_seen_since_start
+    with _lock:
+        _just_started = (bool(_explicit_start_ts) and not _draw_seen_since_start
+                         and (time.time() - _explicit_start_ts) < EXPLICIT_START_GRACE)
+    if _just_started:
+        _log.info(f"[ComfyUI] 刚被显式启动（{int(time.time() - _explicit_start_ts)} 秒前）、"
+                  f"还没画过图 → 这次卸载先不关，等模型来画")
+        return
     if not cc.alive():
         _log.debug("[ComfyUI] 工具被卸载，ComfyUI 本来就没跑，无需处理")
         return
@@ -402,6 +440,8 @@ def on_tool_unloaded():
         cc.stop()
     except Exception as e:
         _log.warning(f"[ComfyUI] 卸载时关闭失败: {e}")
+    with _lock:
+        _explicit_start_ts = 0.0        # 关掉了就清账
 
 
 def idle_free_disabled_by_hook() -> bool:

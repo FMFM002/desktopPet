@@ -156,6 +156,7 @@ class ToolInfo:
         if self._func is None:
             return f"[工具 {self.name} 未定义 execute 函数]"
 
+        # ★ 1.9.3 第 25 轮：这里只标"开始用"是不够的 —— 见下面 finally。
         self._last_used = time.time()
 
         try:
@@ -172,6 +173,17 @@ class ToolInfo:
         except Exception as e:
             _log.error(f"工具 {self.name} 执行出错: {e}", exc_info=True)
             return f"[工具执行出错: {self.name}] {e}"
+        finally:
+            # ★★ 1.9.3 第 25 轮（真机 bug）：**调用结束也要重新盖章**。
+            #   旧代码只在**调用前**盖一次 `_last_used`，于是一个**跑得比空闲阈值还久**
+            #   的调用，一返回就已经"过期"了 —— 空闲检查线程 5 秒后一转就把它卸载。
+            #   真机现场（logs/prts_20261004_025634.log）：
+            #     03:03:39 `comfyui start`（内部要等 ComfyUI 起来，耗时 30 秒）
+            #     03:04:09 返回"已就绪"
+            #     03:04:12 `工具 [comfyui] 卸载（空闲超时）` → 卸载钩子**把刚拉起来的
+            #              ComfyUI 关掉了** → 模型以为它还开着，结果一张图都没画成。
+            #   盖在 finally 里：不管成功、失败、抛异常，都从"这次真的用完了"开始计时。
+            self._last_used = time.time()
 
     def idle_seconds(self) -> float:
         """距离最后使用的空闲秒数"""

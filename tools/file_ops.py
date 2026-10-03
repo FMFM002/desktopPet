@@ -37,13 +37,24 @@ def _is_within_writable(p: str) -> bool:
     return np == WRITABLE_ROOT
 
 
-def _check_write_protection(full_path: str) -> str | None:
+def _check_write_protection(full_path: str, raw_path: str = "") -> str | None:
     """检查写保护。返回 None 表示允许，返回字符串表示被拒绝的原因。"""
     # 关键配置文件始终禁止修改
     if os.path.basename(full_path) in _PROTECTED_FILES:
         return f"[拒绝] 禁止修改关键配置文件: {os.path.basename(full_path)}"
     # 沙箱：仅 WRITABLE_ROOT 内允许写入
     if not _is_within_writable(full_path):
+        # ★★ 1.9.3 第 25 轮（真机教训）：**没给 path 时不要再报"只读模式"**。
+        #   现场（logs/prts_20261004_025634.log）：
+        #     `file_ops({'action': 'write', 'content': '...'})`  ← 忘了 path
+        #     → 路径解析成 "." → 落到项目根外面 → 回了一句
+        #     "[拒绝] 沙箱限制：当前为只读模式，仅允许写入…不允许写入: ."
+        #   模型看到"只读模式"完全猜不到真正的原因是**自己漏了 path**，
+        #   白烧一轮（那次已经是第 20 轮，直接撞上预算）。
+        if not (raw_path or "").strip():
+            return ("[拒绝] write 缺少 `path`：你只给了 content。\n"
+                    "请补上 path，例如 "
+                    "\"data/桌宠私有data/xxx/build.py\"（只能写在「桌宠私有data」目录下）。")
         # ★ 1.6.0: 跨盘符/项目外路径曾让 relpath 抛异常，直接把原始异常抛给 LLM 很难懂，
         #   这里统一成可读的沙箱说明
         try:
@@ -252,8 +263,9 @@ TOOL_WRITE_PARAMS = {
 def file_write(path: str, content: str) -> str:
     full_path = _resolve_path(path)
 
-    # 自保护: 禁止写入项目源码
-    err = _check_write_protection(full_path)
+    # 自保护: 禁止写入项目源码（★ 把原始 path 也传进去：漏给 path 时要报"漏了 path"，
+    #   而不是含糊的"只读模式"—— 见 _check_write_protection 的说明）
+    err = _check_write_protection(full_path, path)
     if err:
         return err
 
@@ -301,8 +313,8 @@ def file_edit(path: str, old_string: str, new_string: str) -> str:
     if not os.path.exists(full_path):
         return f"[错误] {path}: 文件不存在"
 
-    # 自保护: 禁止编辑项目源码
-    err = _check_write_protection(full_path)
+    # 自保护: 禁止编辑项目源码（同 file_write，带原始 path）
+    err = _check_write_protection(full_path, path)
     if err:
         return err
 
