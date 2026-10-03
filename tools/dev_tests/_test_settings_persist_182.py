@@ -93,6 +93,8 @@ try:
     cfg.tools.download_path = "D:/tmp/dl_probe"
     cfg.vision.ollama_model = "llava:probe"
     cfg.vision.ocr_lang = "chi_sim+probe"
+    # ★ 1.9.3 第 23 轮：max_tokens 现在有界面控件了，这里先写成 5120 验证"读得回来"
+    cfg.llm.max_tokens = 5120
     cfg.save()
 
     on_disk = json.loads(CFG.read_text(encoding="utf-8"))
@@ -142,6 +144,10 @@ try:
         ("mouse_min_move", sw._ms_min_move.value(), 9),
         ("download_path", sw._download_path.text(), "D:/tmp/dl_probe"),
         ("ollama_model", sw._vision_ollama_model_combo.currentText(), "llava:probe"),
+        # ★ 1.9.3 第 23 轮（用户："我设置里面改不了 max_tokens"）：
+        #   以前界面里**根本没有这一项**，只能手改 config.json —— 而程序退出会按
+        #   内存值重写 config.json，于是手改经常白改。这条断言钉住"界面里有、且读得到"。
+        ("llm.max_tokens", sw._llm_max_tokens.value(), 5120),
     ]:
         check(f"加载 {label}", got == want, f"want={want} got={got}")
 
@@ -155,6 +161,8 @@ try:
     # ★ 1.9.1: 不再设 _ui_sidebar_width（控件和字段都删了）
     sw._ui_opacity.setValue(66)
     sw._download_path.setText("E:/new/dl")
+    # ★ 1.9.3 第 23 轮：在界面上改 max_tokens → 必须真的写进 config.json
+    sw._llm_max_tokens.setValue(6144)
 
     # 绕开太重/无关的部分（工具扫描、真实信号外发）
     sw._get_tools_policy_changes = lambda: {}
@@ -174,6 +182,9 @@ try:
           "sidebar_width" not in sw2["ui"], str(sorted(sw2["ui"].keys())))
     check("保存 opacity=0.66", abs(sw2["ui"]["opacity"] - 0.66) < 1e-6)
     check("保存 download_path", sw2["tools"]["download_path"] == "E:/new/dl")
+    # ★ 1.9.3 第 23 轮：界面改的 max_tokens 必须落盘（这曾经是"改不了"的地方）
+    check("★保存 llm.max_tokens=6144（界面上改的真的写进 config.json）",
+          sw2["llm"]["max_tokens"] == 6144, str(sw2["llm"].get("max_tokens")))
     check("保存后 vision.api_key 仍不落 config.json",
           "api_key" not in sw2.get("vision", {}))
 

@@ -114,6 +114,72 @@ if _crop.exists():
     check("★中间那块不透明的内容还在（没被底色盖掉）",
           _mid[0] > 150 and _mid[1] < 90 and _mid[2] < 90, str(_mid))
 
+print("\n== D3. ★1.9.3 第 23 轮：图片不再被硬裁成正方形 + 开头的 @图片 不再开空页 ==")
+# 真机证据：模型给的素材 `news_whale.png` 是 690×1215（竖图，比例 0.57），
+# 而旧槽位是**写死的 4.6×4.6 正方形** → 上下各切 22%，立绘的头直接被切掉。
+_bw, _bh = P._fit_box(690, 1215, 4.45, 5.05)
+check("★自适应框保持原图比例（不再拍成正方形）",
+      abs((_bw / _bh) - (690 / 1215)) < 0.01, f"{_bw:.2f}x{_bh:.2f} 比例={_bw/_bh:.3f}")
+check("★竖图在可用区域里被放大到贴边（高度吃满 5.05）", abs(_bh - 5.05) < 0.02, f"h={_bh:.3f}")
+_w2, _h2 = P._fit_box(1600, 800, 4.45, 5.05)
+check("★横图也一样：比例保持不变", abs((_w2 / _h2) - 2.0) < 0.01, f"{_w2:.2f}x{_h2:.2f}")
+
+_sl, _lead = P._parse_outline("@cover.png\n\n# 标题甲\n- 要点一\n")
+check("★开头的 @图片 不再单独开页（改记为封面图）",
+      len(_sl) == 1 and _sl[0]["title"] == "标题甲" and _lead == ["cover.png"],
+      f"slides={len(_sl)} leading={_lead}")
+_sl2, _lead2 = P._parse_outline("# 甲\n- 一\n@after.png\n")
+check("标题之后的 @图片 仍挂当前页", _sl2[0]["imgs"] == ["after.png"] and not _lead2)
+
+_pv = _out / "portrait_probe.png"
+Image.new("RGB", (300, 500), (30, 90, 160)).save(_pv)
+# ★ 注意：图片挂在**第一页**时会被当封面图（tag=_cover）。这里多给一个 `# 封面`
+#   让竖图落到**内容页**上，才测得到内容页的槽位。
+_r5 = json.loads(P.execute(action="create",
+                           outline="# 封面\n# 竖图页\n- 看它还切不切头\n@" + str(_pv),
+                           out_dir=str(_out), filename="portrait_probe.pptx"))
+check("竖图页拍完（共 2 页）", _r5.get("slides") == 2, str(_r5.get("slides")))
+_crop2 = P.DEFAULT_OUT / "_tmp" / "portrait_probe_p0.jpg"
+check("竖图裁剪产物落盘", _crop2.exists(), str(_crop2))
+if _crop2.exists():
+    with Image.open(_crop2) as _im4:
+        check("★★裁剪产物仍是竖构图（旧代码这里会变成 1:1 正方形）",
+              _im4.height > _im4.width and abs((_im4.width / _im4.height) - 0.6) < 0.02,
+              f"{_im4.size} 比例={_im4.width/_im4.height:.3f}")
+
+print("\n== D4. ★字号自适应（防文本框溢出）+ 主题底色 ==")
+# 6 条、每条 96 个字：旧代码只看"条数≤6 → 18pt"，必然溢出文本框；
+# 新代码按估算行数缩号。
+_long = ["这是一条特别特别长的要点" * 8] * 6
+_old_would_be = 18 if len(_long) <= 6 else 14
+_fitted = P._fit_body_size(_long, 7.1, 5.0, 18)
+check("★超长要点会自动缩号（旧代码只看条数 → 还是 18pt，会撑爆文本框）",
+      _fitted < _old_would_be, f"新={_fitted}pt 旧={_old_would_be}pt")
+check("短要点不缩号（保持 18pt）", P._fit_body_size(["短", "也很短"], 11.9, 5.0, 18) == 18)
+
+_rd = json.loads(P.execute(action="create", outline="# 深色主题\n- 底色应该被画出来",
+                           out_dir=str(_out), filename="dark_probe.pptx", theme="dark"))
+check("dark 主题可用", _rd.get("success") is True, str(_rd.get("text"))[:60])
+_prs2 = _Prs(str(_out / "dark_probe.pptx"))
+_bg_ok = False
+for _sh in _prs2.slides[0].shapes:
+    try:
+        if _sh.fill.type is not None and _sh.fill.fore_color.rgb == P._rgb((0x12, 0x10, 0x16)):
+            _bg_ok = True
+    except Exception:
+        pass
+check("★dark 主题真的画了底色（以前主题只改字色，永远是一张白纸）", _bg_ok)
+
+_sizes = []
+for _sh in _prs2.slides[0].shapes:
+    if _sh.has_text_frame:
+        for _p in _sh.text_frame.paragraphs:
+            for _r in _p.runs:
+                if _r.font.size:
+                    _sizes.append(_r.font.size.pt)
+check("★封面用大标题（44pt），与内容页区分开",
+      max(_sizes or [0]) >= 40, str(sorted(set(_sizes))))
+
 
 def _powerpnt_alive():
     try:

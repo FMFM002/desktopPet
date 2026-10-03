@@ -712,6 +712,18 @@ class SettingsWindow(QWidget):
         model_row.addWidget(btn)
         f1.addRow(self._lbl("模型名称:"), model_row)
         f1.addRow("", self._hint("点击「检测」从 API 获取可用模型列表。切换提供商自动检测。"))
+        # ★ 1.9.3 第 23 轮（用户："我设置里面改不了 max_tokens"）：这一项以前**界面里没有**，
+        #   只能手改 config.json —— 而程序退出时会按内存里的值把 config.json 重写，
+        #   所以手改经常"改了没用"（真机已经栽过两次）。现在放进设置里，改名正言顺。
+        self._llm_max_tokens = QSpinBox()
+        self._llm_max_tokens.setRange(256, 65536)
+        self._llm_max_tokens.setSingleStep(512)
+        self._llm_max_tokens.setValue(8192)
+        self._llm_max_tokens.setMinimumWidth(140)
+        f1.addRow(self._lbl("最大输出 tokens:"), self._llm_max_tokens)
+        f1.addRow("", self._hint(
+            "单次回复的输出上限。★ 用思考型模型（deepseek-flash / reasoner）时别调太小 ——\n"
+            "思考内容也会吃这个预算，太小会导致「空回复」或正文被截半句（建议 ≥4096，默认 8192）。"))
         layout.addWidget(g1)
 
         layout.addStretch()
@@ -2391,6 +2403,11 @@ class SettingsWindow(QWidget):
             self._llm_model_combo.setEditText(cfg.llm.model)
         else:
             self._llm_model_combo.setCurrentIndex(-1)
+        # ★ 1.9.3 第 23 轮：max_tokens 现在有界面控件了（以前只能改 config.json）
+        try:
+            self._llm_max_tokens.setValue(int(cfg.llm.max_tokens or 8192))
+        except Exception:
+            self._llm_max_tokens.setValue(8192)
 
         # Pet / 性格
         _card_names = [c["name"] for c in scan_character_cards()]
@@ -2565,6 +2582,11 @@ class SettingsWindow(QWidget):
         cfg.llm.host = self._llm_host.text().strip()
         cfg.llm.api_key = self._llm_key.text().strip()
         cfg.llm.model = self._llm_model_combo.currentText().strip()
+        # ★ 1.9.3 第 23 轮：把界面上的 max_tokens 写回配置（否则设置页改了也不生效）
+        try:
+            cfg.llm.max_tokens = int(self._llm_max_tokens.value())
+        except Exception:
+            pass
 
         # Pet / 性格 —— 当前角色独立保存
         cfg.pet.character = self._selected_character
