@@ -36,6 +36,16 @@ TOOL_DESCRIPTION = """PowerPoint（.pptx）工具。
   · 无论哪种，做完都用 `action=render` + `file_ops view` 自检一遍。
 
 规范（用本工具造片子时，已内置默认值）：
+★★ **版式规范 —— 照这个做，别做出"大片空白"的页**（用户评价最好的是阿米娅那版，
+   下面几条就是从它总结出来的；越做越丑基本都是违反了 ①②）：
+  ① **每页都要"铺满"**：用一张背景图 + **暗色蒙版(scrim)** 打底，
+     或至少让内容块铺到页面右侧。**最忌讳**：深色纯底 + 左上角一小堆字 + 右下大片黑。
+  ② **统一骨架**：左侧竖直强调色条 → 标题上方的英文小标（PROFILE / SKILLS…）
+     → 大标题 → 正文块；**每页都要有页脚**（角色名 / 作品名）与右下角页码 ——
+     有页脚和页码，页面才显得"完整"。
+  ③ **图片只有两种合法用法**：**满版铺底**（配 scrim），或**带细边框的面板**并参与排版。
+     **别让小图漂在页面中间**；**深色版面别用白底图**（像贴了张白纸）。
+  ④ **字号层级拉开**：标题大而粗，正文小而疏（小字号 + 大行距）。
 · 16:9（13.333×7.5 英寸）；显式设置版式、字号、图表数据；用本地图片，不用网图。
 · 中文默认字体（微软雅黑，含东亚字体回退）；标题 30pt、封面 44pt；
   正文 18pt 起，**会按估算行数自动缩号**防止溢出文本框。
@@ -60,6 +70,9 @@ TOOL_DESCRIPTION = """PowerPoint（.pptx）工具。
   哪一页看着有问题，再单独 view 那一页细看。这样自检只要 2 次调用，不必一页一轮
   （真机上有人逐页看、预算不够，最后干脆没检查）。
   ★ **别自己写拼图脚本**，总览图已经给你了。
+  ★★ **总览图只用来扫版式**（大片空白 / 图片变形 / 溢出）；它是缩略拼图、**小字会糊**，
+    **不要拿它核对文字或数字**（视觉模型在小字上会认错、甚至编出页面上没有的字）。
+    要核对文字，**必须 view 单页**。
   ★ `file_ops view` 就是你的眼睛（多模态如实描述）；*不要*说"我看不到图"。
   没装 Office 的机器会如实返回失败（按"无法渲染核对"处理，别硬试）。"""
 
@@ -638,7 +651,7 @@ def _powerpoint_running() -> bool:
     return False
 
 
-def _make_contact_sheet(paths, out_path, cols=None, thumb_w=760):
+def _make_contact_sheet(paths, out_path, cols=None, thumb_w=900):
     """★ 1.9.3 第 27 轮：把导出的每页 PNG 拼成**一张总览图**。
 
     为什么需要（真机证据 `logs/prts_20261004_034150.log`）：
@@ -679,6 +692,51 @@ def _make_contact_sheet(paths, out_path, cols=None, thumb_w=760):
         return out_path
     except Exception:
         return None
+
+
+_FH_FILE = None      # 复用的 faulthandler 文件句柄（见 _fh_resume）
+
+
+def _fh_suspend():
+    """★ 1.9.3 第 30 轮：COM 收尾期间**临时关掉 faulthandler**。
+
+    为什么要这么干（真机证据 + 我的验证失误都记在这）：
+      · `logs/main_faulthandler.log` 里，**每做一次 render 就多一段**
+        `Windows fatal exception: code 0x80010108`（= RPC_E_DISCONNECTED），
+        一百来行全线程栈。新进程里连做 3 次 render，日志稳定每次 +1623 字节。
+      · 触发点是**释放 PowerPoint 代理对象**那一步（`app = None`）。
+        `app.Quit()` 之后服务器已经断开，此时再 Release 这个残骸代理，
+        必然报"对象已与客户端断开" —— 这是 COM 的**预期行为**，不是我们的 bug。
+      · 但 faulthandler 把它当"致命异常"打到崩溃日志里 → 噪音淹掉真线索
+        （这个日志本来就是用来抓真崩溃的）。
+      · ★ 我上一轮的"验证"是**错的**：那个探针进程里没启用 faulthandler，
+        所以它当然不涨 —— 这次先把 faulthandler 打开再验，才复现出来。
+    做法：收尾这几行内 `disable()`，完事用**同一个文件**再 `enable()`。
+    窗口极短（毫秒级），其他线程的真崩溃仍然抓得到。
+    """
+    try:
+        import faulthandler
+        if not faulthandler.is_enabled():
+            return None
+        faulthandler.disable()
+        return True
+    except Exception:
+        return None
+
+
+def _fh_resume(token):
+    if not token:
+        return
+    global _FH_FILE
+    try:
+        import faulthandler
+        from src.utils.logger import LOG_DIR
+        if _FH_FILE is None or _FH_FILE.closed:
+            _FH_FILE = open(Path(LOG_DIR) / "main_faulthandler.log", "a",
+                            buffering=1, encoding="utf-8", errors="replace")
+        faulthandler.enable(file=_FH_FILE, all_threads=True)
+    except Exception:
+        pass
 
 
 def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) -> str:
@@ -756,10 +814,21 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
             except Exception as e:
                 failed.append(f"第{i}页({type(e).__name__}: {e})")
     finally:
+        # ★ 第 30 轮：收尾这几行里，COM 的"断开"是**预期行为**（见 _fh_suspend），
+        #   先关掉 faulthandler 免得它往崩溃日志里灌一百行假警报。
+        _fh_token = _fh_suspend()
         # 只收自己打开的那一份；**用户原本开着的 PowerPoint 不能 Quit**。
         try:
             if opened and pres is not None:
                 pres.Close()
+        except Exception:
+            pass
+        # ★ 第 30 轮：先把 pres 的引用丢掉 —— 这时连接还活着，Release 不会报断开；
+        #   等 Quit 之后再放，就是在拆已经断掉的代理（= 那堆假警报的来源）。
+        try:
+            pres = None
+            import gc as _gc
+            _gc.collect()
         except Exception:
             pass
         try:
@@ -768,25 +837,23 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
         except Exception:
             pass
         # ★★ 1.9.3 第 29 轮：**先把 COM 引用丢干净，再 CoUninitialize**。
-        #   真机证据：`logs/main_faulthandler.log` 里**每次 render 都留一段**
-        #     `Windows fatal exception: code 0x80010108`（= RPC_E_DISCONNECTED）
-        #   当前线程正好停在下面 `pythoncom.CoUninitialize()` 这一行 ——
-        #   四次 render，四段 dump（每次一百来行的线程栈，看着像崩了）。
+        #   真机证据：`logs/main_faulthandler.log` 里每次 render 都留一段
+        #     `Windows fatal exception: code 0x80010108`（= RPC_E_DISCONNECTED）。
         #   原因：pywin32 的 COM 指针是**跟着 Python 对象被 GC 才释放**的；
         #   而 `CoUninitialize()` 直接把本线程的 COM 套间拆了 ——
         #   那些还没释放的对象随后再释放，就报"对象已与客户端断开"。
         #   所以顺序必须是：Close/Quit → **丢掉引用 + 回收** → CoUninitialize。
         try:
-            pres = None
             app = None
-            import gc as _gc
-            _gc.collect()
+            import gc as _gc2
+            _gc2.collect()
         except Exception:
             pass
         try:
             pythoncom.CoUninitialize()
         except Exception:
             pass
+        _fh_resume(_fh_token)
 
     if not images:
         return _err("没能导出任何页面" + (f"（{'；'.join(failed[:3])}）" if failed else ""))
@@ -807,8 +874,12 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
     if sheet:
         msg += (f"\n★ 下一步（别跳过）：**先看总览**\n"
                 f"  ① 先调 `file_ops view {sheet}` —— 这一张就是全部 {len(images)} 页的"
-                f"缩略拼图，**一次看全**；\n"
-                f"  ② 哪一页看着有问题，再单独 view 那一页（上面的单页路径）细看。")
+                f"缩略拼图，**一次看全版式**；\n"
+                f"  ② 哪一页看着有问题，再单独 view 那一页（上面的单页路径）细看。\n"
+                f"  ★★ **总览图只能用来扫版式**（有没有大片空白、图片有没有变形、有没有溢出）。"
+                f"它是缩小拼图，**小字会糊** —— **不要拿总览图去核对文字内容或数字**，"
+                f"视觉模型在小字上会认错、甚至编出页面上根本没有的字（真机就吃过这个亏："
+                f"模型照着总览的误读去改内容，白烧几轮）。**要核对文字，必须 view 单页。**")
     else:
         msg += "\n★ 下一步（别跳过）：对上面每个 PNG 路径调 `file_ops view` 看一眼。"
     msg += ("\n★ 检查重点：文字有没有溢出、图片有没有变形/被切、字体有没有缺失。"

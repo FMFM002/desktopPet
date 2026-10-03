@@ -239,6 +239,27 @@ check("★判定用了 thinking 长度 vs max_tokens（不再一律只说「继�
       "_think_len" in _sess_src and "_mt" in _sess_src)
 check("★证据（13584 字）写进注释，后人知道为什么加", "13584" in _sess_src)
 
+print("\n== I. ★1.9.3 第 30 轮：版式规范进提示词 + 总览图只能看版式不能读字 ==")
+# 用户原话："感觉PPT越来越丑，不知道为什么。之前阿米娅那个是最好看的，说不定可以借鉴。"
+# 把阿米娅那版（满版背景+scrim、统一骨架+页脚页码、图片面板化）总结成规范写进两处。
+for _src_name, _txt in (("工具描述", _pptx_desc), ("系统提示词", _lc)):
+    check(f"★{_src_name} 里写了「每页都要铺满 / 别大片空白」",
+          "铺满" in _txt and "大片空白" in _txt)
+    check(f"★{_src_name} 里写了统一骨架（强调色条 + 英文小标 + 页脚 + 页码）",
+          "强调色条" in _txt and "页脚" in _txt)
+    check(f"★{_src_name} 里写了图片只有两种合法用法（满版 / 带边框面板）",
+          "满版铺底" in _txt)
+    check(f"★{_src_name} 提到「最忌讳」那种页（纯底+左上角小堆字+右下空白）",
+          "最忌讳" in _txt)
+
+# 总览图被当成"读文字"的凭据 → 视觉模型在小字上幻觉，模型照着误读去改内容（真机）。
+check("★工具描述里也写了「总览图只用来扫版式、别核对文字」",
+      "只用来扫版式" in _pptx_desc and "不要拿它核对文字" in _pptx_desc)
+_src_r = (BASE / "tools" / "pptx_tool.py").read_text(encoding="utf-8")
+check("★render 的返回文案里也写了这条（模型读的是返回值）",
+      "不要拿总览图去核对文字" in _src_r)
+check("★总览图缩略图调大了（760→900，减轻小字看不清）", "thumb_w=900" in _src_r)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
