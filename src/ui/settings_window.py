@@ -1241,8 +1241,23 @@ class SettingsWindow(QWidget):
         全局 config + 当前角色的 settings.json。
         其他角色（"两套角色"里的另一套）的 settings.json 早就在磁盘上了
         （只在被选中编辑时才写），这里不需要也无从覆盖。
+
+        ★★ 1.9.3 第 26 轮（真机 bug，用户报"我在设置里改了 max_tokens 却不生效"）：
+          **旧代码这里只调 `self._config.save()`，写的是内存里的旧值** ——
+          用户在界面上改了、但没点「保存设置」的改动**全部丢失**，
+          而日志还会打一句"config.json 已保存（退出）"，看起来一切正常。
+          （README 一直承诺"退出时会把没点过保存的改动也写回本地"，
+           但那只对**角色 settings.json** 成立，全局 config 其实没收集界面值。）
+          现在：**先按 `apply_only=True` 把界面值收进 cfg，再同步落盘**。
+          `apply_only` 只做"界面 → cfg"的赋值，不另起线程、不发信号 ——
+          退出阶段发信号给正在关闭的窗口是危险的，所以这里刻意不触发。
         """
         self.flush_current_character_settings()
+        try:
+            self._do_save_settings(self._config, self._config.llm.provider,
+                                   apply_only=True)
+        except Exception as e:
+            _log.warning(f"[落盘] 退出时收集界面值失败（改用内存里的值保存）: {e}")
         try:
             self._config.save()
             _log.info("[落盘] config.json 已保存（退出）")
@@ -2574,8 +2589,14 @@ class SettingsWindow(QWidget):
             if hasattr(self, "_save_watchdog") and self._save_watchdog:
                 self._save_watchdog.stop()
 
-    def _do_save_settings(self, cfg, old_provider):
-        """实际的设置保存逻辑（提取为独立方法，便于异常处理）"""
+    def _do_save_settings(self, cfg, old_provider, apply_only: bool = False):
+        """实际的设置保存逻辑（提取为独立方法，便于异常处理）。
+
+        `apply_only=True`（★ 1.9.3 第 26 轮新增）：**只做"界面 → cfg"的赋值就返回**，
+        不起保存线程、不发信号。给退出阶段的 `flush_all_on_exit()` 用 ——
+        它要的是"把没点保存的改动收进 cfg"，然后自己同步落盘；
+        在窗口正在关闭的时候发 config_changed 信号是危险的。
+        """
 
         # LLM
         cfg.llm.provider = self._llm_provider_combo.currentData() or "deepseek"
@@ -2710,6 +2731,10 @@ class SettingsWindow(QWidget):
             _log.debug(f"工具策略: {changed_count} 项变更")
         enabled_names = [name for name, p in new_policies.items() if p != "disabled"]
         cfg.enabled_tools = enabled_names
+
+        if apply_only:
+            # ★ 1.9.3 第 26 轮：只要"界面值收进 cfg"这一步；落盘由调用方同步做
+            return
 
         def _do_save():
             try:

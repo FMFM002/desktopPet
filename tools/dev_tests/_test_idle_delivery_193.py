@@ -151,6 +151,15 @@ check("★轮次预算提到 30（20 轮写不完一份手写脚本的 PPT）",
 check("★75% 收尾提醒还在", "MAX_ROUNDS * 0.75" in
       (BASE / "src" / "core" / "session.py").read_text(encoding="utf-8"))
 
+print("\n== E. ★思考型模型的 max_tokens 下限提到 8192（4096 已被真机证伪）==")
+# 证据 logs/prts_20261004_032056.log：第 7/8/9 轮连续
+#   `空回复（thinking=6947/7017/6640 字，max_tokens=4096）` → "多轮空回复，放弃"，
+# 光是思考就比 4096 大，正文永远拿不到预算。
+check("★llm_client 里的下限是 8192", "_floor = 8192" in _lc,
+      [ln.strip() for ln in _lc.splitlines() if "_floor =" in ln][:2])
+check("★注释里记着真机证据（空回复 + thinking 字数）", "空回复（thinking=" in _lc)
+check("★4096 不再作为下限", "_floor = 4096" not in _lc)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

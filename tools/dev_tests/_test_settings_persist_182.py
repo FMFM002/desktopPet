@@ -188,6 +188,20 @@ try:
     check("保存后 vision.api_key 仍不落 config.json",
           "api_key" not in sw2.get("vision", {}))
 
+    # ── 4b. ★只改界面、**不点保存** → 退出时的 flush 也必须落盘 ──
+    # 真机 bug（用户："我在设置里改了 max_tokens，还是没生效"）：
+    #   flush_all_on_exit() 旧实现**只调 self._config.save()**，写的是内存里的旧值，
+    #   界面上改了但没点「保存设置」的改动**全丢**，而日志还打"config.json 已保存（退出）"。
+    #   （复现：改 spinbox → flush_all_on_exit() → 文件里还是旧值。）
+    print("\n== 4b. ★界面上改了但没点「保存设置」→ 退出 flush 也要落盘 ==")
+    sw._llm_max_tokens.setValue(7168)
+    sw.flush_all_on_exit()
+    sw2b = json.loads(CFG.read_text(encoding="utf-8"))
+    check("★没点「保存设置」的改动在退出时被收进 cfg 并落盘（旧代码这里会是 6144）",
+          sw2b["llm"]["max_tokens"] == 7168, str(sw2b["llm"].get("max_tokens")))
+    check("★apply_only 不另起保存线程、不发信号（退出阶段发信号是危险的）",
+          "apply_only" in (ROOT / "src" / "ui" / "settings_window.py").read_text(encoding="utf-8"))
+
     # ── 5. 视觉 Key 单独存 .env ──
     print("\n== 5. 视觉 API Key 持久化到 .env ==")
     os.environ.pop("DEEPSEEK_VISION_API_KEY", None)

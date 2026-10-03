@@ -487,12 +487,18 @@ class ChatClient:
         #   （"空回复"）或**正文半句被截断**（表现为 SyntaxError: unterminated string
         #   literal / 最后的输出异常）。而 config.json 每次退出会被程序按内存里的值
         #   重写 —— 只改文件不保险（真机 00:33 那次又是 2048）。
-        #   所以在这里兜一层：deepseek 的思考型模型（flash/reasoner/r1）至少给 4096。
+        #   所以在这里兜一层。
+        # ★★ 1.9.3 第 26 轮：**下限从 4096 提到 8192** —— 4096 已经被真机证伪：
+        #   `logs/prts_20261004_032056.log` 第 7/8/9 轮连续三次
+        #   `第N轮空回复（thinking=6947/7017/6640 字，max_tokens=4096）`
+        #   —— 光是思考就 6600~7000 字（中文≈1 字 1 token），**比 4096 还大**，
+        #   于是正文永远没预算，连续空回复把这一轮逼到放弃。
+        #   8192 正好是 config 默认值，也够这份模型把"想 + 说"都写下来。
         try:
             _host = str(kc.get("host", "")).lower()
             _mdl = str(kc.get("model", "")).lower()
             if "deepseek" in _host and any(_k in _mdl for _k in ("flash", "reasoner", "r1")):
-                _floor = 4096
+                _floor = 8192
                 if int(self.max_tokens) < _floor:
                     _log.warning(f"[max_tokens] {self.max_tokens} 太小（思考会吃光预算）"
                                  f"→ 自动提到 {_floor}（配置里仍是 {self.max_tokens}）")
