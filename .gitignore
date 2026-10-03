@@ -50,6 +50,11 @@ dist/
 
 # ---- 测试临时库 / 编辑器 ----
 _test_tmp_dbs/
+# ★ 1.9.3 第 21 轮：a190 与新版 DSML 套件用的是带后缀的同一份临时库 ——
+#   上面那条 `_test_tmp_dbs/` 只匹配**同名**目录，匹配不到 `_test_tmp_dbs_190/`，
+#   于是"跑一次回归"就会在 git status 里冒出一堆没被忽略的 .db。
+#   补一条精确的，免得有人手滑把测试库提交进去。
+tools/dev_tests/_test_tmp_dbs_190/
 .idea/
 .vscode/
 *.swp

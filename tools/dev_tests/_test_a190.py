@@ -1793,20 +1793,18 @@ check("★主窗口把主动说话接进会话（idle_trigger 信号回主线程
       and "_task_relay.idle_trigger.emit(prompt)" in _mw_src_idle
       and "send_auto_tool_trigger(prompt)" in _mw_src_idle)
 
-print("\n== ★tools功能.txt（你说的「写一份 tools 功能说明」）==")
+print("\n== ★tools功能.txt 已删除（手写快照会过期，改为以运行时 TOOL_DESCRIPTION 为准）==")
 
+# ★ 1.9.3 第 21 轮（用户要求"这个文件直接删了吧，避免误导"）：
+#   `tools功能.txt` 是一份**手写的工具说明书快照**，第 16 轮新增 `pptx` 工具后没补，
+#   于是它跟代码脱节（还宣称"覆盖全部工具"）—— 使用者照着它找工具会被误导。
+#   工具的权威说明是各工具源码里的 `TOOL_DESCRIPTION`，设置窗口的「介绍」
+#   本来就读运行时那份，所以删掉快照不影响任何功能。
+#   这两条断言从"说明书存在且覆盖全部工具"改成**守卫"别再把它加回来"**。
 _tf = _doc("tools功能.txt")
-check("★说明书存在且覆盖全部工具",
-      _tf.exists() and all(f"■ {n}" in _tf.read_text(encoding="utf-8")
-                           for n in ("web_search", "download", "bilibili_video",
-                                     "file_ops", "office", "weather_query",
-                                     "system_command", "shell_exec",
-                                     "knowledge_graph", "long_term_memory",
-                                     "jmcomic", "pixiv", "endfield")))
-_tf_txt = _tf.read_text(encoding="utf-8") if _tf.exists() else ""
-check("★说明书写清了参数/返回/示例与调用纪律",
-      "【参数】" in _tf_txt and "【返回】" in _tf_txt and "【示例】" in _tf_txt
-      and "调用纪律" in _tf_txt)
+check("★手写说明书快照已删除（不再有两处会互相矛盾的真理）", not _tf.exists(), str(_tf))
+check("★工具说明的唯一来源是运行时 TOOL_DESCRIPTION（设置窗口就是这么读的）",
+      "tool.description" in (ROOT / "src" / "ui" / "settings_window.py").read_text(encoding="utf-8"))
 
 # ══════════════════════════════════════════════════════════════
 # P站工具（tools/pixiv_tool.py + 内置 pixivpy3）

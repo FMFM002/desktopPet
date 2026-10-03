@@ -36,8 +36,10 @@ TOOL_DESCRIPTION = """在本机生成或增补 PowerPoint（.pptx）。**做 PPT
 空行忽略；`## 子标题` 视为该页的小标题行。
 
 · **想核对排版就用 action=render**：调本机 PowerPoint 把每页导出成 PNG（返回图片
-  绝对路径），再用你的看图能力检查文字溢出/图片变形/字体缺失。没装 Office 的机器
-  会如实返回失败（按"无法渲染核对"处理，别硬试）。"""
+  绝对路径）。★ 拿到路径后**一定要用 `file_ops view <那个PNG路径>` 逐张看** ——
+  那才是你的眼睛（多模态如实描述）；*不要*说"我看不到图"，你有这个能力。
+  看的时候重点检查文字溢出/图片变形/字体缺失。没装 Office 的机器会如实返回失败
+  （按"无法渲染核对"处理，别硬试）。"""
 
 TOOL_PARAMETERS = {
     "type": "object",
@@ -470,7 +472,11 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
            + "\n".join(images[:12])
            + ("\n…（更多见目录）" if len(images) > 12 else "")
            + (f"\n★ {len(failed)} 页导出失败：{'；'.join(failed[:3])}" if failed else "")
-           + "\n用你的看图能力逐张检查：文字有没有溢出、图片有没有变形、字体有没有缺失。")
+           + "\n★ 下一步（别跳过）：对上面每一个 PNG 路径调一次 "
+             "`file_ops view <该PNG路径>`，用你的看图能力逐张检查 "
+             "文字有没有溢出、图片有没有变形、字体有没有缺失。"
+             "\n★ 如果你打算说「我看不到图」—— 不要那样说：`file_ops view` "
+             "就是你的眼睛，它对图片走多模态如实描述。")
     return json.dumps({
         "success": True, "action": "render", "path": str(p),
         "out_dir": str(od), "dpi": dpi, "slides": len(images),

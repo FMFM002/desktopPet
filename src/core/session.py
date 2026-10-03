@@ -81,6 +81,121 @@ def _repair_json_args(raw: str):
         return None
 
 
+# ══════════════════════════════════════════════════════════════
+# ★★ 1.9.3 第 21 轮：DSML 工具调用的**解析与执行**
+# ══════════════════════════════════════════════════════════════
+# 真机证据（logs/prts_20261004_013741.log 第 11 轮）：
+#   `content=155字符, thinking=720字符, tool_calls=0` —— 模型想把 PPT 发出去
+#   （以及调 meme），却把工具调用**以 DSML 文本吐在正文里**（不是标准 tool_calls 字段）。
+#   第 17 轮只做到"藏起来不显示" → **这次调用被整个丢掉**：
+#   `file_ops send` 从未执行 → **文件根本没发出去** → 用户看到的就是"失败了"。
+#   所以必须把它**解析回标准 tool_calls 并真正执行**（交接块里的 c 项）。
+#
+# 形状（竖线是**全角** U+FF5C，且跨 chunk 拼出来，只能用累积正文解析）：
+#   开标记 = "<" + 全角竖线×2 + "DSML" + 全角竖线×2 + " "   （后跟 invoke/parameter）
+#   闭标记 = "</" + 全角竖线×2 + "DSML" + 全角竖线×2 + " "
+# 源码里不直接写那两个全角字符，统一由 _DSML_BAR 拼出来，免得日后被编辑器/正则弄坏。
+_DSML_BAR = "\uff5c\uff5c"
+_DSML_OPEN = "<" + _DSML_BAR + "DSML" + _DSML_BAR + " "
+_DSML_CLOSE = "</" + _DSML_BAR + "DSML" + _DSML_BAR + " "
+
+
+def looks_like_dsml(text: str) -> bool:
+    """正文里是否出现了 DSML 工具调用标记（用来判定"这是调用，不是正文"）。"""
+    return bool(text) and ("DSML" in text or "\uff5c\uff5c" in text)
+
+
+def parse_dsml_tool_calls(text: str) -> list:
+    """把 DSML 文本解析成标准 tool_calls；解析不到返回 []。
+
+    先做**归一化**（把全角标记换成 ASCII 的 `<DSML ` / `</DSML `），
+    再用普通正则解析 —— 比直接对着全角字符写正则可读得多，也不容易被转义坑到。
+    """
+    if not looks_like_dsml(text):
+        return []
+    t = text.replace(_DSML_OPEN, "<DSML ").replace(_DSML_CLOSE, "</DSML ")
+
+    def _params(body: str) -> dict:
+        import html as _html
+        args = {}
+
+        def _put(pname: str, attrs: str, raw: str):
+            raw = _html.unescape(raw).strip()
+            # `string="false"` 表示这个参数是 JSON（数字/布尔/对象），其余按字符串
+            if 'string="false"' in attrs:
+                try:
+                    args[pname] = json.loads(raw)
+                except Exception:
+                    args[pname] = raw
+            else:
+                args[pname] = raw
+
+        for pm in re.finditer(
+                r'<DSML\s+parameter\s+name="([^"]+)"([^>]*)>(.*?)</DSML\s+parameter\s*>',
+                body, re.S):
+            _put(pm.group(1).strip(), pm.group(2), pm.group(3))
+        # ★ 兜底：流被截断时参数的闭标记根本没到 → 取到"下一个开标记/结尾"为止。
+        #   （真机第 11 轮那段就是断在半路的，不兜这一层就一个参数都拿不到。）
+        for pm in re.finditer(
+                r'<DSML\s+parameter\s+name="([^"]+)"([^>]*)>(.*?)(?=<DSML\s|\Z)', body, re.S):
+            pname = pm.group(1).strip()
+            if pname not in args:
+                _put(pname, pm.group(2), pm.group(3))
+        return args
+
+    out = []
+    for m in re.finditer(r'<DSML\s+invoke\s+name="([^"]+)"\s*>(.*?)</DSML\s+invoke\s*>',
+                         t, re.S):
+        name = m.group(1).strip()
+        if name:
+            out.append({"id": f"dsml_{len(out)}",
+                        "function": {"name": name,
+                                     "arguments": json.dumps(_params(m.group(2)),
+                                                             ensure_ascii=False)}})
+    if out:
+        return out
+
+    # 兜底：开标记在、闭标记被截断（流式被切断）时，仍尽力把名字与已到的参数捞出来
+    for m in re.finditer(r'<DSML\s+invoke\s+name="([^"]+)"\s*>(.*)$', t, re.S):
+        name = m.group(1).strip()
+        if name:
+            out.append({"id": f"dsml_{len(out)}",
+                        "function": {"name": name,
+                                     "arguments": json.dumps(_params(m.group(2)),
+                                                             ensure_ascii=False)}})
+    return out
+
+
+def recover_leaked_tool_calls(text: str) -> list:
+    """★ 1.9.3 第 21 轮：把**漏在正文里的工具调用**救回来（DSML 优先，其次 JSON 形状）。
+
+    返回标准 tool_calls 列表；救不回来返回 []（调用方按普通正文处理）。
+    """
+    if not text or not text.strip():
+        return []
+    # ① DSML 形状（deepseek-flash 在长提示词下常这样）
+    got = parse_dsml_tool_calls(text)
+    if got:
+        _log.info(f"从正文里恢复 DSML 工具调用: {[g['function']['name'] for g in got]}")
+        return got
+    # ② JSON 形状：{"name": ..., "arguments": ...}
+    try:
+        s = text.strip()
+        if '{' in s and '}' in s:
+            data = json.loads(s[s.index('{'):s.rindex('}') + 1])
+            if isinstance(data, dict) and "name" in data and "arguments" in data:
+                fa = data["arguments"]
+                if isinstance(fa, str):
+                    fa = json.loads(fa) if fa.strip() else {}
+                _log.info(f"从正文里恢复 JSON 工具调用: {data['name']}")
+                return [{"id": "leak_001",
+                         "function": {"name": data["name"],
+                                      "arguments": json.dumps(fa, ensure_ascii=False)}}]
+    except Exception:
+        _log.debug("JSON 泄漏恢复失败，按普通文本处理")
+    return []
+
+
 def _is_tool_failure(result: str) -> bool:
     """★ 1.4.0: 检测工具返回是否表示失败"""
     if not result:
@@ -1236,31 +1351,14 @@ class ChatSession:
                 if self._abort_chat:
                     break
 
-                # JSON 泄漏恢复
+                # 工具调用泄漏恢复（★ 1.9.3 第 21 轮：从"只认 JSON 形状"扩成
+                #   先认 DSML 再认 JSON —— 真机第 11 轮就是因为不认 DSML，
+                #   把 `file_ops send` 整个丢掉，PPT 根本没发出去）
                 if tool_json_leak and not has_tool_call and content_buffer.strip():
-                    try:
-                        leaked = content_buffer.strip()
-                        if '{' in leaked and '}' in leaked:
-                            start = leaked.index('{')
-                            end = leaked.rindex('}') + 1
-                            json_str = leaked[start:end]
-                            data = json.loads(json_str)
-                            if "name" in data and "arguments" in data:
-                                func_args = data["arguments"]
-                                if isinstance(func_args, str):
-                                    func_args = json.loads(func_args) if func_args.strip() else {}
-                                valid_tool_calls = [{
-                                    "id": "leak_001",
-                                    "function": {
-                                        "name": data["name"],
-                                        "arguments": json.dumps(func_args, ensure_ascii=False),
-                                    }
-                                }]
-                                _log.info(f"从 content 中恢复工具调用: {data['name']}")
-                                content_buffer = ""
-                                tool_calls_buffer = valid_tool_calls
-                    except Exception:
-                        _log.debug("JSON 泄漏恢复失败，按普通文本处理")
+                    _recovered = recover_leaked_tool_calls(content_buffer)
+                    if _recovered:
+                        tool_calls_buffer = _recovered
+                        content_buffer = ""
 
                 valid_tool_calls = [tc for tc in tool_calls_buffer if tc is not None]
                 text_only_no_tool = bool(content_buffer.strip()) and not valid_tool_calls

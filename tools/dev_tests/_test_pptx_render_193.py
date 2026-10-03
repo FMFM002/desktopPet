@@ -56,6 +56,10 @@ check("文件不存在 → 如实失败（不抛异常）", r.get("success") is 
       r.get("text", "")[:60])
 r = json.loads(P.execute(action="乱写一个"))
 check("不认识的 action 提示里带 render", "render" in r.get("text", ""), r.get("text", "")[:70])
+# ★ 1.9.3 第 21 轮真机教训：render 出了 6 张图，模型却在思考里说「我看不到图」，
+#   于是 render 白跑、排版根本没核对。所以**必须明确指路**：去看这些 PNG 用 file_ops view。
+check("★TOOL_DESCRIPTION 指路「用 file_ops view 看图」（否则模型以为自己瞎）",
+      "file_ops view" in P.TOOL_DESCRIPTION, P.TOOL_DESCRIPTION[-120:].replace("\n", " "))
 
 print("\n== D. ★render 一上手就抓到的 create 缺陷：首页被画两遍 ==")
 # 旧行为：`# 标题` + `- 要点` 的大纲 → 「封面(只有标题) + 内容页(同一标题+要点)」，
@@ -169,6 +173,8 @@ else:
           str([p.name for p in imgs2]))
     check("★text 里给了图片绝对路径（模型要照着去看）",
           all(p.name in r2.get("text", "") for p in imgs2))
+    check("★render 成功返回的文案里就指路 file_ops view（模型读的是返回值）",
+          "file_ops view" in r2.get("text", ""), r2.get("text", "")[-90:].replace("\n", " "))
 
     # ★ 真机踩到的坑：PowerPoint COM **不吃相对路径**（报 -2147024893 找不到路径）。
     #   回归里用相对路径再导一次，防止以后有人把 resolve() 去掉。
