@@ -981,6 +981,58 @@ class ChatSession:
                 m["reasoning_content"] = m.get("reasoning_content") or " "
         return out
 
+    def _side_progress_line(self, tool_calls: list) -> str:
+        """★ 1.9.3 第 9 轮（用户选 B）：**旁路小请求**拿一句进度。
+
+        为什么单独发一次请求：真机实测（10-03）模型主动调 progress_report = **0 次**，
+        光靠提示词哄不出来。用户拍板把汇报做进循环结构 → 每轮工具跑完后，
+        由程序发一次**极小的独立请求**，让模型用一句话说"我在做什么"。
+
+        三条硬要求：
+          · **不碰 self.messages**（不占主对话轮次、不破坏 tool_calls↔tool 配对 → 否则 400）；
+          · 旁路请求**临时关掉工具**（`set_tools([])`），免它又想调工具；
+          · 任何异常都吞掉并返回空串（调用方退回代码兜底），绝不影响主流程。
+        """
+        try:
+            _acts = []
+            for tc in (tool_calls or []):
+                try:
+                    _acts.append(f"- {tc['function']['name']} "
+                                 f"{str(tc['function']['arguments'])[:100]}")
+                except Exception:
+                    pass
+            _last_user = ""
+            with self._lock:
+                for m in reversed(self.messages):
+                    if m.get("role") == "user":
+                        _last_user = str(m.get("content") or "")[:200]
+                        break
+            _msgs = [{"role": "user", "content": (
+                f"【内部：只是让你给用户同步一句进度，不是新任务】\n"
+                f"用户的要求：{_last_user}\n"
+                f"我刚做完的一步：\n" + ("\n".join(_acts) or "（无）") + "\n\n"
+                "请用**一句话**告诉用户你现在在做什么、到哪一步了："
+                "说人话、像随口同步、不超过 30 字，别客套、别罗列步骤、"
+                "别提工具名或第几轮。只输出这一句话，不要做别的事。")}]
+            _saved = list(getattr(self.client, "tools", None) or [])
+            try:
+                self.client.set_tools([])
+                _resp = self.client.chat(_msgs)
+            finally:
+                try:
+                    self.client.set_tools(_saved)
+                except Exception:
+                    pass
+            if not _resp or not getattr(_resp, "choices", None):
+                return ""
+            _line = (getattr(_resp.choices[0].message, "content", "") or "").strip()
+            if not _line or '"name"' in _line or _line.startswith("{"):
+                return ""            # 防呆：吐了 JSON / 工具片段就不要这句
+            return _line.splitlines()[0].strip()[:120]
+        except Exception as e:
+            _log.debug(f"[进度汇报·模型] 旁路请求失败: {e}")
+            return ""
+
     def _run_loop(self):
         tools = self.tool_manager.get_openai_tools()
         self.client.set_tools(tools)
@@ -1001,35 +1053,7 @@ class ChatSession:
             #   → 按批注 2 改成代码兜底，不依赖模型自觉。
             #   位置说明：这里"新一轮开始"= 上一轮的工具调用已经跑完，正是批注说的时机。
             #   限流 20 秒一条，避免长任务里把聊天窗口刷屏。
-            if round_count == 1:
-                self._progress_nudged = False      # 每条用户消息：提醒只插一次
-            if round_count > 1:
-                try:
-                    import time as _t_prog
-                    from src.core import progress_bus as _pb_prog
-                    _reported = int(_pb_prog.count_this_turn() or 0)
-                    # ① 主路径：在**上下文里**提醒它自己汇报（一轮一次）。
-                    #   真机证据：只在系统提示词顶部写一句时，模型主动调用次数是 0；
-                    #   把提醒放到"刚跑完工具、正要决定下一步"这个位置才有效。
-                    if not getattr(self, "_progress_nudged", False) and _reported == 0:
-                        self._progress_nudged = True
-                        with self._lock:
-                            self.messages.append({
-                                "role": "system",
-                                "content": ("（系统提醒）你正在做多步任务。请**先调用 "
-                                            "progress_report** 用一句话告诉用户你当前在做什么，"
-                                            "然后继续下一步；不要输出正文、不要结束任务。"),
-                            })
-                        _log.info("[进度提醒] 已在上下文里插入提醒（让模型自己汇报）")
-                    # ② 保底：模型始终不报时才由程序发（20 秒限流；报过就不发）。
-                    elif _reported == 0:
-                        _now_prog = _t_prog.time()
-                        if _now_prog - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
-                            self._last_progress_at = _now_prog
-                            _pb_prog.report("还在弄，我继续～")
-                            _log.info(f"[进度兜底] 已发第 {round_count} 轮后的进度汇报")
-                except Exception as _e_prog:
-                    _log.debug(f"[进度提醒/兜底] 失败: {_e_prog}")
+            # ★ 1.9.3 第 9 轮：原来的「上下文提醒」已删 —— 汇报改成**结构性旁路请求**，见下面 tool_just_executed 处的调用。
 
             try:
                 with self._lock:
@@ -1287,6 +1311,29 @@ class ChatSession:
                             })
                         consecutive_tool_failures = 0
 
+                    # ★★ 1.9.3 第 9 轮（用户选 B：汇报做进循环结构）——
+                    #   **每轮工具调用结束后**（用户模型的第 7 步），用一次旁路小请求
+                    #   让模型说一句进展，直接显示给用户。不碰主对话、不占轮次。
+                    #   旁路失败 → 退回代码兜底那句（20 秒限流、本轮报过就不发）。
+                    try:
+                        import time as _t_r
+                        from src.core import progress_bus as _pb_r
+                        _rep_line = ""
+                        if _t_r.time() - float(getattr(self, "_last_side_report", 0.0)) >= 3.0:
+                            self._last_side_report = _t_r.time()
+                            _t0_r = _t_r.time()
+                            _rep_line = self._side_progress_line(valid_tool_calls)
+                            _log.info(f"[进度汇报·模型] 旁路耗时 {_t_r.time() - _t0_r:.1f}s"
+                                      f" → {_rep_line[:60] or '(空)'}")
+                        if _rep_line:
+                            _pb_r.report(_rep_line)
+                        elif int(_pb_r.count_this_turn() or 0) == 0 and \
+                                _t_r.time() - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
+                            self._last_progress_at = _t_r.time()
+                            _pb_r.report("还在弄，我继续～")
+                            _log.info("[进度兜底] 已发兜底汇报")
+                    except Exception as _e_r:
+                        _log.debug(f"[进度汇报] 失败: {_e_r}")
                     tool_just_executed = True  # ★ 1.4.0+: 标记工具已执行
                     # ★ 1.9.0（你的 bug 报告"终止工具没生效"）：
                     #   以前点了「终止工具」，剩下的工具确实不跑了，但这里
