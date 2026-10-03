@@ -213,8 +213,21 @@ def _default_stt(path: str) -> str:
 
 
 def _open_image(p: Path):
+    """打开图片给视觉模型看。
+
+    ★★ 1.9.3 第 22 轮：**透明 PNG 必须先压到底色再转 RGB**。
+      旧代码直接 `convert("RGB")`：透明像素的 RGB 分量是垃圾值（黑、或黑白条纹），
+      于是"挂在透明底上的角色立绘/贴纸/logo"会被当成**黑底图**喂给视觉模型 ——
+      模型描述出来的东西自然不对（真机立绘页就是这么翻车的）。
+    """
     from PIL import Image
-    return Image.open(str(p)).convert("RGB")
+    im = Image.open(str(p))
+    if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
+        rgba = im.convert("RGBA")
+        base = Image.new("RGB", rgba.size, (255, 255, 255))   # 白底（看图和 PPT 都用白底）
+        base.paste(rgba.convert("RGB"), (0, 0), rgba.split()[3])
+        return base
+    return im.convert("RGB")
 
 
 def _pdf_page_text(p: Path, page_no: int) -> str:

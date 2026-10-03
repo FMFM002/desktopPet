@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Optional, Callable
 from dataclasses import dataclass
 
-from src.core.reply_filter import ProtocolTailFilter, split_protocol
+from src.core.reply_filter import (ProtocolTailFilter, ToolMarkerTailFilter,
+                                   split_protocol)
 
 _log = logging.getLogger("Session")
 
@@ -779,7 +780,17 @@ class ChatSession:
         import io
         from PIL import Image
         with Image.open(path) as im:
-            im = im.convert("RGB")
+            # ★★ 1.9.3 第 22 轮：**透明图先压白底再转 RGB**。
+            #   直接 convert("RGB") 会把透明区（其 RGB 分量是垃圾值）压成**黑色**，
+            #   于是用户发来的透明 PNG（立绘/贴纸/logo）在模型眼里是"黑底图"，
+            #   描述和判断都会跟着错。JPEG 没有 alpha，所以必须在这里拍平。
+            if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
+                _rgba = im.convert("RGBA")
+                _base = Image.new("RGB", _rgba.size, (255, 255, 255))
+                _base.paste(_rgba.convert("RGB"), (0, 0), _rgba.split()[3])
+                im = _base
+            else:
+                im = im.convert("RGB")
             if max(im.size) > max_side:
                 ratio = max_side / max(im.size)
                 im = im.resize((max(1, int(im.width * ratio)),
@@ -1254,6 +1265,11 @@ class ChatSession:
                 #   模型有时把 {"gif":…,"meme":…} 吐在正文里，必须边流边挡，
                 #   否则等流结束再删就已经显示给用户了（真机实测就是这么翻车的）。
                 proto_filter = ProtocolTailFilter()
+                # ★ 1.9.3 第 22 轮：再挡一道"工具调用标记的开头"。
+                #   为什么需要：泄漏判定要"看见完整标记"才成立，而标记最前面那个 `<`
+                #   是单独一个流包 —— 判定还没成立时它已经被显示出去了，
+                #   于是用户每条进度汇报后面都看到一个孤零零的 `<`（真机截图）。
+                marker_filter = ToolMarkerTailFilter()
 
                 for chunk in stream:
                     if self._abort_chat:
@@ -1298,6 +1314,8 @@ class ChatSession:
                         # ★ 1.9.0: 先过协议过滤器 —— 它会把 {"gif":…,"meme":…} 拦下来，
                         #   只把"该显示的正文"转发给聊天窗口。
                         safe_content = proto_filter.feed(delta.content)
+                        # ★ 1.9.3 第 22 轮：再过一道"标记开头"过滤器（挡掉那个孤立的 `<`）
+                        safe_content = marker_filter.feed(safe_content)
                         if not tool_json_leak and safe_content and self.on_text:
                             self.on_text(safe_content)
                             text_sent_to_ui = True
@@ -1328,8 +1346,17 @@ class ChatSession:
                 #   JSON 剥掉（存进历史的那份必须干净）③ 把协议交给形象线程。
                 #   （只在过滤器由于异常没抓住时，下面的 split_protocol 才兜底。）
                 _tail = proto_filter.flush()
+                if _tail:
+                    _tail = marker_filter.feed(_tail)
                 if _tail and not tool_json_leak and self.on_text:
                     self.on_text(_tail)
+                    text_sent_to_ui = True
+                # ★ 1.9.3 第 22 轮：marker 过滤器也收尾 —— 它 hold 的那点若是普通文本
+                #   （比如正文里一个孤立的 `<`），这里必须补发，**不能吃掉用户的字**。
+                #   但若本轮已判定为工具调用泄漏，就永远不要吐出来。
+                _mtail = marker_filter.flush()
+                if _mtail and not tool_json_leak and self.on_text:
+                    self.on_text(_mtail)
                     text_sent_to_ui = True
                 content_buffer, _proto_split = split_protocol(content_buffer)
                 _proto = proto_filter.payload or _proto_split

@@ -113,20 +113,28 @@ def _style_run(run, size, color, bold=False):
 
 
 def _load_image(path: Path):
-    """★ 素材校验：能解码才算数（坏图会被跳过，不塞进 PPT）。"""
+    """★ 素材校验：能解码才算数（坏图会被跳过，不塞进 PPT）。
+
+    ★★ 1.9.3 第 22 轮：**这里以前是 `im.convert("RGB")` —— 会毁掉带透明的 PNG**。
+      透明像素的 RGB 分量往往是垃圾值（黑、或黑白条纹），直接 convert("RGB")
+      等于把"看不见的底"当成图画出来：真机上那份角色介绍的立绘页就是这么长出
+      一堆黑白横条的（原图是 RGBA 立绘，透明区被压成了黑色）。
+      所以这里**保留 alpha**，压底色的活交给 `_crop_to`（它知道要存成 JPEG）。
+    """
     try:
         from PIL import Image
         with Image.open(path) as im:
             im.verify()                      # 校验完整性
         with Image.open(path) as im:
-            return im.convert("RGB")
+            return im.convert("RGBA")        # ★ 保留 alpha，别在这儿拍平成 RGB
     except Exception:
         return None
 
 
-def _crop_to(path: Path, out: Path, ratio: float, img):
-    """按目标框比例**中心裁剪**（等比，不拉伸）。"""
+def _crop_to(path: Path, out: Path, ratio: float, img, bg=(255, 255, 255)):
+    """按目标框比例**中心裁剪**（等比，不拉伸），并把透明压到 `bg` 底色。"""
     try:
+        from PIL import Image
         w, h = img.size
         if w <= 0 or h <= 0:
             return None
@@ -138,7 +146,17 @@ def _crop_to(path: Path, out: Path, ratio: float, img):
             nh = int(w / ratio)
             box = (0, (h - nh) // 2, w, (h - nh) // 2 + nh)
         out.parent.mkdir(parents=True, exist_ok=True)
-        img.crop(box).save(out, "JPEG", quality=88)
+        cut = img.crop(box)
+        # ★★ 1.9.3 第 22 轮：JPEG 没有 alpha 通道 —— 直接 convert("RGB") 会把透明区
+        #   压成**黑色**（还要带上原图透明区里的垃圾像素）。必须先压到目标底色。
+        if cut.mode in ("RGBA", "LA", "P"):
+            rgba = cut.convert("RGBA")
+            base = Image.new("RGB", rgba.size, tuple(bg))
+            base.paste(rgba.convert("RGB"), (0, 0), rgba.split()[3])
+            cut = base
+        elif cut.mode != "RGB":
+            cut = cut.convert("RGB")
+        cut.save(out, "JPEG", quality=88)
         return out
     except Exception:
         return None
@@ -227,7 +245,10 @@ def _add_page(prs, title: str, bullets, imgs, theme, assets_dir: Path, page_no: 
                 continue
             bx, by, bw, bh = slots[placed]
             tmp = DEFAULT_OUT / "_tmp" / f"{p.stem}_crop.jpg"
-            cropped = _crop_to(p, tmp, bw / bh, img)
+            # ★ 透明立绘要压到**页面底色**（我们的版式底色是白的），
+            #   否则透明区会变成黑色 —— 见 _load_image 的说明。
+            cropped = _crop_to(p, tmp, bw / bh, img,
+                               bg=theme.get("bg") or (255, 255, 255))
             if cropped is None:
                 skipped.append(f"{p.name}(裁剪失败)")
                 continue

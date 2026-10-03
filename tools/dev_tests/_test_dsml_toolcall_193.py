@@ -133,6 +133,71 @@ _i_guard = _src.index("tool_json_leak = True")
 _i_rec = _src.index("recover_leaked_tool_calls(content_buffer)")
 check("★顺序正确：先判定泄漏、后恢复（顺序反了就永远恢复不到）", _i_guard < _i_rec)
 
+print("\n== H. ★用户看到的那个「孤零零的 <」：标记开头必须也被挡住 ==")
+# 真机现象：每条进度汇报后面跟一个单独的 `<`。
+# 原因：泄漏判定要"看见完整标记"才成立，而 `<` 是**单独一个流包**，
+# 它到的时候判定还没成立 → 已经被转发给聊天窗口了。
+#
+# ★ 注意口径：`ToolMarkerTailFilter` 只负责"**拖延**"（hold 住可能是标记开头的尾巴），
+#   "**丢弃**"仍然是循环里 `tool_json_leak` 的活。所以这里必须**按循环的真实顺序**
+#   模拟：累积正文 → 判定泄漏 → 过滤 → 只在没泄漏时显示。
+from src.core.reply_filter import ToolMarkerTailFilter            # noqa: E402
+
+_LEAK_MARKS = ('"name":', '"arguments":', 'DSML', "<\uff5c",
+               "<|tool_calls|>", "invoke name=")
+
+
+def simulate(chunks, use_filter=True):
+    """复刻 session.py 轮次循环里的顺序，返回**用户最终看到**的文本。"""
+    acc, vis, leak = "", "", False
+    f = ToolMarkerTailFilter()
+    for ch in chunks:
+        acc += ch
+        if not leak and any(m in acc for m in _LEAK_MARKS):
+            leak = True                       # ← 先判定（看的是累积正文）
+        s = f.feed(ch) if use_filter else ch  # ← 再过滤
+        if not leak and s:
+            vis += s                          # ← 最后才显示
+    tail = f.flush() if use_filter else ""
+    if tail and not leak:
+        vis += tail
+    return vis
+
+
+_dsml_chunks = ["正在准备回复你哦～", "<", "\uff5c", "\uff5c", "DSML",
+                "\uff5c\uff5c", ' invoke name="meme">', "</", "\uff5c\uff5c",
+                " invoke>"]
+check("★复刻真机流：用户只看到正文，一个 `<` 都没露",
+      simulate(_dsml_chunks) == "正在准备回复你哦～", repr(simulate(_dsml_chunks)))
+check("★（反证）不加过滤器就会露出那个 `<` —— 证明这层不是白加的",
+      simulate(_dsml_chunks, use_filter=False).startswith("正在准备回复你哦～<"),
+      repr(simulate(_dsml_chunks, use_filter=False)))
+
+# 而且必须与循环里的判定顺序配合：判定在**转发之前**、看的是**累积正文**
+_src2 = (BASE / "src" / "core" / "session.py").read_text(encoding="utf-8")
+_i_leak = _src2.index("tool_json_leak = True")
+_i_feed = _src2.index("safe_content = marker_filter.feed(safe_content)")
+_i_emit = _src2.index("if not tool_json_leak and safe_content and self.on_text")
+check("★源码顺序正确：先按累积正文判定泄漏 → 再过滤 → 再决定是否显示",
+      _i_leak < _i_feed < _i_emit, f"{_i_leak} < {_i_feed} < {_i_emit}")
+
+# 普通文本里的 `<` **不能被吃掉**（这是这个过滤器最大的风险）
+_f2 = ToolMarkerTailFilter()
+_out2 = _f2.feed("如果 a ") + _f2.feed("<") + _f2.feed(" b 就换行")
+_out2 += _f2.flush()
+check("★正文里正常的 `<` 会补发，不会丢字", _out2 == "如果 a < b 就换行", repr(_out2))
+
+_f3 = ToolMarkerTailFilter()
+_t3 = _f3.feed("结束语") + _f3.feed("<") + _f3.flush()
+check("★流结束时仍 hold 的尾巴会被 flush 出来（不吞字）", _t3 == "结束语<", repr(_t3))
+
+_json_chunks = ['{"name', '": "meme", "argu', 'ments": {}, "gif": "赞"}']
+check("★JSON 形状的泄漏同样被挡住（两条泄漏路径都覆盖）",
+      simulate(_json_chunks) == "", repr(simulate(_json_chunks)))
+check("★（反证）不加过滤器时 JSON 开头会露出来",
+      simulate(_json_chunks, use_filter=False) != "",
+      repr(simulate(_json_chunks, use_filter=False)))
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

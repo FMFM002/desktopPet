@@ -156,3 +156,69 @@ class ProtocolTailFilter:
             self.payload = data
             return ""
         return held
+
+
+# ══════════════════════════════════════════════════════════════
+# ★★ 1.9.3 第 22 轮：把"工具调用泄漏标记"的**开头**也挡在聊天窗口之外
+# ══════════════════════════════════════════════════════════════
+# 【真机现象（用户截图）】每条进度汇报后面都跟着一个**孤零零的 `<`**：
+#     正在准备回复你哦～ / < / 文件刚写完，next 我接着往下跑～ / < / …
+#
+# 【原因】泄漏判定是"**看见完整标记**才成立"（`'DSML' in 累积正文`、
+#   `'invoke name=' in 累积正文`…），而标记最前面那个 `<` 是**单独一个流包**——
+#   它到的时候判定还没成立，于是被原样转发给了聊天窗口；
+#   等后面的 `｜｜DSML｜｜` 到齐、判定成立，**剩下的**才被藏起来。
+#   结果就是每条被丢弃的调用都留下一个 `<` 尾巴。
+#
+# 【做法】与其事后藏，不如**提前 hold**：只要正文的尾巴还可能是某个标记的**前缀**，
+#   就先不显示，等下一个包来定性 ——
+#     · 不是标记 → 立刻补发（**一个字都不会丢**）；
+#     · 真是标记 → 泄漏判定随后成立，这段永远不显示。
+#   代价只是"极短的延迟"（最多几十毫秒，取决于下一个包什么时候来）。
+_DSML_BAR = "\uff5c\uff5c"
+
+
+class ToolMarkerTailFilter:
+    """流式过滤器：hold 住"可能是工具调用标记开头"的尾巴。
+
+    用法与 `ProtocolTailFilter` 一致：`feed(chunk)` 返回可显示的部分，
+    流结束时 `flush()` 把最后 hold 的那点补出来（如果它不是标记）。
+    """
+
+    # 标记的开头（真实形状见 session.py 的 DSML 解析）。只要正文尾部是其中某一条的
+    # **前缀**（含整条，见下面 feed 的说明），就 hold 住 ——
+    # 所以 `<`、`<｜`、`invoke nam`、`{"name"` 这些半截都会被挡住。
+    HEADS = (
+        "<|tool_calls|>",
+        "<" + _DSML_BAR + "DSML",
+        "<" + _DSML_BAR,
+        "invoke name=",
+        '{"name":',
+        '"name":',
+        '"arguments":',
+    )
+
+    def __init__(self) -> None:
+        self._held = ""
+
+    def feed(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+        text = self._held + chunk
+        hold = 0
+        for h in self.HEADS:
+            # ★ 含**整条**匹配（L <= len(h)）：不然 `{"name"` 到齐的那一刻会被放出去，
+            #   而泄漏判定要等下一个包看到 `:` 才成立 → 那个 `{` 就漏到聊天窗口了。
+            #   多 hold 一两个字符的代价只是"再等一个流包"，flush() 保证不吞字。
+            for L in range(1, len(h) + 1):
+                if text.endswith(h[:L]) and L > hold:
+                    hold = L
+        if hold:
+            self._held = text[-hold:]
+            return text[:-hold]
+        self._held = ""
+        return text
+
+    def flush(self) -> str:
+        held, self._held = self._held, ""
+        return held

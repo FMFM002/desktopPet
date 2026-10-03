@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 import tools.pptx_tool as P  # noqa: E402
+from PIL import Image        # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -88,6 +89,30 @@ _r3 = json.loads(P.execute(action="create", outline="# 甲\n- 一\n# 乙\n- 二"
                            title="外部标题", out_dir=str(_out), filename="t_probe.pptx"))
 check("★显式 title 与首行不一致时：封面用外部标题，内容页全保留",
       _r3.get("slides") == 3, f"slides={_r3.get('slides')}")
+
+print("\n== D2. ★透明 PNG 不能被压成黑底 / 黑白条纹（真机立绘页就是这么翻车的）==")
+# 真机证据：`theresa_prts1.png` 是 1496×1496 的 RGBA 立绘，四角 alpha=0 且
+# **透明区的 RGB 是垃圾值**。旧代码 `convert("RGB")` 把这些垃圾画了出来 →
+# 用户看到的就是"一堆黑白横条"。这里造一张同样性质的图来钉住。
+_tp = _out / "alpha_probe.png"
+_im = Image.new("RGBA", (400, 400), (255, 255, 255, 0))      # 全透明，RGB=白（垃圾值）
+_im.paste((200, 30, 30, 255), (140, 140, 260, 260))          # 中间一块不透明的红
+_im.save(_tp)
+_r4 = json.loads(P.execute(action="create", outline="# 透明图测试\n- 看四角颜色\n@" + str(_tp),
+                           out_dir=str(_out), filename="alpha_probe.pptx"))
+check("透明素材建片成功（没被当坏图跳过）",
+      _r4.get("success") is True and not _r4.get("skipped_images"), str(_r4.get("skipped_images")))
+_crop = P.DEFAULT_OUT / "_tmp" / "alpha_probe_crop.jpg"
+check("裁剪产物落盘", _crop.exists(), str(_crop))
+if _crop.exists():
+    _im2 = Image.open(_crop).convert("RGB")
+    _w, _h = _im2.size
+    _corners = [_im2.getpixel(p) for p in ((0, 0), (_w - 1, 0), (0, _h - 1), (_w - 1, _h - 1))]
+    _allwhite = all(all(c >= 240 for c in px) for px in _corners)
+    check("★四角是**白**底（透明被压到页面底色），不是黑", _allwhite, str(_corners))
+    _mid = _im2.getpixel((_w // 2, _h // 2))
+    check("★中间那块不透明的内容还在（没被底色盖掉）",
+          _mid[0] > 150 and _mid[1] < 90 and _mid[2] < 90, str(_mid))
 
 
 def _powerpnt_alive():
