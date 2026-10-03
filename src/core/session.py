@@ -1626,13 +1626,28 @@ class ChatSession:
                             _log.warning(f"第{round_count}轮空回复（第 {_empt} 次，再试一次）")
                             if self.on_system_msg:
                                 self.on_system_msg("[模型这一轮没输出，已提醒它继续...]")
+                            # ★★ 1.9.3 第 28 轮：**提醒要按"为什么空"来说**。
+                            #   真机 `logs/prts_20261004_040213.log`：
+                            #     第14轮空回复（thinking=**13584** 字，max_tokens=8192）
+                            #     第15轮空回复（thinking=**13372** 字，max_tokens=8192）
+                            #   —— 一万三千多字的思考把输出预算吃光了，正文一个字都挤不出来。
+                            #   老提醒只说"继续"，它下一轮**照样继续长篇推理**，于是又空。
+                            #   现在：思考异常长时，直接把病因说出来 + 明确禁止再推理。
+                            _think_len = len(thinking_buffer)
+                            _mt = getattr(self.client, "max_tokens", 0) or 0
+                            if _think_len and _mt and _think_len > int(_mt * 0.8):
+                                _nudge = (
+                                    f"（系统提醒）刚才**没有收到正文**，原因是你的思考太长了"
+                                    f"（{_think_len} 字，已经把输出预算吃光）。"
+                                    f"**不要再长篇推理**：直接用一句话说明当前状态，"
+                                    f"然后**立刻**给出下一步的工具调用（或最终答复）。"
+                                    f"想清楚「做什么」就够了，不要继续展开推导。")
+                            else:
+                                _nudge = ("（系统提醒）刚才没有收到你的输出。请继续："
+                                          "如果任务已经做完，就给出最终答复；"
+                                          "还没做完，就接着做下一步。")
                             with self._lock:
-                                self.messages.append({
-                                    "role": "system",
-                                    "content": ("（系统提醒）刚才没有收到你的输出。请继续："
-                                                "如果任务已经做完，就给出最终答复；"
-                                                "还没做完，就接着做下一步。"),
-                                })
+                                self.messages.append({"role": "system", "content": _nudge})
                             continue
                         _log.warning("多轮空回复，放弃")
                         # ★★ 1.9.3（用户第 2 条反馈）：**失败要说清楚卡在哪**。

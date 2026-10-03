@@ -166,6 +166,12 @@ check("★llm_client 里的下限是 8192", "_floor = 8192" in _lc,
       [ln.strip() for ln in _lc.splitlines() if "_floor =" in ln][:2])
 check("★注释里记着真机证据（空回复 + thinking 字数）", "空回复（thinking=" in _lc)
 check("★4096 不再作为下限", "_floor = 4096" not in _lc)
+# ★ 1.9.3 第 28 轮：光"自动提到"不够 —— 文件里还是小值，于是**每次启动都警告一次**，
+#   用户看到的就是"我设了又变回去"。现在顺手把纠正后的值写回配置。
+check("★下限生效时会把纠正值**写回配置**（让文件别再说谎）",
+      "_cfg.llm.max_tokens = _floor" in _lc and "_cfg.save()" in _lc)
+check("★回写只在「思考型模型 + 确实小于下限」时触发（不无脑重写配置）",
+      "getattr(_cfg.llm" in _lc and "if int(self.max_tokens) < _floor" in _lc)
 
 print("\n== F. ★★ .env 的隔离：`config_path` 指到哪，`.env` 就得写到哪（血案）==")
 # 真机血案：一个"把 config_path 指到临时目录"的复现脚本以为很安全，
@@ -206,6 +212,32 @@ check("★★ 真实 .env 里的 key 不是测试占位符（防止再被写坏�
       bool(_key) and _key[0] != "test" and len(_key[0]) >= 12,
       f"len={len(_key[0]) if _key else 0}")
 _sh.rmtree(F_TMP, ignore_errors=True)
+
+print("\n== G. ★1.9.3 第 28 轮：渲染核对必须用 pptx render（真机它自己写了 PowerShell COM）==")
+# 真机证据 logs/prts_20261004_040213.log：模型要做核对时，思考里写
+#   "Better to use PowerPoint COM to export PNG… Let me write a render script using
+#    win32com via powershell" —— **完全没想到 `pptx action=render`**，
+#   自己写 ps1 → 跑失败 → 又写 py，连烧几轮，最后撞上预算。
+# 原因：第 24 轮那段"要设计感就自己写脚本"的措辞，让它以为**整个 pptx 工具都不该碰**。
+_pptx_desc = __import__("tools.pptx_tool", fromlist=["TOOL_DESCRIPTION"]).TOOL_DESCRIPTION
+check("★工具描述第一条就讲「渲染核对一律用 action=render」",
+      "一律用本工具的" in _pptx_desc and "action=render" in _pptx_desc[:400],
+      _pptx_desc[:120].replace("\n", " "))
+check("★工具描述明确说「不要自己写渲染脚本 / win32com / PowerShell COM」",
+      "不要自己写渲染脚本" in _pptx_desc and "win32com" in _pptx_desc)
+check("★工具描述说明「跟片子谁做无关」（自己写的脚本也要用它渲染）",
+      "跟片子是谁做的无关" in _pptx_desc)
+check("★系统提示词里同样写死这条", "渲染核对一律用" in _lc and "不要自己写渲染脚本" in _lc)
+check("★系统提示词补了「深色版面别用白底图 / 别拿 UI 截图当插图」",
+      "白底图" in _lc and "UI 截图" in _lc)
+
+print("\n== H. ★空回复的提醒要按「为什么空」来说（思考吃光预算时别再推理）==")
+_sess_src = (BASE / "src" / "core" / "session.py").read_text(encoding="utf-8")
+check("★思考异常长时，提醒里点明「思考太长、吃光预算」", "思考太长" in _sess_src)
+check("★并明确禁止继续长篇推理", "不要再长篇推理" in _sess_src)
+check("★判定用了 thinking 长度 vs max_tokens（不再一律只说「继续」）",
+      "_think_len" in _sess_src and "_mt" in _sess_src)
+check("★证据（13584 字）写进注释，后人知道为什么加", "13584" in _sess_src)
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
