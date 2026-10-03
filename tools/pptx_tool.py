@@ -562,9 +562,9 @@ def _do_create(outline: str, title: str, subtitle: str, out_dir, filename: str,
 
 def _do_edit(path: str, outline: str, assets_dir: str, theme_name: str) -> str:
     from pptx import Presentation
-    p = Path(path)
-    if not p.exists():
-        return _err(f"找不到 PPT：{p}")
+    p, _perr = _resolve_pptx_arg(path)
+    if _perr:
+        return _err(_perr)
     theme = THEMES.get(theme_name or "deep_blue", THEMES["deep_blue"])
     slides, leading = _parse_outline(outline)
     if not slides:
@@ -592,9 +592,9 @@ def _do_edit(path: str, outline: str, assets_dir: str, theme_name: str) -> str:
 
 def _do_info(path: str) -> str:
     from pptx import Presentation
-    p = Path(path)
-    if not p.exists():
-        return _err(f"找不到 PPT：{p}")
+    p, _perr = _resolve_pptx_arg(path)
+    if _perr:
+        return _err(_perr)
     prs = Presentation(str(p))
     lines = []
     for i, slide in enumerate(prs.slides, start=1):
@@ -739,6 +739,41 @@ def _fh_resume(token):
         pass
 
 
+def _resolve_pptx_arg(path: str):
+    """★ 1.9.3 第 31 轮：把"要操作的 pptx"解析成一个**真的文件**路径。
+
+    真机 bug（`logs/prts_20261004_051924.log`）：
+      模型两次调 `pptx({'action':'render', 'file': '...\\迷迭香介绍.pptx'})`
+      —— 参数名写成了 **`file`**（我们的签名是 `path`）。
+      于是 `path` 是空串 → `Path("")` 是 `Path(".")` → **它 exists() 为真**，
+      压根没被"找不到 PPT"拦下 → 一路把**项目根目录**喂给了 PowerPoint →
+      `Presentations.Open(<目录>)` 报
+      `(-2147352567, '发生意外。', …, 0x80070005)`。
+      模型看不懂这个错（它猜"是不是权限问题"），**于是放弃了渲染核对**，
+      改用自己脚本导出的页面图凑合 —— 一次本该 2 轮的核对又变成了手搓。
+
+    → 所以这里统一做三件事：**空值要说清、目录要说清、文件不存在要说清**。
+    """
+    if not str(path or "").strip():
+        return None, ("[拒绝] 没给 `path`（要处理的 .pptx 文件路径）。"
+                      "注意参数名是 **path**，不是 file/pptx/filename。"
+                      "例如 action=render 要传 path=\"data/桌宠私有data/xxx.pptx\"。")
+    p = Path(str(path))
+    try:
+        p = p.resolve()
+    except Exception:
+        p = Path(os.path.abspath(str(p)))
+    if p.is_dir():
+        return None, (f"[拒绝] 你给的是一个**目录**，不是 .pptx 文件：{p}\n"
+                      f"请给到具体的 .pptx 文件（例如 {p / 'xxx.pptx'}）。")
+    if not p.exists():
+        return None, f"找不到 PPT：{p}"
+    if p.suffix.lower() not in (".pptx", ".ppt"):
+        return None, (f"[拒绝] 这不是 pptx/ppt 文件：{p.name}\n"
+                      f"请给 .pptx 的路径。")
+    return p, None
+
+
 def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) -> str:
     """★ 1.9.3 第 21 轮：调本机 PowerPoint（COM）把每页导出成 PNG，供"看一眼成品"。
 
@@ -746,16 +781,9 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
       本机 `C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE` 在、
       `pywin32` 也在 → **零新依赖**；LibreOffice 要另带 ~400MB，用户明确说"用现成的"。
     """
-    p = Path(path)
-    if not p.exists():
-        return _err(f"找不到 PPT：{p}")
-    # ★★ 1.9.3 第 21 轮（冒烟的教训）：**PowerPoint COM 不吃相对路径** ——
-    #   传 "data\\…\\x.pptx" 会报 `(-2147352567, '发生意外。', …, -2147024893)`（= 找不到路径）。
-    #   所以进 COM 之前一律转成绝对路径（文件不存在时 resolve() 不会抛，strict=False）。
-    try:
-        p = p.resolve()
-    except Exception:
-        p = Path(os.path.abspath(str(p)))
+    p, _perr = _resolve_pptx_arg(path)
+    if _perr:
+        return _err(_perr)
     try:
         import pythoncom
         import win32com.client
@@ -900,6 +928,16 @@ def execute(action: str = "create", outline: str = "", path: str = "",
             pages: str = "", dpi: int = 144, **kwargs) -> str:
     """工具入口。返回 JSON 字符串（含 text 字段）。"""
     a = (action or "create").strip().lower()
+    # ★★ 1.9.3 第 31 轮：**参数名容错**。真机里模型把路径写成了 `file`
+    #   （我们要的是 `path`），于是 path 为空 → `Path("")` 是 `.` → **exists() 为真**，
+    #   一路把项目目录喂给 PowerPoint，报了个看不懂的 HRESULT，它只好放弃渲染核对。
+    #   常见的近义写法一并收下，别让一个参数名毁掉整条自检链。
+    if not str(path or "").strip():
+        for _alias in ("file", "pptx", "file_path", "filepath", "path_", "target"):
+            _v = kwargs.get(_alias)
+            if str(_v or "").strip():
+                path = str(_v)
+                break
     try:
         if a in ("create", "建", "新建", "做"):
             return _do_create(outline, title, subtitle, out_dir, filename, assets_dir, theme)

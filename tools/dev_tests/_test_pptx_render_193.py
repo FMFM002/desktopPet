@@ -57,6 +57,34 @@ check("文件不存在 → 如实失败（不抛异常）", r.get("success") is 
       r.get("text", "")[:60])
 r = json.loads(P.execute(action="乱写一个"))
 check("不认识的 action 提示里带 render", "render" in r.get("text", ""), r.get("text", "")[:70])
+
+print("\n== B2. ★1.9.3 第 31 轮：路径参数容错（真机把 path 写成了 file）==")
+# 真机证据 logs/prts_20261004_051924.log：模型两次调
+#   `pptx({'action':'render','file':'…\\迷迭香介绍.pptx'})` —— 参数名是 file。
+# 那时 path 为空 → `Path("")` 是 `.` → **exists() 为真** → 把**项目目录**喂给 PowerPoint
+# → 报 `(-2147352567,'发生意外。',…,0x80070005)` → 它看不懂 → **放弃了渲染核对**。
+_probe_pptx = ROOT / "data" / "桌宠私有data" / "迷迭香介绍.pptx"
+_have_probe = _probe_pptx.exists()
+for _label, _kw, _want_ok in (
+        ("file= 等价于 path=", dict(action="info", file=str(_probe_pptx)), True),
+        ("path= 正常", dict(action="info", path=str(_probe_pptx)), True),
+        ("path 空 → 明确说缺 path（且点破参数名）",
+         dict(action="info", path=""), False),
+        ("path 是目录 → 说明给的是目录", dict(action="info", path=str(ROOT / "tools")), False),
+        ("path 不存在 → 说找不到",
+         dict(action="info", path=str(ROOT / "tools" / "nope.pptx")), False),
+        ("path 不是 pptx → 拒绝", dict(action="info", path=str(ROOT / "main.py")), False),
+):
+    _r = json.loads(P.execute(**_kw))
+    if _label.startswith("file=") and not _have_probe:
+        continue
+    check(f"★{_label}", bool(_r.get("success")) == _want_ok, str(_r.get("text", ""))[:80])
+if _have_probe:
+    _r_alias = json.loads(P.execute(action="info", file=str(_probe_pptx)))
+    check("★别名解析后真的读到了页数（不是空壳成功）",
+          "共" in _r_alias.get("text", ""), str(_r_alias.get("text", ""))[:60])
+check("★源码里保留了别名容错（file/pptx/file_path…）",
+      "_alias" in (ROOT / "tools" / "pptx_tool.py").read_text(encoding="utf-8"))
 # ★ 1.9.3 第 21 轮真机教训：render 出了 6 张图，模型却在思考里说「我看不到图」，
 #   于是 render 白跑、排版根本没核对。所以**必须明确指路**：去看这些 PNG 用 file_ops view。
 check("★TOOL_DESCRIPTION 指路「用 file_ops view 看图」（否则模型以为自己瞎）",
