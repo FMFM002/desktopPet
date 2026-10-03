@@ -67,6 +67,40 @@ dt2 = (time.perf_counter() - t0) * 1000
 print(f"  UnifiedMonitor.stop() 路径 = {dt2:.1f} ms")
 check("★监控停止路径整体毫秒级（原来光 system 就要 ~2000ms）", dt2 < 400, f"{dt2:.1f} ms")
 
+print("\n== D0. ★第 37 轮：idle_talker 也是同一个病（退出时间线里剩下的那 2 秒）==")
+# 真机证据 prts_20261004_071339.log：监控已瞬间停止后，
+#   07:14:09 → 07:14:11 还有 2 秒空档，全在 `待机说话已停止` 上。
+from src.core.idle_talker import IdleTalker     # noqa: E402
+it = IdleTalker()
+it._min_interval, it._max_interval = 600, 1200  # 让它睡很久，模拟真实（最长 20 分钟）
+it.start()
+time.sleep(0.5)
+t0 = time.perf_counter()
+it.stop()
+dt3 = (time.perf_counter() - t0) * 1000
+print(f"  IdleTalker.stop() = {dt3:.1f} ms")
+check("★idle_talker.stop() 不再干等睡眠（原来稳定 ~2000ms）", dt3 < 300, f"{dt3:.1f} ms")
+check("★线程确实退出了", it._thread is None or not it._thread.is_alive())
+_it_src = (BASE / "src" / "core" / "idle_talker.py").read_text(encoding="utf-8")
+def _bare_sleeps(path):
+    """真正的"裸 time.sleep 调用"行（排除注释里的提及）。"""
+    out = []
+    for i, l in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+        t = l.strip()
+        if t.startswith("#"):
+            continue
+        if t.startswith("time.sleep("):
+            out.append((i, t))
+    return out
+
+
+check("★idle_talker 里循环内的 time.sleep 已全部替换",
+      not _bare_sleeps(BASE / "src" / "core" / "idle_talker.py"),
+      str(_bare_sleeps(BASE / "src" / "core" / "idle_talker.py")))
+check("★stop() 里先 set() 再 join", _it_src.index("self._stop_event.set()")
+      < _it_src.index("self._thread.join(timeout=2)"))
+check("★也继承了 StoppableSleep", "class IdleTalker(StoppableSleep)" in _it_src)
+
 print("\n== D. 不能被改坏的地方 ==")
 import inspect      # noqa: E402
 src = inspect.getsource(BaseMonitor)
@@ -81,7 +115,8 @@ im = (BASE / "src" / "core" / "input_monitor.py").read_text(encoding="utf-8")
 check("★input_monitor 三个子监控也改了（剪贴板/窗口/进程）",
       im.count("_init_stop_event()") == 3 and im.count("_stop_event.set()") == 3)
 check("★input_monitor 里循环内的 time.sleep 已全部替换",
-      "time.sleep(" not in im)
+      not _bare_sleeps(BASE / "src" / "core" / "input_monitor.py"),
+      str(_bare_sleeps(BASE / "src" / "core" / "input_monitor.py")))
 check("★三个类都真的继承了 StoppableSleep",
       im.count("(StoppableSleep)") == 3)
 

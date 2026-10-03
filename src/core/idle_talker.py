@@ -10,6 +10,9 @@ import time
 from datetime import datetime
 from typing import Optional
 
+# ★ 1.9.3 第 37 轮：复用 monitor.py 的"可打断睡眠"（见 stop() 的注释）
+from src.core.monitor import StoppableSleep
+
 _log = logging.getLogger("IdleTalker")
 
 # 不同时段的话题引导
@@ -25,7 +28,7 @@ TIME_TOPICS = {
 }
 
 
-class IdleTalker:
+class IdleTalker(StoppableSleep):
     """主动待机说话器"""
 
     def __init__(self):
@@ -38,6 +41,7 @@ class IdleTalker:
         self._cooldown_after_user = 3 * 60  # 用户消息后冷却3分钟
         self._last_user_time = 0
         self._last_idle_msg = ""
+        self._init_stop_event()      # ★ 第 37 轮：可打断睡眠（见 stop 的注释）
 
         # 回调
         self.on_idle_message: Optional[callable] = None  # (text) -> 发送消息到聊天
@@ -58,6 +62,7 @@ class IdleTalker:
     def start(self):
         if self._running:
             return
+        self._stop_event.clear()      # ★ 第 37 轮：重启前复位
         self._running = True
         self._last_talk_time = time.time()
         self._thread = threading.Thread(target=self._run, daemon=True, name="idle-talker")
@@ -65,7 +70,21 @@ class IdleTalker:
         _log.info(f"主动待机说话已启动 (间隔: {self._interval//60}分钟)")
 
     def stop(self):
+        """★★ 1.9.3 第 37 轮：**先叫醒它再 join**。
+
+        真机证据（`logs/prts_20261004_071339.log`）：第 36 轮把监控改成可打断后，
+        退出时间线里剩下的那 2 秒全在这里 ——
+            07:14:09 监控已停止（已经瞬间）
+            ~~~ 2 秒空档 ~~~
+            07:14:11 待机说话已停止
+        原因一模一样：`_run` 里 `time.sleep(next_sleep)` 最长可睡到 **20 分钟**
+        （`_max_interval`），而这里是 `join(timeout=2)` —— **只能干等满 2 秒**。
+        """
         self._running = False
+        try:
+            self._stop_event.set()
+        except Exception:
+            pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
         _log.info("主动待机说话已停止")
@@ -75,16 +94,21 @@ class IdleTalker:
         self._last_user_time = time.time()
 
     def _run(self):
-        time.sleep(10)  # 启动后等10秒再开始
+        # ★ 1.9.3 第 37 轮：可打断睡眠（见 _nap / stop 的注释）。
+        #   这一句原来在 while 外面 `time.sleep(10)`，stop() 时同样要干等。
+        if self._nap(10):
+            return
         while self._running:
             try:
                 now = time.time()
                 # 冷却检查
                 if now - self._last_user_time < self._cooldown_after_user:
-                    time.sleep(30)
+                    if self._nap(30):
+                        break
                     continue
                 if now - self._last_talk_time < self._min_interval:
-                    time.sleep(10)
+                    if self._nap(10):
+                        break
                     continue
 
                 # 到达最长间隔或随机触发
@@ -96,10 +120,13 @@ class IdleTalker:
                     next_sleep = random.randint(self._min_interval, self._max_interval)
                 else:
                     next_sleep = 15  # 每15秒检查一次
-                time.sleep(next_sleep)
+                # ★ 这一睡最长可到 20 分钟（_max_interval）—— 原来 join 干等满 2 秒的头号来源
+                if self._nap(next_sleep):
+                    break
             except Exception as e:
                 _log.error(f"IdleTalker 错误: {e}")
-                time.sleep(60)
+                if self._nap(60):
+                    break
 
     def _process_context(self) -> str:
         """★ 1.9.0（你当初的要求）：看用户在干什么 —— 就前 3 个最新进程 + 前 3 个内存最大的。
