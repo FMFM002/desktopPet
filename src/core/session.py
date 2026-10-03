@@ -993,6 +993,8 @@ class ChatSession:
         while round_count < self.MAX_ROUNDS and not self._abort_chat:
             round_count += 1
             _log.debug(f"第 {round_count} 轮对话")
+            _last_failed_tool = ""
+            _last_failed_err = ""
             # ★★ 1.9.3（第 3 轮批注 2）：**每轮工具调用结束后，由代码兜底发一句进度**。
             #   为什么不由模型发：实测（09-22 三次运行）模型主动调 `progress_report`
             #   的次数是 0/0/0，有一次整整 2 分钟没吐一个字（用户还发了个"？"）
@@ -1191,6 +1193,10 @@ class ChatSession:
                         is_failure = _is_tool_failure(result)
                         if is_failure:
                             consecutive_tool_failures += 1
+                            # ★ 1.9.3：记下最近一次失败的**工具名 + 原因**，
+                            #   供"放弃"时如实告诉用户卡在哪一步（见下面空回复兜底）。
+                            _last_failed_tool = func_name
+                            _last_failed_err = str(result)[:120]
                             _log.warning(f"工具 {func_name} 执行失败(连续{consecutive_tool_failures}次): {result[:1000]}")
                         else:
                             consecutive_tool_failures = 0
@@ -1321,8 +1327,26 @@ class ChatSession:
                         continue
                     else:
                         _log.warning("多轮空回复，放弃")
+                        # ★★ 1.9.3（用户第 2 条反馈）：**失败要说清楚卡在哪**。
+                        #   旧文案"（唔...让我想想怎么说）"既没提失败、也没提下一步，
+                        #   真机上用户只看到"任务没完成"、完全不知道为什么
+                        #   （那次是下载被目标站 HTTP 567 拦、重试 3 次全败）。
+                        try:
+                            _lt = locals().get("_last_failed_tool")
+                            _le = str(locals().get("_last_failed_err") or "").strip()
+                            if _lt:
+                                _msg = (f"抱歉，这次没弄完 —— 卡在 `{_lt}` 那一步"
+                                        f"（{_le[:60] or '工具报错'}）。"
+                                        f"要我换个法子再试一次吗？")
+                            elif _last_failed_tool:
+                                _msg = (f"抱歉，这次没弄完 —— 卡在 `{_last_failed_tool}` 那一步。"
+                                        f"要我换个法子再试一次吗？")
+                            else:
+                                _msg = "抱歉，我这边没组织出回复，这次没弄完。要我再试一次吗？"
+                        except Exception:
+                            _msg = "抱歉，这次没弄完。要我再试一次吗？"
                         if self.on_text:
-                            self.on_text("（唔...让我想想怎么说）")
+                            self.on_text(_msg)
                         if self.on_system_msg:
                             self.on_system_msg("[模型返回为空，请检查API配置]")
                         break
