@@ -469,7 +469,16 @@ class PetManager:
                 # ★ 1.9.1: 这里原来会 _stop_idle_timer()，而重构后没人再启回来 →
                 #   第一次思考之后自动轮播就永久停了（你：自动切换好像也没了）。
                 #   待机计时器是**并列的命令来源**，切行为时不该把它关掉。
-                _log.info(f"[形象] {behavior} 沿用 LLM 选定动作: {Path(_pick).name}")
+                # ★★ 1.9.3 第 15 轮（用户报"死循环日志"）：
+                #   这里原来**每次 set_behavior 都打一行**，而形象线程每帧都会调它
+                #   → 真机 1 分钟内刷了 **1501 行**一模一样的话。
+                #   现在只在"**选定动作真的变了**"时打一行（去重），其余降为 debug。
+                _key = f"{behavior}|{Path(_pick).name}"
+                if getattr(self, "_last_chosen_log", None) != _key:
+                    self._last_chosen_log = _key
+                    _log.info(f"[形象] {behavior} 沿用 LLM 选定动作: {Path(_pick).name}")
+                else:
+                    _log.debug(f"[形象] {behavior} 沿用 LLM 选定动作: {Path(_pick).name}")
                 self.pet.set_gif_file(str(_pick))
                 return
         gif = info.behavior_gif(behavior)
