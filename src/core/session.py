@@ -1136,10 +1136,13 @@ class ChatSession:
                         #   以前只认 `"name":`/`"arguments":` → DSML 被当正文显示到聊天窗口。
                         #   现在把 DSML / 全角竖线标记也纳入"工具调用泄漏"判定：
                         #   置 `tool_json_leak=True` → 后续不再 on_text（不显示）。
+                        # 1.9.3 第 17 轮修正：按累积正文判断，不能按单个 chunk
+                        #（DSML 标记是跨 chunk 拼出来的，上一轮单 chunk 判断没生效）
+                        _blob = content_buffer
                         if not has_tool_call and (
-                                '"name":' in delta.content or '"arguments":' in delta.content
-                                or 'DSML' in delta.content or '<｜' in delta.content
-                                or '<|tool_calls|>' in delta.content):
+                                '"name":' in _blob or '"arguments":' in _blob
+                                or 'DSML' in _blob or '<｜' in _blob
+                                or '<|tool_calls|>' in _blob or 'invoke name=' in _blob):
                             tool_json_leak = True
                         # ★ 1.9.0: 先过协议过滤器 —— 它会把 {"gif":…,"meme":…} 拦下来，
                         #   只把"该显示的正文"转发给聊天窗口。
