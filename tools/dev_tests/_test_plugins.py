@@ -89,8 +89,10 @@ try:
     # 沙箱：写项目根之外必须被拒（返回拒绝文案或明确错误，不允许真的写进去）
     r = str(run("file_ops", action="write", path="C:/Windows/Temp/prts_should_fail.txt",
                 content="x"))
-    check("沙箱拒绝写系统盘（可读文案）",
-          "拒绝" in r and "只读" in r, r[:130])
+    # ★ 1.9.3 第 27 轮：文案改了 —— 旧版说"当前为只读模式"，模型会误以为
+    #   "file_ops 哪都不能写"（真机白烧几轮）。现在断言改为"拒绝 + 说清可写目录"。
+    check("沙箱拒绝写系统盘（可读文案：拒绝 + 指明可写目录）",
+          "拒绝" in r and "桌宠私有data" in r, r[:130])
     tgt.unlink(missing_ok=True)
 except Exception as e:
     check("file_ops 工具可用", False, f"{type(e).__name__}: {e}")

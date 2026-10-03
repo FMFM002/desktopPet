@@ -322,6 +322,24 @@ else:
           all(os.path.isabs(x) for x in r3.get("images", [])) and bool(r3.get("images")),
           str(r3.get("images", [])[:1]))
 
+    # ★ 1.9.3 第 27 轮：render 要**免费附带一张总览图**。
+    #   真机证据：模型渲染 6 页后算了一笔账"逐张 view 要 6 轮 + render 1 轮 = 7 轮"，
+    #   于是自己写 montage 脚本想拼图 → 脚本没跑通、预算先用完 → **自检最后一步没做成**。
+    #   总览图就是为了把"自检 = 2 轮"变成默认选项。
+    _sheet = r.get("sheet")
+    check("★render 返回里带 sheet（总览图路径）", bool(_sheet) and Path(_sheet).exists(),
+          str(_sheet))
+    if _sheet and Path(_sheet).exists():
+        with Image.open(_sheet) as _sh:
+            check("★总览图能解码（所有页拼在一起的那张）",
+                  _sh.width > 0 and _sh.height > 0, f"{_sh.size}")
+    _r1 = json.loads(P.execute(action="render", path=str(src), out_dir=str(out_dir),
+                               pages="1", dpi=96))
+    check("单页时不必拼总览（sheet 为空，不浪费）", not _r1.get("sheet"), str(_r1.get("sheet")))
+    check("★返回文案里告诉模型「先看总览、别自己写拼图脚本」",
+          "总览" in r.get("text", "") and "别自己写拼图脚本" in r.get("text", ""),
+          r.get("text", "")[-150:].replace("\n", " "))
+
     check("★跑完不留下孤儿 POWERPNT（我们开的我们关；Quit 是异步的所以等一下）",
           _wait_no_powerpnt() if not before else _powerpnt_alive(),
           f"before={before}")

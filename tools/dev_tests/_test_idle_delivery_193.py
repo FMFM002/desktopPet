@@ -134,7 +134,13 @@ check("★漏给 path → 明确指出缺 path", _msg is not None and "缺少" i
       str(_msg)[:90])
 check("★漏给 path 时不再含糊地说「只读模式」", "只读模式" not in (_msg or ""), str(_msg)[:90])
 _msg2 = FO._check_write_protection(str(BASE / "src" / "x.py"), str(BASE / "src" / "x.py"))
-check("真的越界仍然报沙箱拒绝", _msg2 is not None and "只读模式" in _msg2, str(_msg2)[:60])
+check("真的越界仍然被拒绝", _msg2 is not None and "拒绝" in _msg2, str(_msg2)[:60])
+# ★ 1.9.3 第 27 轮：真机里模型看到"当前为只读模式"，误以为 file_ops 根本不能写，
+#   白烧好几轮（它想写 临时文件\_scratch_dev\probe_nahida.py）。
+check("★越界提示不再说「只读模式」（那句会把模型带沟里）",
+      "只读模式" not in (_msg2 or ""), str(_msg2)[:90])
+check("★越界提示说清「只有桌宠私有data 能写」并给出改写建议",
+      "只能写在" in (_msg2 or "") and "桌宠私有data" in (_msg2 or ""), str(_msg2)[:90])
 _ok = FO._check_write_protection(str(FO.WRITABLE_ROOT / "ok.txt"),
                                  "data/桌宠私有data/ok.txt")
 check("写在自己目录里放行", _ok is None, str(_ok)[:60])

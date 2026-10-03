@@ -61,11 +61,19 @@ def _check_write_protection(full_path: str, raw_path: str = "") -> str | None:
             rel = os.path.relpath(full_path, str(PROJECT_ROOT))
         except Exception:
             rel = full_path
+        # ★★ 1.9.3 第 27 轮：**别再写"当前为只读模式"** —— 那句话把模型带沟里了。
+        #   真机现场（logs/prts_20261004_034150.log）：模型想写
+        #   `临时文件\_scratch_dev\probe_nahida.py`，收到"当前为只读模式"后，
+        #   在思考里得出错误结论：「file_ops is restricted to write in 桌宠私有data
+        #   (read-only mode, only allows writing to that dir)」，接着开始怀疑
+        #   "file_ops 是不是根本不能写"，白烧好几轮。
+        #   事实是"**只有**桌宠私有data 能写"，不是"哪都不能写"。改成说人话。
         return (
-            f"[拒绝] 沙箱限制：当前为只读模式，仅允许写入\n"
-            f"  {WRITABLE_ROOT}\n"
-            f"不允许写入: {rel}\n"
-            f"请将文件写到「桌宠私有data」目录下（例如 桌宠私有data/结果.txt）。"
+            f"[拒绝] 只能写在「桌宠私有data」目录里，别的地方（包括项目根、临时文件、源码目录）"
+            f"一律不行。\n"
+            f"  可写目录: {WRITABLE_ROOT}\n"
+            f"  你给的路径: {rel}\n"
+            f"  改写成: data/桌宠私有data/<你的文件名>（例如 桌宠私有data/结果.txt）再试。"
         )
     return None
 

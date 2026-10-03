@@ -38,7 +38,16 @@ TOOL_DESCRIPTION = (
     "★ 沙箱限制：用户电脑全盘只读，仅 data/桌宠私有data 目录可写可读。"
     "写入/下载/生成的文件请使用绝对路径 data/桌宠私有data/... 或先 cd 到该目录。"
     "★ Windows重要提示: 临时文件请写到 data/桌宠私有data/，不要用 /tmp/（Windows 不存在 /tmp/）。"
-    "限制: 超时60秒、输出≤50000字符。"
+    "限制: 超时60秒、输出≤50000字符。\n"
+    # ★★ 1.9.3 第 27 轮：真机证据（logs/prts_20261004_034150.log）——模型连续 6 次
+    #   用 `python -c "…"` 跑一行流，全部报 `SyntaxError: unterminated string literal`：
+    #   引号 + 中文路径 + 多语句一撞就碎，白白烧掉好几轮。这条提前把坑说清楚。
+    "★★ 要跑 Python，**不要用 `python -c \"…\"` 拼一行流**（引号/中文路径/多语句一撞就报 "
+    "SyntaxError: unterminated string literal，真机连踩 6 次）。正确姿势："
+    "① `file_ops write` 把代码写成 data/桌宠私有data/xxx.py；② 再 `shell_exec` 跑 "
+    "`python data/桌宠私有data/xxx.py`。\n"
+    "★ 也别在本工具里用 PowerShell 语法（这里是 cmd）："
+    "`Get-ChildItem`/`-Recurse`/`| Select-Object` 这些会失败，改用 `dir /s /b` 之类。"
 )
 TOOL_PARAMETERS = {
     "type": "object",

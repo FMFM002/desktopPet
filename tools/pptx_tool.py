@@ -47,10 +47,13 @@ TOOL_DESCRIPTION = """在本机生成或增补 PowerPoint（.pptx）。
   这比单独开一张没标题的图页好看 —— 别为了放封面图而先写一行空标题。
 
 · **想核对排版就用 action=render**：调本机 PowerPoint 把每页导出成 PNG（返回图片
-  绝对路径）。★ 拿到路径后**一定要用 `file_ops view <那个PNG路径>` 逐张看** ——
-  那才是你的眼睛（多模态如实描述）；*不要*说"我看不到图"，你有这个能力。
-  看的时候重点检查文字溢出/图片变形/字体缺失。没装 Office 的机器会如实返回失败
-  （按"无法渲染核对"处理，别硬试）。"""
+  绝对路径），并**额外免费生成一张「总览图」**（`sheet`：所有页拼成一张缩略图）。
+  ★ 拿到路径后**先 `file_ops view` 那张总览图 —— 一次就能看全所有页**；
+  哪一页看着有问题，再单独 view 那一页细看。这样自检只要 2 次调用，不必一页一轮
+  （真机上有人逐页看、预算不够，最后干脆没检查）。
+  ★ **别自己写拼图脚本**，总览图已经给你了。
+  ★ `file_ops view` 就是你的眼睛（多模态如实描述）；*不要*说"我看不到图"。
+  没装 Office 的机器会如实返回失败（按"无法渲染核对"处理，别硬试）。"""
 
 TOOL_PARAMETERS = {
     "type": "object",
@@ -627,6 +630,49 @@ def _powerpoint_running() -> bool:
     return False
 
 
+def _make_contact_sheet(paths, out_path, cols=None, thumb_w=760):
+    """★ 1.9.3 第 27 轮：把导出的每页 PNG 拼成**一张总览图**。
+
+    为什么需要（真机证据 `logs/prts_20261004_034150.log`）：
+      模型渲染完 6 页后，意识到"逐张 view 要 6 轮、预算只剩 8 轮"，
+      于是**自己动手写 montage 脚本想拼图** —— 结果拼图脚本没跑通、预算先用完，
+      **自检最后一步（真的看一眼）根本没做成**。它甚至写下：
+        "我需要快速 render 6 页然后看。看每张 view 要 1 次调用，共 6 次 + render 1 次 = 7 次"
+      这种"自检太贵 → 干脆不看"的账，正是我们该替它省掉的。
+    现在 render 直接**免费附带**一张总览图：render 一次 + view 一次 = 2 轮就能看完所有页。
+    """
+    try:
+        import math
+        from PIL import Image
+        ims = []
+        for p in paths:
+            try:
+                with Image.open(p) as im:
+                    ims.append(im.convert("RGB"))
+            except Exception:
+                continue
+        if not ims:
+            return None
+        n = len(ims)
+        cols = cols or (2 if n <= 4 else 3)
+        rows = math.ceil(n / cols)
+        tw = thumb_w
+        th = max(1, int(round(tw * ims[0].height / max(1, ims[0].width))))
+        pad = 12
+        sheet = Image.new("RGB",
+                          (cols * tw + (cols + 1) * pad, rows * th + (rows + 1) * pad),
+                          (240, 240, 244))
+        for i, im in enumerate(ims):
+            r, c = divmod(i, cols)
+            sheet.paste(im.resize((tw, th), Image.LANCZOS),
+                        (pad + c * (tw + pad), pad + r * (th + pad)))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        sheet.save(out_path, "PNG")
+        return out_path
+    except Exception:
+        return None
+
+
 def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) -> str:
     """★ 1.9.3 第 21 轮：调本机 PowerPoint（COM）把每页导出成 PNG，供"看一眼成品"。
 
@@ -720,19 +766,36 @@ def _do_render(path: str, out_dir: str = "", pages: str = "", dpi: int = 144) ->
 
     if not images:
         return _err("没能导出任何页面" + (f"（{'；'.join(failed[:3])}）" if failed else ""))
+
+    # ★ 1.9.3 第 27 轮：**顺手拼一张总览图**（见 _make_contact_sheet 的说明）。
+    #   只有一页就没必要拼。拼失败也不影响单页结果。
+    sheet = None
+    if len(images) > 1:
+        sheet = _make_contact_sheet(images, od / f"{p.stem}_总览.png")
+        sheet = str(sheet) if sheet else None
+
     msg = (f"已导出 {len(images)} 张 PNG（{dpi}dpi）到 {od}：\n"
            + "\n".join(images[:12])
            + ("\n…（更多见目录）" if len(images) > 12 else "")
-           + (f"\n★ {len(failed)} 页导出失败：{'；'.join(failed[:3])}" if failed else "")
-           + "\n★ 下一步（别跳过）：对上面每一个 PNG 路径调一次 "
-             "`file_ops view <该PNG路径>`，用你的看图能力逐张检查 "
-             "文字有没有溢出、图片有没有变形、字体有没有缺失。"
-             "\n★ 如果你打算说「我看不到图」—— 不要那样说：`file_ops view` "
-             "就是你的眼睛，它对图片走多模态如实描述。")
+           + (f"\n★ {len(failed)} 页导出失败：{'；'.join(failed[:3])}" if failed else ""))
+    # ★ 注意：这里必须用 if/else 语句，不能写成 `A + B if cond else C` ——
+    #   `+` 比条件表达式结合得紧，会整段算错（我自己刚踩过，测试直接抓到）。
+    if sheet:
+        msg += (f"\n★ 下一步（别跳过）：**先看总览**\n"
+                f"  ① 先调 `file_ops view {sheet}` —— 这一张就是全部 {len(images)} 页的"
+                f"缩略拼图，**一次看全**；\n"
+                f"  ② 哪一页看着有问题，再单独 view 那一页（上面的单页路径）细看。")
+    else:
+        msg += "\n★ 下一步（别跳过）：对上面每个 PNG 路径调 `file_ops view` 看一眼。"
+    msg += ("\n★ 检查重点：文字有没有溢出、图片有没有变形/被切、字体有没有缺失。"
+            "\n★ 如果你打算说「我看不到图」—— 不要那样说：`file_ops view` "
+            "就是你的眼睛，它对图片走多模态如实描述。"
+            "\n★ 也**别自己写拼图脚本**（真机上有人这么干，脚本没跑通、预算先用完，"
+            "自检最后一步反而没做成）：总览图这次已经替你生成好了。")
     return json.dumps({
         "success": True, "action": "render", "path": str(p),
         "out_dir": str(od), "dpi": dpi, "slides": len(images),
-        "images": images, "failed": failed, "text": msg,
+        "images": images, "sheet": sheet, "failed": failed, "text": msg,
     }, ensure_ascii=False)
 
 
