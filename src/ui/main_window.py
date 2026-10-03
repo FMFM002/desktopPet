@@ -49,6 +49,15 @@ _log = logging.getLogger("MainWindow")
 # ★ 1.9.0: 项目根目录（用于把 config 里的相对路径、工具返回的相对路径解析成绝对路径）
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+# ★★ 1.9.3 第 32 轮（队列 Q5「退出 6 秒」）：**退出收尾的全局硬超时（秒）**。
+#   真机实测（`logs/prts_20261004_054858.log`）：05:51:12「正在退出」→
+#   05:51:18「退出完成」= **6 秒**，时间全花在"主线程等后台线程"上：
+#     ① 两个 `join(timeout=5)` 串着等 → 最坏 10 秒；
+#     ② 后面还有 JM 下载等待 `timeout=6.0` → 再最坏 6 秒。
+#   也就是**最坏能卡 16 秒**，而用户当初（9-22 的队列）要的正是
+#   "清理挪后台线程 + **硬超时**"。这里给一个总预算，所有等待都从它里扣。
+EXIT_TOTAL_BUDGET = 4.0
+
 
 class _ImageSignalRelay(QObject):
     """信号中转器：后台线程通过 Signal 安全回调到主线程"""
@@ -2454,15 +2463,35 @@ class MainWindow:
                 pass
 
     def _do_restart_monitor_timed(self):
-        """真正重启监控，并打出耗时（好让"到底卡在哪"一眼可见）。"""
+        """真正重启监控，并打出耗时（好让"到底卡在哪"一眼可见）。
+
+        ★★ 1.9.3 第 32 轮（队列 Q2「监控生效异步化」的**剩下那一半**）：
+          1.9.2 (R64) 已经做掉了"**没改就不重启**"（最常见的"保存设置卡 3 秒"因此消失）；
+          但**真的改了监控设置**时，这里原来是在 **GUI 线程**上直接
+          `self.monitor.restart()` —— 停 pynput 键盘监听 + 系统监控约 3 秒，
+          期间界面完全冻住（用户原话："改了就卡约 3 秒"）。
+          现在挪到后台线程：界面立刻可用，耗时照样打进日志。
+          安全性：`monitor.restart()` 只操作它自己的守护线程与 pynput 监听器，
+          不碰 Qt 控件；监控数据本来就是从这些后台线程经回调出来的。
+        """
         import time as _time
-        t0 = _time.time()
+
+        def _work():
+            t0 = _time.time()
+            try:
+                self.monitor.restart()
+            except Exception as e:
+                _log.warning(f"[监控] 重启失败: {e}")
+            finally:
+                _log.info(f"[监控] 重启完成，耗时 {(_time.time() - t0) * 1000:.0f} ms")
+
         try:
-            self.monitor.restart()
+            threading.Thread(target=_work, daemon=True,
+                             name="monitor-restart").start()
         except Exception as e:
-            _log.warning(f"[监控] 重启失败: {e}")
-        finally:
-            _log.info(f"[监控] 重启完成，耗时 {(_time.time() - t0) * 1000:.0f} ms")
+            # 起不了线程就退回老路（宁可卡一下，也别让监控不生效）
+            _log.warning(f"[监控] 后台重启线程起不来（{e}）→ 退回同步重启")
+            _work()
 
     def _restart_monitor(self):
         if hasattr(self, 'monitor'):
@@ -2888,12 +2917,20 @@ class MainWindow:
                 pass
 
         # 并行停止轻重服务
+        # ★★ 1.9.3 第 32 轮（Q5）：不再"每个 join 各给 5 秒"，改成**共用一个总预算**。
+        #   原来 5+5(+6) 串起来最坏 16 秒 —— 实测 6 秒，用户体感就是"关个桌宠要等半天"。
+        import time as _t_exit
+        _deadline = _t_exit.time() + EXIT_TOTAL_BUDGET
         t1 = threading.Thread(target=_stop_services, daemon=True)
         t2 = threading.Thread(target=_stop_lightweight, daemon=True)
         t1.start()
         t2.start()
-        t1.join(timeout=5)
-        t2.join(timeout=5)
+        t1.join(timeout=max(0.0, _deadline - _t_exit.time()))
+        t2.join(timeout=max(0.0, _deadline - _t_exit.time()))
+        if t1.is_alive() or t2.is_alive():
+            _log.warning(f"[退出] 收尾线程超过 {EXIT_TOTAL_BUDGET:.0f}s 预算仍未结束"
+                         f"（t1={'活' if t1.is_alive() else '停'} "
+                         f"t2={'活' if t2.is_alive() else '停'}）→ 不再等，继续往下收")
 
         # ★★ 1.9.2（用户反馈"退出也有问题"）：
         #   上一版我给了 25 秒上限，真机日志里正好卡满：
@@ -2903,7 +2940,9 @@ class MainWindow:
         #   够让"就差最后几张"的收尾，又不会让人干等。
         try:
             from tools.jmcomic_tool import wait_for_downloads as _wait_jm
-            _w = _wait_jm(timeout=6.0)
+            # ★ 第 32 轮（Q5）：JM 等待也**从同一个总预算里扣**，不再另外给 6 秒
+            _jm_left = max(0.5, _deadline - _t_exit.time())
+            _w = _wait_jm(timeout=_jm_left)
             if _w.get("waited", 0) >= 1.0:
                 _log.info(f"[退出] 等了 JM 下载 {_w['waited']:.1f}s"
                           f"（剩 {_w.get('remaining', 0)} 个未完成）")
