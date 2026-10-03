@@ -195,6 +195,17 @@ def start(wait_seconds: int = 120) -> dict:
     `run_nvidia_gpu.bat` —— 不能直接 Popen 等它，那样桌宠一退出 ComfyUI 就跟着死，
     而且 bat 会一直占住管道。
     """
+    # ★★ 1.9.3（第 3 轮）：**路径无关的硬闸** —— 回归/自测绝不允许启动用户的 ComfyUI。
+    #   真凶：`_test_comfyui_191.py` 第 384 行把 ensure_running 还原成真函数、
+    #   第 491 行又调 execute(action="draw") → comfyui_jobs 的 worker 走到
+    #   ensure_running() → 机器上没跑就真的 Popen 拉起 run_nvidia_gpu.bat。
+    #   只在测试里打桩不保险（还原一处就漏一处），所以在**启动的唯一出口**上加闸；
+    #   `_sweep190.ps1` 会给所有测试进程设 PRTS_NO_COMFY_START=1。
+    if os.environ.get("PRTS_NO_COMFY_START") == "1":
+        _log.warning("[ComfyUI] 被 PRTS_NO_COMFY_START=1 拦住，**拒绝启动**"
+                     "（回归/自测环境，避免动用户的 ComfyUI）")
+        return {"ok": False, "already": False,
+                "text": "已按环境变量 PRTS_NO_COMFY_START=1 禁用自动启动（回归环境）。"}
     if alive():
         return {"ok": True, "already": True, "text": "ComfyUI 已经在跑了。"}
     bat = launcher()

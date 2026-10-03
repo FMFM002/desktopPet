@@ -13,6 +13,10 @@ $env:PYTHONIOENCODING = "utf-8"
 #   不注入的话，某个套件在 Qt 退出阶段踩访问违例会弹出
 #   "python.exe - 应用程序错误"，既把回归挂住、又看起来像桌宠崩了。
 $env:PYTHONPATH = (Join-Path $PSScriptRoot "_quiet") + ";" + $env:PYTHONPATH
+# ★ 1.9.3（第 3 轮）：**禁止回归启动用户的 ComfyUI** —— 真凶是
+#   _test_comfyui_191 第 491 行的 execute(action="draw") 会让
+#   comfyui_jobs 的 worker 去 ensure_running() 真的把服务拉起来。
+$env:PRTS_NO_COMFY_START = "1"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $root
 $outDir = Join-Path $root "tools\dev_tests\_sweep_out"

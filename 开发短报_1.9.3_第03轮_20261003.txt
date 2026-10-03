@@ -134,3 +134,31 @@
      已改成"**只保留最新那一条**、更早的不显示"。
 - 新增套件 `_test_chat_cap_193.py`（4 条断言）：小消息不受影响 / 单条超限只留最新 /
   多条累计超限掐掉更早的 / 默认上限下完整显示。
+
+---
+
+## ★★ 重大：找出"跑回归会启动用户 ComfyUI"的真凶（并加了硬闸）
+
+**真凶（代码路径，可复现）**：
+1. `tools/dev_tests/_test_comfyui_191.py:384` —— 它把 `C.ensure_running` **还原成真函数**；
+2. 同文件 `:491` 调 `T.execute(action="draw", …)` → `comfyui_tool` → `comfyui_jobs.submit_draw`；
+3. `comfyui_jobs.py:241` 的 worker → `cc.ensure_running(wait_seconds=180)`；
+4. 你机器上 ComfyUI 没在跑 → `comfyui_client.start()` **真的 Popen 拉起 `run_nvidia_gpu.bat`**。
+→ 这就是"执行某一步时它自己去开了 ComfyUI"，也是它**只在跑全量回归时**出现的原因
+  （只在 `_test_comfyui_191` 这一套里被触发）。
+
+**我上次为什么查不出来（两个自身失误）**：
+- 我只在**测试目录**里 grep `ensure_running(`，而真正调用它的是**工具/任务队列内部**
+  （测试只是间接调了 `execute(action="draw")`）→ 没搜到；
+- 我筛日志用了 `prts_2026092*.log`（**9 月**），而那次运行是 **10-03**
+  → 文件名模式就对不上，等于没查。
+
+**修法：路径无关的硬闸（不再靠"测试记得打桩"）**
+- `comfyui_client.start()` 开头加：`PRTS_NO_COMFY_START=1` 时**直接拒绝启动**
+  （在"启动的唯一出口"上拦，任何路径都绕不过）；
+- `_sweep190.ps1` 给**所有测试进程**设 `PRTS_NO_COMFY_START=1`（BOM 保持）。
+
+**验证（本轮实测）**：
+- 设变量后 `start()` 返回 `ok=False` + 明确文案，`alive()` 仍为 False（**没进程被拉起**）；
+- `_test_comfyui_191` 仍然 **87 PASS / 0 FAIL**（打桩逻辑不受影响）；
+- **全量回归跑完再查进程：ComfyUI 没起** ✔（修复前会起）。
