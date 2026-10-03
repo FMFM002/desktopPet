@@ -482,6 +482,23 @@ class ChatClient:
         self.model = kc["model"]
         self.temperature = kc["temperature"]
         self.max_tokens = kc["max_tokens"]
+        # ★★ 1.9.3 第 14 轮：**思考型模型的 max_tokens 兜底下限**。
+        #   真机反复踩：thinking 写到 5000+ 字就把 2048 的预算吃光 → content=0
+        #   （"空回复"）或**正文半句被截断**（表现为 SyntaxError: unterminated string
+        #   literal / 最后的输出异常）。而 config.json 每次退出会被程序按内存里的值
+        #   重写 —— 只改文件不保险（真机 00:33 那次又是 2048）。
+        #   所以在这里兜一层：deepseek 的思考型模型（flash/reasoner/r1）至少给 4096。
+        try:
+            _host = str(kc.get("host", "")).lower()
+            _mdl = str(kc.get("model", "")).lower()
+            if "deepseek" in _host and any(_k in _mdl for _k in ("flash", "reasoner", "r1")):
+                _floor = 4096
+                if int(self.max_tokens) < _floor:
+                    _log.warning(f"[max_tokens] {self.max_tokens} 太小（思考会吃光预算）"
+                                 f"→ 自动提到 {_floor}（配置里仍是 {self.max_tokens}）")
+                    self.max_tokens = _floor
+        except Exception as _e:
+            _log.debug(f"[max_tokens] 兜底判断失败: {_e}")
         self.tools = []
         self._cached_prompt = None
         self._cached_prompt_hash = None
