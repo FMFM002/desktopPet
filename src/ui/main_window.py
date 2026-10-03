@@ -975,6 +975,35 @@ class MainWindow:
                 and m.get("role") in ("user", "assistant", "system")]
         u_idx = [i for i, m in enumerate(keep) if m.get("role") == "user"]
         start = u_idx[-rounds] if len(u_idx) > rounds else 0
+        # ★★ 1.9.3（第 3 轮批注 3；用户已把方案简化："往上翻还能按需再取"不用做）：
+        #   **只做显示上限**：按正文的 UTF-8 字节数从最新往旧累加，超过 300MB 的
+        #   更早消息**不再显示**（数据一个都不删，也不做回取机制）。
+        #   ★ 上限做成可覆盖的模块属性 → 测试可以调小，不必真分配几百 MB。
+        #   ★ 兜底（上一版就栽在这）：**至少保留最后一条** ——
+        #     否则"单条自身就超 300MB"时会把最新那条也一起藏掉，界面直接变空。
+        #   ★ 不做截断：截断会改掉用户刚发的那条正文，宁可整条留着。
+        try:
+            import sys as _sys
+            _cap = int(getattr(_sys.modules.get(__name__),
+                               "CHAT_HISTORY_MAX_BYTES", 300 * 1024 * 1024))
+            _total = 0
+            _i = len(keep) - 1
+            while _i >= start:
+                _total += len((keep[_i].get("content") or "").encode("utf-8"))
+                if _total > _cap:
+                    if _i >= len(keep) - 1:
+                        _log.warning(f"[聊天历史] 最后一条自身就超过上限 "
+                                     f"({_total} > {_cap} 字节) —— 只保留它"
+                                     f"（不截断正文、更早的不显示）")
+                        start = max(start, len(keep) - 1)
+                        break
+                    _log.info(f"[聊天历史] 显示上限 {_cap // 1024 // 1024}MB 生效："
+                              f"更早的 {_i - start + 1} 条不再显示（数据未删、不回取）")
+                    start = _i + 1
+                    break
+                _i -= 1
+        except Exception as _e:
+            _log.debug(f"[聊天历史] 字节封顶计算失败（按原样显示）: {_e}")
         return keep, start
 
     def _try_prepend_history_round(self) -> bool:
