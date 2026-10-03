@@ -720,8 +720,16 @@ class ChatClient:
         """
         if getattr(self, "_thinking_low_unsupported", False):
             return {}
+        # ★★ 1.9.3 第 13 轮（**查官方文档后改正**）：
+        #   DeepSeek 官方 OpenAI 格式里，思考**开关**是
+        #   `extra_body={"thinking": {"type": "enabled"/"disabled"}}`，
+        #   而**思考强度**是**顶层** `reasoning_effort: "low"/"high"/"max"`。
+        #   我上一版把强度写进 thinking.type（"low"）→ 服务端 422
+        #   「Failed to deserialize the JSON」（真机 00:23 实测）。
+        #   文档：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/
+        #   另注：思考模式下 temperature / presence_penalty / frequency_penalty 不生效。
         return {"reasoning_effort": "low",
-                "extra_body": {"thinking": {"type": "low"}}}
+                "extra_body": {"thinking": {"type": "enabled"}}}
 
     def chat_stream(self, messages: list) -> Generator:
         full_messages = [{"role": "system", "content": self._build_system_prompt()}] + messages
