@@ -491,3 +491,39 @@
   ★ 三、还欠一条（第 16 轮遗留）：**pptx 工具的"坏图跳过"未验证通过**
      （冒烟里 `skipped_images` 是空的）—— 下一轮第一件 debug。
 ==================================================================
+
+==================================================================
+二十三、1.9.3 第 18 轮 —— MALFORMED_RESPONSE 真因（模型侧已知 bug）+ 参数容错
+==================================================================
+  [用户] 本轮运行失败：`DeepSeek Messages stream: tool input is invalid JSON`
+         `MALFORMED_RESPONSE`
+
+  ★★ 查证：这是**模型侧的已知 bug**，不是我们代码写错了：
+     · GitHub issue #1541：**v4-flash 在长提示词下 40~60% 的强制工具调用输出非法 JSON**
+       （未加引号的枚举字面量）—— https://github.com/deepseek-ai/DeepSeek-V3/issues/1541
+     · vLLM PR #47449：DeepSeekV32 流式工具调用**参数不是合法 JSON** 时应当警告而非报错
+       —— https://github.com/vllm-project/vllm/pull/47449
+     · vLLM PR #48343：**流式工具参数被截断**（结尾没有 `"}`）
+       —— https://app.semanticdiff.com/gh/vllm-project/vllm/pull/48343/overview
+     我们的模型是 **deepseek-flash**，而系统提示词已达 **4752 字**（正处"长提示词"场景）。
+     同一现象在真机日志里的另一面就是 `<｜｜DSML｜｜ calls>` + `invoke name="file_ops"`
+     这些**DSML 文本**（参数断在半路）。
+
+  ★ 本轮已修（`src/core/session.py`）：
+     **工具参数 JSON 容错** —— 新增 `_repair_json_args()`：`json.loads` 失败时先尽力修复
+     （裸标识符补引号 / 去尾逗号 / 补右引号与右括号），修不好才退回空参（并记 warning）。
+     ★ 实测 5 例：正常 → 原样；`{"action": status}` → `{"action": "status"}`；
+       `{"a": 1, "b": "x` → `{"a": 1, "b": "x"}`；`{"a": 1,}` → `{"a": 1}`；
+       纯垃圾 → None（按空参处理）。
+     ★ compileall 0；全量回归 **42 套件 FAIL=0**。
+
+  ★ 前几轮已修、与此同源的：DSML 判定改按**累积正文**（跨 chunk 才抓得到）、
+     max_tokens 兜底下限 4096、思考强度 `reasoning_effort=low`、空回复给两次机会。
+
+  ★ 还欠（下一轮）：
+     ① **DSML 工具调用的"解析"**（现在是"藏起来不显示"）：若 deepseek 把工具调用
+        以 DSML 文本流在 content 里，正确做法是**把它解析回标准 tool_calls 并执行**；
+     ② pptx 工具的"坏图跳过"仍未验证通过；
+     ③ MALFORMED_RESPONSE 的**重试**（现在是容错参数，但如果服务端整轮拒绝，
+        应该自动重试一次并给用户一句说明）。
+==================================================================

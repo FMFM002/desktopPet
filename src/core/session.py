@@ -45,6 +45,42 @@ _CRAWLER_FILE_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+def _repair_json_args(raw: str):
+    """★ 1.9.3 第 18 轮：尽力把「坏掉的工具参数 JSON」修好（修不好返回 None）。
+
+    针对 deepseek-flash 的已知毛病（issue #1541、vLLM #47449 / #48343）：
+      · 裸标识符（枚举没加引号）：{"action": status} → {"action": "status"}
+      · 流式被截断：{"a": 1, "b": "x → 补右引号 / 右括号
+      · 尾逗号：{"a": 1,} → 去掉
+    """
+    if not raw or not raw.strip():
+        return None
+    import re as _re
+    t = raw.strip()
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    t = _re.sub(r",\s*([}\]])", r"\1", t)
+    t = _re.sub(r'([:,\[]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*[,}\]])', r'\1"\2"\3', t)
+    for _ in range(6):
+        try:
+            return json.loads(t)
+        except Exception:
+            if t.count('"') % 2 == 1:
+                t += '"'
+            else:
+                t = t.rstrip()
+                if not t.endswith(("}", "]")):
+                    t += "}"
+                else:
+                    break
+    try:
+        return json.loads(t)
+    except Exception:
+        return None
+
+
 def _is_tool_failure(result: str) -> bool:
     """★ 1.4.0: 检测工具返回是否表示失败"""
     if not result:
@@ -1258,10 +1294,20 @@ class ChatSession:
                         if self._abort_chat or self._abort_tool:
                             break
                         func_name = tc["function"]["name"]
+                        # ★★ 1.9.3 第 18 轮：模型有**已知 bug**（长提示词下 40~60% 的工具
+                        #   调用参数是非法 JSON，见 issue #1541 / vLLM #47449、#48343）。
+                        #   以前直接空参 → 工具报「需要指定 action」→ 白跑一轮。
+                        #   现在先**尽力修复**（补引号/去尾逗号/补右括号），修不了才空参。
+                        _raw_args = tc["function"].get("arguments") or "{}"
                         try:
-                            func_args = json.loads(tc["function"]["arguments"])
-                        except json.JSONDecodeError:
-                            func_args = {}
+                            func_args = json.loads(_raw_args)
+                        except Exception:
+                            func_args = _repair_json_args(_raw_args)
+                            if func_args is None:
+                                _log.warning(f"[工具参数] JSON 非法且修不好，按空参处理: {_raw_args[:120]}")
+                                func_args = {}
+                            else:
+                                _log.info(f"[工具参数] JSON 非法但已修复: {_raw_args[:60]}")
 
                         _log.info(f"LLM请求工具: {func_name}({func_args})")
                         if self.on_tool_call:
