@@ -2073,319 +2073,56 @@ class ChatWidget(QWidget):
                 return False
 
     def _prune_think_panels(self):
-        """把所有已销毁的面板条目摘掉（每次操作面板前先跑一遍）。"""
-        dead = [e for e in self._think_panels if not self._alive(e.get("panel"))]
-        for e in dead:
-            try:
-                self._think_panels.remove(e)
-            except ValueError:
-                pass
-            if self._think_current is e:
-                self._think_current = None
-        if dead:
-            _log.debug(f"[思考面板] 摘掉 {len(dead)} 个已销毁的条目")
-        return dead
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return []
 
     def _find_think_block(self, key: str):
-        """按占位图的资源名找它所在的 block（不依赖字符位置，抗平移）。
-
-        ★ 找不到时返回**无效 block**（`QTextBlock()`），绝不返回 None ——
-          调用处习惯写 `blk.isValid()`，返回 None 会直接 AttributeError
-          （真机上就是这么炸出一条 debug 日志的）。
-        """
-        try:
-            doc = self._chat_display.document()
-            blk = doc.begin()
-            while blk.isValid():
-                it = blk.begin()
-                while not it.atEnd():
-                    f = it.fragment()
-                    if f.isValid() and f.charFormat().isImageFormat():
-                        if f.charFormat().toImageFormat().name() == key:
-                            return blk
-                    it += 1
-                blk = blk.next()
-        except Exception as e:
-            _log.debug(f"找思考面板占位图失败: {e}")
-        return QTextBlock()                     # ★ 无效 block，不是 None
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _find_think_pos(self, key: str) -> int:
-        """找占位图那个**图片字符**的文档位置；找不到返回 -1。
-
-        ★ 为什么要这个：定位面板不能用 `blockBoundingRect(block)` —— 那个矩形
-        把 block 的前导行高也算进去了，于是面板会被向上偏大约一行，
-        真机上就是用户报的"**子窗口的上边沿会部分遮挡消息气泡**"。
-        改成拿图片字符自己的 `cursorRect()`：它是**视口坐标**，
-        既精确到图片本身，又天然带滚动偏移（不用再手动减滚动条）。
-        """
-        blk = self._find_think_block(key)
-        if not blk.isValid():
-            return -1
-        try:
-            it = blk.begin()
-            while not it.atEnd():
-                f = it.fragment()
-                if f.isValid() and f.charFormat().isImageFormat() \
-                        and f.charFormat().toImageFormat().name() == key:
-                    return f.position()
-                it += 1
-        except Exception as e:
-            _log.debug(f"找思考面板占位图位置失败: {e}")
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
         return -1
 
     def _dispose_think_panel(self, panel):
-        """**安全地**销毁一个 ThinkPanel（顺序很重要，见上面 A/B/C 三条）。
-
-        必须先停它内部的节拍器：`deleteLater()` 是延迟销毁，若那个 80ms 的
-        `_flush_timer` 在被销毁之后触发，就是"定时器还在、对象已死" →
-        访问违例（真机那次静默硬崩溃最像这个）。
-        """
-        if not self._alive(panel):
-            return
-        try:
-            panel.stop_timers()                 # 停节拍器（think_panel 提供）
-        except Exception as e:
-            _log.debug(f"停思考面板节拍器失败: {e}")
-        try:
-            panel.set_render_hook(None)          # 断开宿主回调，别让它回来找我们
-        except Exception:
-            pass
-        try:
-            panel.hide()
-        except Exception:
-            pass
-        try:
-            panel.setParent(None)               # 脱离 Qt 父子树，避免父控件销毁时连带操作
-        except Exception:
-            pass
-        try:
-            panel.deleteLater()
-        except Exception:
-            pass
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _new_think_panel(self):
-        """开一轮新的思考面板（占位图插在文档末尾）。返回 panel。"""
-        from src.ui.think_panel import ThinkPanel
-        from PySide6.QtGui import QImage, QTextImageFormat
-
-        ChatWidget._THINK_SEQ += 1
-        key = f"prts-think-{ChatWidget._THINK_SEQ}"
-        panel = ThinkPanel(self._chat_display.viewport())
-        panel.hide()
-        panel.set_render_hook(self._on_think_rendered)
-
-        doc = self._chat_display.document()
-        pm = QImage(1, 1, QImage.Format_ARGB32)
-        pm.fill(0)
-        doc.addResource(QTextDocument.ImageResource, QUrl(key), pm)
-
-        self._chat_display.moveCursor(QTextCursor.End)
-        # ★★ 1.9.2：占位图**独占一个 block**（用 insertBlock 而不是插一个 <br>）。
-        #   这样 `blockBoundingRect(blk)` 就精确等于图片本身的矩形 ——
-        #   既没有"含前导行高、把面板向上偏一行遮住气泡"的问题，
-        #   又能用文档坐标定位（不会被 cursorRect 的视口钳制坑到）。
-        self._chat_display.textCursor().insertBlock()
-        self._chat_display.moveCursor(QTextCursor.End)
-        fmt = QTextImageFormat()
-        fmt.setName(key)
-        # ★ 1.9.2：占位图只负责"占高度"，宽度固定 1px。
-        #   以前设成 viewport-8，会把 QTextDocument 的理想宽度撑过可视区 →
-        #   启动时聊天记录被横向挤出屏幕（真机报的"UI 左右错位"）。
-        fmt.setWidth(self.THINK_ANCHOR_W)
-        fmt.setHeight(panel.desired_height())
-        self._chat_display.textCursor().insertImage(fmt)
-        self._chat_display.moveCursor(QTextCursor.End)
-
-        entry = {"key": key, "panel": panel, "fmt": fmt}
-        self._think_panels.append(entry)
-        self._think_current = entry
-        # ★ 1.9.2（R68，用户："不保留历史记录的子窗口了，不需要限制子窗口个数了"）：
-        #   历史重画时**不再创建**子窗口（见 _reload_chat_view 里跳过 system 行），
-        #   所以同时存在的面板只有"当前这一轮"的 → **上限没有必要**，去掉淘汰逻辑。
-        #   （MAX_THINK_PANELS 常量保留但不再使用，方便以后想恢复。）
-        return panel
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _drop_think_panel(self, entry):
-        """摘掉一个旧面板：删占位图字符 + 销毁控件。"""
-        try:
-            blk = self._find_think_block(entry["key"])
-            if blk.isValid():
-                cur = QTextCursor(blk)
-                it = blk.begin()
-                while not it.atEnd():
-                    f = it.fragment()
-                    if f.isValid() and f.charFormat().isImageFormat() \
-                            and f.charFormat().toImageFormat().name() == entry["key"]:
-                        cur.setPosition(f.position())
-                        cur.setPosition(f.position() + f.length(),
-                                        QTextCursor.KeepAnchor)
-                        cur.removeSelectedText()
-                        break
-                    it += 1
-        except Exception as e:
-            _log.debug(f"摘除旧思考面板占位图失败: {e}")
-        # ★ 1.9.2：统一走安全销毁（停节拍器 → 断钩子 → 隐藏 → 脱离父级 → deleteLater）
-        self._dispose_think_panel(entry.get("panel"))
-        try:
-            self._think_panels.remove(entry)
-        except ValueError:
-            pass
-        if self._think_current is entry:
-            self._think_current = None
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _ensure_think_panel(self):
-        """取**本轮**的面板；没有（或已销毁）就开一个新的。"""
-        self._prune_think_panels()
-        if self._think_current is None:
-            return self._new_think_panel()
-        return self._think_current["panel"]
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _seal_think_panel(self):
-        """本轮结束（LLM 开始输出正文 / 用户发新消息）→ 封口。
-
-        封口后下一次思考写入会自动开新面板 —— 这就是"每轮都出现"的关键。
-        """
-        self._prune_think_panels()
-        entry = self._think_current
-        if entry is None:
-            return
-        panel = entry.get("panel")
-        if self._alive(panel):
-            try:
-                panel.flush_now()
-            except Exception:
-                pass
-            try:
-                if not panel.is_empty():
-                    panel.show()
-            except Exception:
-                pass
-        self._think_current = None
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _panel_width(self) -> int:
         vp = self._chat_display.viewport().width()
         return max(120, vp - 8)
 
     def _on_think_rendered(self):
-        """★ 1.9.2：面板渲染完成 → 同步占位图尺寸 + 重定位。
-
-        由 ThinkPanel 的节拍器每 ~80ms 调一次（以前是每个流式碎片一次，
-        而这里的 QTextCursor.setCharFormat 会触发整个 QTextDocument 重排）。
-        ★ 这个回调可能在"面板已被销毁"之后才到达（deleteLater 是延迟销毁），
-          所以第一件事就是校验存活 + 摘掉死条目，绝不去碰死对象。
-        """
-        self._prune_think_panels()
-        if not self._think_panels:
-            return
-        try:
-            for e in list(self._think_panels):
-                self._sync_think_anchor(e)
-            self._reposition_think_panels()
-        except Exception as e:
-            _log.debug(f"思考面板渲染后同步失败: {e}")
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _sync_think_anchor(self, entry=None):
-        """把某个面板的占位图尺寸改成它当前所需（文档重排 → 面板位置也就对了）。
-
-        ★★ 1.9.2 启动错位修复（用户报："刚启动，点开聊天界面，UI 左右错位，
-        聊天记录在左边屏幕外面，子窗口位置正确。开启对话后恢复正常。"）：
-        占位图原来被设成**和聊天区一样宽**（viewport-8），于是文档的"理想宽度"
-        被撑到超过可视区 → 水平方向被挤出屏幕（而面板是独立子控件，所以它
-        "位置正确"，正好对上用户看到的现象）。聊过一轮后文档重排才恢复。
-        修法：占位图**只需要占高度**，宽度固定 1px —— 这样它永远不会影响
-        文档宽度，面板的位置由 cursorRect 给，不依赖图片宽度。
-        """
-        self._prune_think_panels()
-        targets = [entry] if entry is not None else list(self._think_panels)
-        for e in targets:
-            if e is None or not self._alive(e.get("panel")):
-                continue
-            blk = self._find_think_block(e["key"])
-            if not blk.isValid():
-                continue
-            try:
-                e["fmt"].setWidth(self.THINK_ANCHOR_W)     # ★ 1px：不撑宽文档
-                e["fmt"].setHeight(max(1, e["panel"].desired_height()))
-                it = blk.begin()
-                while not it.atEnd():
-                    f = it.fragment()
-                    if f.isValid() and f.charFormat().isImageFormat() \
-                            and f.charFormat().toImageFormat().name() == e["key"]:
-                        c = QTextCursor(self._chat_display.document())
-                        c.setPosition(f.position())
-                        c.setPosition(f.position() + f.length(),
-                                      QTextCursor.KeepAnchor)
-                        c.setCharFormat(e["fmt"])
-                        break
-                    it += 1
-            except Exception as ex:
-                _log.debug(f"同步思考面板占位图失败: {ex}")
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _reposition_think_panels(self, *_):
-        """把所有面板移到各自占位图的位置（随滚动条/消息流走）。
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
-        ★ 1.9.2 崩溃修复：
-          · 先摘掉已销毁的条目（deleteLater 之后 C++ 对象可能已经没了，
-            再去 `isVisible()` / `move()` 就是访问违例）；
-          · `_find_think_block` 返回的是**无效 block**（不是 None），
-            所以这里统一用 `isValid()` 判断，不会再出 AttributeError。
-        """
-        self._prune_think_panels()
-        if not self._think_panels:
-            return
-        try:
-            doc = self._chat_display.document()
-            layout = doc.documentLayout()
-            dy = self._chat_display.verticalScrollBar().value()
-            dx = self._chat_display.horizontalScrollBar().value()
-            vh = self._chat_display.viewport().height()
-            w = self._panel_width()
-            for e in list(self._think_panels):
-                p = e.get("panel")
-                if not self._alive(p):
-                    continue
-                blk = self._find_think_block(e["key"])
-                if not blk.isValid():
-                    try:
-                        p.hide()
-                    except Exception:
-                        pass
-                    continue
-                try:
-                    # ★★ 1.9.2 修（用户："子窗口堆叠在主窗口上边框下面，不跟着消息走"）：
-                    #   上一版改用 `cursorRect()` 是**错的** —— Qt 对**可视区之外**的
-                    #   游标位置会把矩形**钳制到视口边缘**（顶上或底下），于是所有
-                    #   滚出视野的面板全被摆到"上边框下面"堆成一摞。
-                    #   正确做法：用**文档坐标**（blockBoundingRect）再减滚动偏移 ——
-                    #   绝对的、不会被钳制；然后自己判断在不在可视区来决定显隐。
-                    #   （占位图现在是独立 block，blockBoundingRect 就是图片本身的
-                    #     矩形，所以也不会再有"含前导行高、遮住气泡"那个问题。）
-                    r = layout.blockBoundingRect(blk)
-                    y = int(r.top()) - dy
-                    x = max(0, int(r.left()) - dx + 4)
-                    if y + p.height() < 0 or y > vh:
-                        # ★★ 1.9.2（R74，用户："只有内容更新才会显示，一直闪烁，
-                        #   最后边界轮子窗口正常"）：**当前正在写的那一个绝不隐藏**。
-                        #   长任务里文档一直变长、视口没跟上 → 它被判"离屏"→ hide()，
-                        #   下一次思考内容更新又 show() → 就是那个闪烁。
-                        #   现在：当前面板夹进可视区、保持显示；只有**历史面板**才隐藏。
-                        if e is not getattr(self, "_think_current", None):
-                            p.hide()      # 滚出可视区的历史面板 → 藏起来，别堆在边缘
-                            continue
-                        y = max(0, min(y, max(0, vh - max(1, p.height()))))
-                    if w != p.width():
-                        p.setFixedWidth(w)
-                        p._relayout_height()
-                    p.show()
-                    p.move(x, y)
-                except Exception as ex:
-                    _log.debug(f"单个思考面板定位失败（跳过）: {ex}")
-        except Exception as e:
-            _log.debug(f"思考面板定位失败: {e}")
-
-    # 兼容旧名（外部/测试仍在调）
     def _reposition_think_panel(self, *a):
-        self._reposition_think_panels(*a)
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def think_write(self, text: str, kind: str = "think"):
         """★ 1.9.3（第 3 轮批注 1）：**聊天窗口不再显示思考 / 工具调用 / 系统信息**。
@@ -2406,85 +2143,29 @@ class ChatWidget(QWidget):
         _log.debug(f"[已隐藏] think_delta: {str(locals().get('text', ''))[:60]}")
 
     def think_flush(self):
-        """这轮思考结束/需要收尾时强制渲染一次（保证界面跟上、锚点归位）。
-
-        ★★★ 1.9.2 崩溃修复（真机 00:40 那次，**faulthandler 抓到了确切堆栈**）：
-            Windows fatal exception: access violation
-              think_panel.py:404 _sync_body_size
-              think_panel.py:422 _render
-              think_panel.py:352 flush_now
-              chat_widget.py:1886 think_flush
-              main_window.py:1141 _on_thinking_done_safe
-              session.py:1091 _run_loop        ← 这是 LLM 的**后台线程**！
-            `_on_thinking_done_safe` 是在 session 的工作线程里被调的，而它直接
-            调了本函数 → 一路走到 `QWidget.resize()` —— **Qt 控件只能在 GUI
-            线程碰**，跨线程操作就是访问违例（而且它绕过了我原有的
-            `think_delta_in` Signal 中转）。
-        所以这里自己判线程：**不在 GUI 线程就改走 Signal**（自动排队到主线程），
-        绝不直接动控件。
-        """
-        try:
-            from PySide6.QtWidgets import QApplication as _QApp
-            from PySide6.QtCore import QThread as _QThread
-            _app = _QApp.instance()
-            if _app is not None and _QThread.currentThread() is not _app.thread():
-                # 非 GUI 线程 → 交给信号（主线程执行）
-                self.think_flush_in.emit()
-                return
-        except Exception as e:
-            _log.debug(f"[思考面板] 线程判定失败，按主线程处理: {e}")
-        self._think_flush_main()
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _think_flush_main(self):
-        """**必须在 GUI 线程**执行的收尾渲染。"""
-        self._prune_think_panels()
-        if self._think_current is not None:
-            p = self._think_current.get("panel")
-            if self._alive(p):
-                try:
-                    p.flush_now()
-                except Exception as e:
-                    _log.debug(f"思考面板收尾渲染失败: {e}")
-            return
-        for e in list(self._think_panels):
-            p = e.get("panel")
-            if not self._alive(p):
-                continue
-            try:
-                p.flush_now()
-            except Exception:
-                pass
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def think_clear(self):
-        """清空**所有**思考面板（新话题/新对话时用）。"""
-        self._prune_think_panels()
-        for e in list(self._think_panels):
-            p = e.get("panel")
-            if not self._alive(p):
-                continue
-            try:
-                p.clear()
-            except Exception:
-                pass
-        self._think_current = None
-        self._reposition_think_panels()
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def think_panel_count(self) -> int:
-        """当前保留的面板数（测试/排查用）—— 应当是"每轮一个"。"""
-        self._prune_think_panels()
-        return len(self._think_panels)
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return 0
 
     def _handle_think_in(self, text: str, kind: str):
-        self.think_write(text, kind)
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
     def _handle_think_delta_in(self, delta: str):
-        self.think_delta(delta)
+        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        return None
 
-    # ══════════════════════════════════════════
-    # 图片预览
-    # ══════════════════════════════════════════
-
-    @staticmethod
     def _get_image_size(file_path: str) -> str:
         try:
             from PIL import Image
