@@ -2467,6 +2467,24 @@ class MainWindow:
         """LLM 提供商热切换"""
         switch_provider(provider)
 
+    def _record_monitor_cfg_snapshot(self) -> bool:
+        """把**当前**监控配置记成基线。返回 True 表示是"首次记录"。
+
+        ★ 1.9.3 第 34 轮：抽出来共用 —— 启动监控时先记一次，
+        之后保存设置时才有"可比"的基线；否则本次会话第一次改监控设置
+        会被当成"首次调用"而**静默跳过重启**（真机 `prts_20261004_064103.log`
+        的 06:42:52 就是这个场景：用户确实改了，日志只说"跳过重启"）。
+        """
+        try:
+            if getattr(self, "_monitor_cfg_snap", None) is not None:
+                return False
+            import dataclasses as _dc
+            self._monitor_cfg_snap = _dc.asdict(self.config.monitor)
+            return True
+        except Exception as e:
+            _log.debug(f"[监控] 记录配置基线失败: {e}")
+            return False
+
     def _restart_monitor_if_changed(self):
         """★ 1.9.2（R64）：**只有监控相关设置真的变了才重启监控**。
 
@@ -2478,15 +2496,18 @@ class MainWindow:
         全程占着 GUI 线程 → 用户点右上角 x 没反应（"关闭设置界面卡 2 秒"）。
 
         修法：跟上次的快照比，**没变就不重启**；变了才重启并把耗时打进日志。
+
+        ★ 1.9.3 第 34 轮补：基线**在监控启动时**就记（见 `_record_monitor_cfg_snapshot`
+          和 `_start_monitoring`），否则"本次会话第一次改监控设置"会被当成
+          "首次调用 → 记快照 → 跳过"，静默不生效（真机踩过）。
         """
+        if self._record_monitor_cfg_snapshot():
+            _log.debug("[监控] 首次记录监控配置快照，跳过重启")
+            return
         try:
             import dataclasses as _dc
             now = _dc.asdict(self.config.monitor)
             snap = getattr(self, "_monitor_cfg_snap", None)
-            if snap is None:
-                self._monitor_cfg_snap = now
-                _log.debug("[监控] 首次记录监控配置快照，跳过重启")
-                return
             changed = sorted(k for k, v in now.items() if snap.get(k) != v)
             self._monitor_cfg_snap = now
             if not changed:
@@ -3030,6 +3051,15 @@ class MainWindow:
             return
         _log.info("启动监控...")
         self.monitor.start()
+        # ★★ 1.9.3 第 34 轮：**启动时就把"当前生效的监控配置"记成基线**。
+        #   真机证据（`logs/prts_20261004_064103.log`）：
+        #     06:41:05 启动监控（keyboard + system）
+        #     06:42:52 `[监控] **首次记录监控配置快照，跳过重启**`
+        #   用户那次**确实改了监控设置**，但因为是"首次调用"，
+        #   快照被记成**改动之后**的值并直接 return →
+        #   **本次会话第一次改监控设置被静默忽略**（设置看起来没生效，日志也只说"跳过"）。
+        #   基线本该在"监控真的跑起来"时就定下，而不是等第一次保存设置才定。
+        self._record_monitor_cfg_snapshot()
         # 启动增强输入监控
         self.start_input_monitoring()
         # 延迟显示欢迎语
