@@ -527,3 +527,41 @@
      ③ MALFORMED_RESPONSE 的**重试**（现在是容错参数，但如果服务端整轮拒绝，
         应该自动重试一次并给用户一句说明）。
 ==================================================================
+
+==================================================================
+二十四、1.9.3 第 19 轮 —— 渲染核对：走"用现成 Office"，**本机条件已具备**
+==================================================================
+  [用户] 2.如果没有，就搁置。（= 用现成 Office；没有 Office 才搁置）
+
+  ★★ 实测本机条件（**都满足，不用搁置**）：
+     · **MS Office 在**：`C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE`
+       注册表 `ProductReleaseIds = Home2024Retail`、`VersionToReport = 16.0.20430.20092`
+     · **pywin32 已装**：`win32com` 可用 ✔（COM 自动化要的就是它）
+     · 没有 WPS
+     → **零新依赖、不用带 400MB 的 LibreOffice**，就按你说的这条路走。
+
+  ★ 本轮做到哪：方案定稿 + 代码骨架写好，但**补丁锚点没匹配**（我记错了
+     `TOOL_DESCRIPTION` 的结尾文本，`。"""` 那处实际不在那），
+     所以 **`render` 动作还没进代码**（冒烟确认：返回"不认识 action「render」"）。
+     我的上下文余量已到极限，**主动停手**，把精确方案留在这里，下一轮照抄即可：
+
+     ① `tools/pptx_tool.py` 的 `TOOL_DESCRIPTION` 末尾（**在大纲格式那段之后**）追加一行：
+        「· **想核对排版就用 action=render**：调本机 PowerPoint 把每页导出成 PNG（返回图片
+          路径），再用你的看图能力检查文字溢出/图片变形/字体缺失。」
+     ② `TOOL_PARAMETERS.properties` 补 `pages`（"1,3,5"，不填=全部）与 `dpi`（默认 144）。
+     ③ 新增 `_do_render(path, out_dir="", pages="", dpi=144)`：
+        ```python
+        import pythoncom, win32com.client
+        pythoncom.CoInitialize()                     # ★ 非主线程必须自己初始化 COM
+        app  = win32com.client.Dispatch("PowerPoint.Application")
+        pres = app.Presentations.Open(str(p), True, False, False)   # 失败退回 Open(str(p))
+        slide.Export(str(out_png), "PNG", w, h)      # ★ 逐页导出最稳（w/h 按 dpi 折算）
+        pres.Close(); app.Quit()                     # finally 里都要收
+        ```
+        返回 JSON 带 `images`（PNG 绝对路径列表）+ `text`。
+        没装 Office 的机器 → 如实返回失败（调用方按"无法渲染核对"处理）。
+     ④ `execute()` 里接上 `action in ("render","渲染","预览","看图")`，并把 `pages/dpi`
+        加进函数签名。
+
+  ★ 还欠（同前）：pptx 工具的**"坏图跳过"仍未验证通过**（第 16 轮遗留，优先于本项）。
+==================================================================
