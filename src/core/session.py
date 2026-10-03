@@ -1131,15 +1131,15 @@ class ChatSession:
                     if delta.content:
                         content_buffer += delta.content
                         # ★★ 1.9.3 第 15 轮（用户报"把思考内容发到了聊天界面"）：
-                    #   真机日志 `LLM回复: <｜｜DSML｜｜ calls>` —— 模型把**工具调用
-                    #   以 DSML 文本**吐在正文里（不是标准 tool_calls 字段）。
-                    #   以前只认 `"name":`/`"arguments":` → DSML 被当正文显示到聊天窗口。
-                    #   现在把 DSML / 全角竖线标记也纳入"工具调用泄漏"判定：
-                    #   置 `tool_json_leak=True` → 后续不再 on_text（不显示）。
-                    if not has_tool_call and (
-                            '"name":' in delta.content or '"arguments":' in delta.content
-                            or 'DSML' in delta.content or '<｜' in delta.content
-                            or '<|tool_calls|>' in delta.content):
+                        #   真机日志 `LLM回复: <｜｜DSML｜｜ calls>` —— 模型把**工具调用
+                        #   以 DSML 文本**吐在正文里（不是标准 tool_calls 字段）。
+                        #   以前只认 `"name":`/`"arguments":` → DSML 被当正文显示到聊天窗口。
+                        #   现在把 DSML / 全角竖线标记也纳入"工具调用泄漏"判定：
+                        #   置 `tool_json_leak=True` → 后续不再 on_text（不显示）。
+                        if not has_tool_call and (
+                                '"name":' in delta.content or '"arguments":' in delta.content
+                                or 'DSML' in delta.content or '<｜' in delta.content
+                                or '<|tool_calls|>' in delta.content):
                             tool_json_leak = True
                         # ★ 1.9.0: 先过协议过滤器 —— 它会把 {"gif":…,"meme":…} 拦下来，
                         #   只把"该显示的正文"转发给聊天窗口。
