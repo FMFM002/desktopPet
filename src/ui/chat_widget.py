@@ -380,7 +380,6 @@ class ChatWidget(QWidget):
     resized = Signal(int, int)
 
     # ★ 1.9.2: 保留最近多少个思考面板（用户只看得到最近几轮 → 有界，不随会话增长）
-    MAX_THINK_PANELS = 12
 
     DEFAULT_WIDTH = 420
     DEFAULT_HEIGHT = 640
@@ -2027,11 +2026,9 @@ class ChatWidget(QWidget):
     #   找 anchor 时按名字扫文档。因为一旦摘掉旧占位图，后面所有字符位置都会
     #   平移，存下标必然错位（这是踩过的坑）。
 
-    _THINK_SEQ = 0
     # ★ 1.9.2: 思考面板占位图的宽度固定 1px —— 它只需要占高度。
     #   设宽了会把 QTextDocument 的理想宽度撑过可视区，启动时聊天记录
     #   会被横向挤出屏幕（真机报的"UI 左右错位，开启对话后恢复"）。
-    THINK_ANCHOR_W = 1
 
     # ── ★★ 1.9.2 崩溃修复：面板生命周期安全 ─────────────────────
     #
