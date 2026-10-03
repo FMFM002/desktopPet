@@ -553,6 +553,22 @@ class ChatWidget(QWidget):
         #   界面上一眼看不到它（用户要求的效果达成），而 `_test_ui_160`
         #   还在按它的位置做布局断言（置 None 会把那条打挂，实测已崩过一次）。
         self._menu_btn = QPushButton("↑ 历史")
+        # ★★ 1.9.3（第 6 轮，用户第 4 条反馈）：**工作中指示器**。
+        #   用户要求「简单、省内存」，并建议用文本循环 / — \ 模拟 —— 就这么做：
+        #   一个 QLabel + 一个 160ms 的 QTimer；**空闲时定时器停掉、标签隐藏**，
+        #   所以不干活时既不占 CPU 也不额外占内存。
+        self._busy_label = QLabel("")
+        self._busy_label.setStyleSheet(
+            "QLabel { color: #007aff; font-size: 15px; font-weight: bold; }")
+        self._busy_label.setFixedWidth(18)
+        self._busy_label.hide()
+        header.addWidget(self._busy_label)
+
+        self._busy_frames = ["/", "\u2014", "\\"]
+        self._busy_i = 0
+        self._busy_timer = QTimer(self)
+        self._busy_timer.setInterval(160)
+        self._busy_timer.timeout.connect(self._tick_busy)
         chat_layout.addLayout(header)
 
         # 分隔线
@@ -1876,6 +1892,35 @@ class ChatWidget(QWidget):
                        f"保留最后 {keep} 轮")
         except Exception as e:
             _log.debug(f"[聊天分段加载] 卸载旧轮次失败: {e}")
+
+    # ================= 工作中指示器（★ 1.9.3 第 6 轮）=================
+    def _tick_busy(self):
+        """定时器每 160ms 走一帧（斜杠、破折号、反斜杠循环）。"""
+        try:
+            self._busy_i = (self._busy_i + 1) % len(self._busy_frames)
+            self._busy_label.setText(self._busy_frames[self._busy_i])
+        except Exception:
+            pass
+
+    def start_busy(self):
+        """开始干活 → 显示并转动。**重复调用安全**（已在跑就不重复启动）。"""
+        try:
+            self._busy_i = 0
+            self._busy_label.setText(self._busy_frames[0])
+            self._busy_label.show()
+            if not self._busy_timer.isActive():
+                self._busy_timer.start()
+        except Exception as e:
+            _log.debug(f"[工作中] 启动指示器失败: {e}")
+
+    def stop_busy(self):
+        """干完 → **停掉定时器**、清空、隐藏（空闲零开销）。重复调用安全。"""
+        try:
+            self._busy_timer.stop()
+            self._busy_label.setText("")
+            self._busy_label.hide()
+        except Exception as e:
+            _log.debug(f"[工作中] 停止指示器失败: {e}")
 
     def clear_before_last_user_message(self):
         """★ 1.9.2（R55/R60）：发言即清屏 —— 把这条用户消息**之前**的记录整段卸载。

@@ -1141,6 +1141,11 @@ class MainWindow:
             self._save_chat_rounds(1)
         except Exception as _e:
             _log.debug(f"[聊天历史] 重置显示轮数失败: {_e}")
+        # ★ 1.9.3（第 6 轮）：开始干活 → 打开「工作中」指示器
+        try:
+            self.chat.start_busy()
+        except Exception:
+            pass
         self.pet_mgr.on_user_message()
         self.chat.append_system_msg("[正在思考...]")
         self.chat.reset_stream()
@@ -1861,6 +1866,13 @@ class MainWindow:
         self._turn_active = False
         # ★ 1.9.0: 本轮结束 → 把工具推来的附件消息补进会话（错开工具调用链）
         self._flush_pending_attachments()
+        # ★ 1.9.3（第 6 轮）：收尾之后才关「工作中」指示器
+        #   ★ 位置注意：**必须在 _flush_pending_attachments 之后** ——
+        #     a190 有一条断言钉着「结束/中断都先收尾附件」，插前面会打挂（已踩过）。
+        try:
+            self.chat.stop_busy()
+        except Exception:
+            pass
         # ★ 1.9.0（你的方案）：表情包**优先走 meme 工具** —— LLM 在回复前调用一次，
         #   工具把选中的放进"待发送"；这里（文字回复结束之后）取走并发一条。
         #   老的"思考/正文里写 {"meme": …}"协议保留为兜底（模型偶尔还是会那么写）。
@@ -1908,6 +1920,11 @@ class MainWindow:
         self._turn_active = False
         # ★ 1.9.0: 中断同样要收尾附件消息（否则会永远留在待补队列里）
         self._flush_pending_attachments()
+        # ★ 1.9.3（第 6 轮）：收尾之后才关「工作中」指示器（位置同上）
+        try:
+            self.chat.stop_busy()
+        except Exception:
+            pass
         self.pet_mgr.on_abort()
         self.chat.set_hide_on_focus_out(True)
 
