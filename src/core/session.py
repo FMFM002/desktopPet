@@ -1023,12 +1023,28 @@ class ChatSession:
                     self.client.set_tools(_saved)
                 except Exception:
                     pass
-            if not _resp or not getattr(_resp, "choices", None):
-                return ""
-            _line = (getattr(_resp.choices[0].message, "content", "") or "").strip()
-            if not _line or '"name"' in _line or _line.startswith("{"):
-                return ""            # 防呆：吐了 JSON / 工具片段就不要这句
-            return _line.splitlines()[0].strip()[:120]
+            def _pick(r):
+                if not r or not getattr(r, "choices", None):
+                    return ""
+                _c = (getattr(r.choices[0].message, "content", "") or "").strip()
+                if not _c or '"name"' in _c or _c.startswith("{"):
+                    return ""        # 防呆：吐了 JSON / 工具片段就不要这句
+                return _c.splitlines()[0].strip()[:120]
+
+            _line = _pick(_resp)
+            if not _line:
+                # ★ 1.9.3 第 10 轮：真机 7 次旁路里有 3 次是空的（thinking 模式下
+                #   正文可能为空）。**再用更严的提示重试一次**，还空才交给兜底。
+                _log.debug("[进度汇报·模型] 第一次为空 → 用更严提示重试一次")
+                _msgs2 = [{"role": "user", "content":
+                           "只输出一句话（20 字以内）告诉用户你正在做什么，"
+                           "不要推理、不要解释、不要输出别的任何内容。"}]
+                try:
+                    self.client.set_tools([])
+                    _line = _pick(self.client.chat(_msgs2))
+                finally:
+                    pass
+            return _line
         except Exception as e:
             _log.debug(f"[进度汇报·模型] 旁路请求失败: {e}")
             return ""
@@ -1334,6 +1350,7 @@ class ChatSession:
                             _log.info("[进度兜底] 已发兜底汇报")
                     except Exception as _e_r:
                         _log.debug(f"[进度汇报] 失败: {_e_r}")
+                    self._empty_rounds = 0   # ★ 1.9.3 第 10 轮：有过推进就不算空
                     tool_just_executed = True  # ★ 1.4.0+: 标记工具已执行
                     # ★ 1.9.0（你的 bug 报告"终止工具没生效"）：
                     #   以前点了「终止工具」，剩下的工具确实不跑了，但这里
@@ -1390,6 +1407,24 @@ class ChatSession:
                             self.on_system_msg("[模型无响应，无工具重试...]")
                         continue
                     else:
+                        # ★★ 1.9.3 第 10 轮：**别一次空回复就整轮放弃**。
+                        #   真机 10-03 23:58：做 PPT 走到第 8 轮（上限 20）时空回复 →
+                        #   直接"放弃"→ 长任务中道崩殂，前面 17 次工具调用全白费。
+                        #   改成：先插一句提醒**再给一次机会**，连续两次空回复才放弃。
+                        _empt = int(getattr(self, "_empty_rounds", 0)) + 1
+                        self._empty_rounds = _empt
+                        if _empt <= 2:
+                            _log.warning(f"第{round_count}轮空回复（第 {_empt} 次，再试一次）")
+                            if self.on_system_msg:
+                                self.on_system_msg("[模型这一轮没输出，已提醒它继续...]")
+                            with self._lock:
+                                self.messages.append({
+                                    "role": "system",
+                                    "content": ("（系统提醒）刚才没有收到你的输出。请继续："
+                                                "如果任务已经做完，就给出最终答复；"
+                                                "还没做完，就接着做下一步。"),
+                                })
+                            continue
                         _log.warning("多轮空回复，放弃")
                         # ★★ 1.9.3（用户第 2 条反馈）：**失败要说清楚卡在哪**。
                         #   旧文案"（唔...让我想想怎么说）"既没提失败、也没提下一步，
