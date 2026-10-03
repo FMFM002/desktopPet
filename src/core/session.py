@@ -1416,7 +1416,12 @@ class ChatSession:
 
                 # 空回复兜底
                 if not content_buffer.strip() and not valid_tool_calls:
-                    _log.warning(f"第{round_count}轮空回复")
+                    # ★ 1.9.3 第 12 轮：把 thinking 长度也打出来 ——
+                    #   真机 10-04 00:15 的"连续空回复"就是**思考吃光了 max_tokens**
+                    #   （thinking 5527 字 → content=0）。日志里有这个数字就能一眼判定。
+                    _log.warning(f"第{round_count}轮空回复"
+                                 f"（thinking={len(thinking_buffer)} 字，"
+                                 f"max_tokens={getattr(self.client, 'max_tokens', '?')}）")
                     if round_count == 1:
                         self.client.set_tools([])
                         if self.on_system_msg:

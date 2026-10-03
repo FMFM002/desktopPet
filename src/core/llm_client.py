@@ -706,6 +706,23 @@ class ChatClient:
         self.tools = tools
         _log.debug(f"工具已注册: {len(tools)} 个")
 
+    def _thinking_low_kwargs(self) -> dict:
+        """★ 1.9.3 第 12 轮（用户要求）：把**思考强度设为 low**。
+
+        为什么（真机证据 logs/prts_20261004_001406.log）：
+          第7/8/9 轮 `thinking=5527/3793/3322 字, content=0` —— 思考把输出预算吃光，
+          正文为空 → 连续"空回复" → 放弃。max_tokens 已 2048→8192，
+          这里再从**源头**把思考强度压到 low。
+
+        兼容性：各家服务端字段不同，所以**两种都给**；
+        并且一旦服务端拒绝，调用处会**自动降级**（置 `_thinking_low_unsupported`），
+        之后不再发这两个字段 —— 绝不让"降思考"这件事把对话打挂。
+        """
+        if getattr(self, "_thinking_low_unsupported", False):
+            return {}
+        return {"reasoning_effort": "low",
+                "extra_body": {"thinking": {"type": "low"}}}
+
     def chat_stream(self, messages: list) -> Generator:
         full_messages = [{"role": "system", "content": self._build_system_prompt()}] + messages
         kwargs = dict(
@@ -714,7 +731,19 @@ class ChatClient:
         if self.tools:
             kwargs["tools"] = self.tools
             kwargs["tool_choice"] = "auto"
-        return self.client.chat.completions.create(**kwargs)
+        _low = self._thinking_low_kwargs()
+        kwargs.update(_low)
+        try:
+            return self.client.chat.completions.create(**kwargs)
+        except Exception as _e:
+            if not _low:
+                raise
+            _log.warning(f"[思考强度] 服务端不接受 low（{type(_e).__name__}: {_e}）"
+                         f"→ 自动降级重试（之后不再发该参数）")
+            self._thinking_low_unsupported = True
+            kwargs.pop("reasoning_effort", None)
+            kwargs.pop("extra_body", None)
+            return self.client.chat.completions.create(**kwargs)
 
     def chat(self, messages: list):
         full_messages = [{"role": "system", "content": self._build_system_prompt()}] + messages
@@ -724,7 +753,19 @@ class ChatClient:
         if self.tools:
             kwargs["tools"] = self.tools
             kwargs["tool_choice"] = "auto"
-        return self.client.chat.completions.create(**kwargs)
+        _low = self._thinking_low_kwargs()
+        kwargs.update(_low)
+        try:
+            return self.client.chat.completions.create(**kwargs)
+        except Exception as _e:
+            if not _low:
+                raise
+            _log.warning(f"[思考强度] 服务端不接受 low（{type(_e).__name__}: {_e}）"
+                         f"→ 自动降级重试（之后不再发该参数）")
+            self._thinking_low_unsupported = True
+            kwargs.pop("reasoning_effort", None)
+            kwargs.pop("extra_body", None)
+            return self.client.chat.completions.create(**kwargs)
 
 
 # 全局活跃 ChatClient，用于 IdleTalker 等只需要简单调用的场景

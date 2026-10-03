@@ -73,7 +73,7 @@ class LLMConfig:
     api_key: str = ""
     model: str = "deepseek-chat"
     temperature: float = 0.7
-    max_tokens: int = 2048
+    max_tokens: int = 8192
 
 
 @dataclass
