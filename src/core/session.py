@@ -1058,9 +1058,25 @@ class ChatSession:
         consecutive_tool_failures = 0  # ★ 1.4.0: 跟踪连续工具失败次数
         tool_just_executed = False     # ★ 1.4.0+: 边界轮工具已执行标记
 
+        _finished_ok = False      # ★ 1.9.3 第 11 轮：是否"正常收尾"（不是被预算/中断截断）
         while round_count < self.MAX_ROUNDS and not self._abort_chat:
             round_count += 1
             _log.debug(f"第 {round_count} 轮对话")
+            # ★★ 1.9.3 第 11 轮（用户要求：全局预算感知）：
+            #   走到 75% 就先提醒模型"该收尾了" —— 让它自己规划，而不是闷头跑到撞墙。
+            if round_count == max(1, int(self.MAX_ROUNDS * 0.75)):
+                try:
+                    with self._lock:
+                        self.messages.append({
+                            "role": "system",
+                            "content": (f"（预算提醒）你这一轮的轮次预算已用 "
+                                        f"{round_count}/{self.MAX_ROUNDS}。请优先把**当前成果"
+                                        f"交付/收尾**；如果确实还差很多步，先用一句话告诉用户"
+                                        f"进展和大概还差多少，再继续。"),
+                        })
+                    _log.info(f"[预算] 已在 {round_count}/{self.MAX_ROUNDS} 处提醒模型收尾")
+                except Exception as _e_b:
+                    _log.debug(f"[预算] 提醒插入失败: {_e_b}")
             _last_failed_tool = ""
             _last_failed_err = ""
             # ★★ 1.9.3（第 3 轮批注 2）：**每轮工具调用结束后，由代码兜底发一句进度**。
@@ -1455,6 +1471,7 @@ class ChatSession:
                 #   （不置回 False 的话，每次用过工具都会多打一次请求，
                 #    而那一次正好是会踩 reasoning_content 400 的那次）。
                 tool_just_executed = False
+                _finished_ok = True      # ★ 1.9.3 第 11 轮：这是"正常收尾"（有正文回复）
                 break
 
             except Exception as e:
@@ -1480,6 +1497,31 @@ class ChatSession:
 
         # ★ 1.4.0+: 边界轮补偿 — 最后一轮执行了工具但 LLM 没机会处理结果
         # 最多追加 2 轮（工具执行 + 结果处理），避免 LLM 死循环
+        # ★★ 1.9.3 第 11 轮（用户要求）：**预算用满时的收尾**（全局，任何任务都适用）。
+        #   不静默结束：先拿一句"我正在做什么"，再明确告诉用户"预算用完了、要不要继续"。
+        #   ★ 用户回一句就自动开新一轮 —— round_count 每条用户消息本来就从 1 起（天然重置）。
+        if (not _finished_ok) and round_count >= self.MAX_ROUNDS and not self._abort_chat:
+            _log.warning(f"[预算] 轮次预算用完（{self.MAX_ROUNDS} 轮）→ 汇报并询问是否继续")
+            try:
+                _cur = ""
+                try:
+                    _cur = self._side_progress_line([])
+                except Exception:
+                    _cur = ""
+                _bmsg = (f"这一轮的「轮次预算」用完啦（我跑了 {self.MAX_ROUNDS} 轮工具调用）。"
+                         + (f"刚在做：{_cur}。" if _cur else "")
+                         + "要我接着往下做吗？回一句「继续」我就接着干～")
+                if self.on_text:
+                    self.on_text(_bmsg)
+                try:
+                    from src.core import progress_bus as _pb_b
+                    if int(_pb_b.count_this_turn() or 0) == 0:
+                        _pb_b.report(_bmsg)
+                except Exception:
+                    pass
+            except Exception as _e_b2:
+                _log.warning(f"[预算] 收尾汇报失败: {_e_b2}")
+            tool_just_executed = False   # 预算已用完 → **不再走边界轮**
         boundary_rounds = 0
         # ★ 1.9.0：边界轮也要认「终止工具」—— 否则终止后还会补一次 LLM 调用
         while tool_just_executed and not self._abort_chat \
