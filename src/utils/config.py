@@ -369,6 +369,9 @@ class AppConfig:
             raise
 
         # 同步 .env（不再包含 MySQL 配置）
+        # ★ 第 26 轮补：`.env` 跟着 **config_path 所在目录** 走 ——
+        #   这样"把 config_path 指到临时目录"才是真的隔离（否则会写真实 .env）。
+        _env_path = self.config_path.parent / ".env"
         self._sync_env_keys({
             "DEEPSEEK_API_KEY": self.llm.api_key,
             "DEEPSEEK_BASE_URL": self.llm.host,
@@ -377,22 +380,31 @@ class AppConfig:
             #   把 .env 里的旧专用 Key 删掉（否则它会一直覆盖 LLM Key）。
             VISION_KEY_ENV: (self.vision.api_key
                              if self.vision.api_key != self.llm.api_key else ""),
-        }, remove_empty={VISION_KEY_ENV})
+        }, remove_empty={VISION_KEY_ENV}, env_path=_env_path)
 
         _log.info(f"配置已自动保存: {self.config_path}")
 
-    @staticmethod
-    def _sync_env_keys(kv: dict, remove_empty: frozenset = frozenset()):
+    def _sync_env_keys(self, kv: dict, remove_empty: frozenset = frozenset(),
+                       env_path: Path = None):
         """批量写入 .env（纯 Python，不调 dotenv，避免任何阻塞风险）。
 
         remove_empty: 值为空时要【删除】该键的键名集合；
                       其余空值沿用旧行为（跳过，不动 .env）。
+
+        ★★ 1.9.3 第 26 轮补：**`env_path` 可以覆盖写哪儿**。
+          为什么必须加：`ENV_PATH` 是模块级常量，**不会跟着 `config_path` 走** ——
+          于是"我把 config_path 指到临时目录了，很安全"是**假的**：
+          `save()` 照样把 `.env` 写到项目根。
+          真机就是这么被自己人坑的：一个把 config_path 指向临时目录的复现脚本，
+          让 `.env` 里的 `DEEPSEEK_API_KEY` 变成了测试占位符 `test`，
+          下一次启动桌宠直接 `401 Authentication Fails`。
         """
-        if not kv or not ENV_PATH:
+        env_path = env_path or ENV_PATH
+        if not kv or not env_path:
             return
         try:
-            if ENV_PATH.exists():
-                text = ENV_PATH.read_text(encoding="utf-8")
+            if env_path.exists():
+                text = env_path.read_text(encoding="utf-8")
             else:
                 text = ""
             lines = text.splitlines(keepends=True)
@@ -414,9 +426,9 @@ class AppConfig:
                         lines[-1] += "\n"
                     lines.append(f"{key}={value}\n")
 
-            tmp_env = ENV_PATH.parent / (ENV_PATH.name + ".tmp")
+            tmp_env = env_path.parent / (env_path.name + ".tmp")
             tmp_env.write_text("".join(lines), encoding="utf-8")
-            tmp_env.replace(ENV_PATH)
+            tmp_env.replace(env_path)
             _log.debug(f".env 已同步 {len(kv)} 个键")
         except Exception as e:
             _log.warning(f".env 同步失败: {e}")

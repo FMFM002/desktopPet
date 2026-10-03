@@ -143,6 +143,30 @@ foreach ($n in $guardName) {
         $summary += "★★ 配置保镖: $n 还原后哈希不一致，请手工检查！"
     }
 }
+
+# ★★ 1.9.3 第 26 轮补：**占位符哨兵** —— 别让"密钥被测试写成 test"这种事再悄悄发生。
+#   血的教训：一个把 config_path 指到临时目录的脚本，以为很安全；
+#   而 `config.save()` 里 .env 的路径是**写死的**，于是它把用户真实 .env 的
+#   `DEEPSEEK_API_KEY` 写成了占位符 `test` → 下次启动桌宠 `401 Authentication Fails`。
+#   保镖只保证"跑动期间没变"，保证不了"内容是对的" —— 所以这里直接查内容。
+try {
+    $envFile = Join-Path $root ".env"
+    if (Test-Path $envFile) {
+        $keyLine = (Get-Content $envFile -Encoding utf8 | Where-Object { $_ -match '^\s*DEEPSEEK_API_KEY\s*=' } | Select-Object -First 1)
+        $keyVal = ""
+        if ($keyLine) { $keyVal = ($keyLine -split '=', 2)[1].Trim() }
+        if (-not $keyVal) {
+            $summary += "★★ .env 哨兵: DEEPSEEK_API_KEY 是空的！桌宠会 401，请手工填回真 key。"
+        } elseif ($keyVal -eq "test" -or $keyVal -like "sk-test*" -or $keyVal.Length -lt 12) {
+            $summary += "★★ .env 哨兵: DEEPSEEK_API_KEY 看着像**测试占位符**（len=$($keyVal.Length)）。"
+            $summary += "    桌宠会 401 Authentication Fails —— 请把真 key 填回 .env 再启动。"
+        } else {
+            $summary += ".env 哨兵: DEEPSEEK_API_KEY 正常（len=$($keyVal.Length)）"
+        }
+    }
+} catch {
+    $summary += ".env 哨兵: 检查失败（$($_.Exception.Message)）"
+}
 Remove-Item $guardDir -Recurse -Force -ErrorAction SilentlyContinue
 
 $summary | ForEach-Object { Write-Output $_ }

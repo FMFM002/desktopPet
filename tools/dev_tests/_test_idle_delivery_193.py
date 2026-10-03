@@ -14,6 +14,7 @@
   C. `file_ops` 漏给 `path` 时要报"缺少 path"，而不是含糊的"只读模式"；
   D. 提示词里要有"先出东西、别一直搜集素材"，且轮次预算够（MAX_ROUNDS=30）。
 """
+import json
 import os
 import sys
 import time
@@ -159,6 +160,46 @@ check("★llm_client 里的下限是 8192", "_floor = 8192" in _lc,
       [ln.strip() for ln in _lc.splitlines() if "_floor =" in ln][:2])
 check("★注释里记着真机证据（空回复 + thinking 字数）", "空回复（thinking=" in _lc)
 check("★4096 不再作为下限", "_floor = 4096" not in _lc)
+
+print("\n== F. ★★ .env 的隔离：`config_path` 指到哪，`.env` 就得写到哪（血案）==")
+# 真机血案：一个"把 config_path 指到临时目录"的复现脚本以为很安全，
+# 但 `config.save()` 里 .env 的路径**是写死的** `BASE_DIR/.env` ——
+# 于是它把用户**真实** .env 的 `DEEPSEEK_API_KEY` 写成了测试占位符 `test`，
+# 下一次启动桌宠直接 `401 Authentication Fails`。
+import shutil as _sh                                              # noqa: E402
+from src.utils.config import AppConfig as _AppConfig              # noqa: E402
+
+F_TMP = BASE / "临时文件" / "_scratch_dev" / "_env_iso_probe"
+_sh.rmtree(F_TMP, ignore_errors=True)
+F_TMP.mkdir(parents=True, exist_ok=True)
+_REAL_ENV_BEFORE = (BASE / ".env").read_bytes() if (BASE / ".env").exists() else b""
+_sh.copy2(BASE / "config.json", F_TMP / "config.json")
+if (BASE / ".env").exists():
+    _sh.copy2(BASE / ".env", F_TMP / ".env")
+
+_c = _AppConfig()
+_c.config_path = F_TMP / "config.json"
+_c._load_from_file()
+check("config_path 已指向临时目录", str(_c.config_path).startswith(str(F_TMP)))
+_c.llm.max_tokens = 4242
+_c.save()
+check("★临时目录里生成了 config.json", (F_TMP / "config.json").exists())
+check("★临时目录里生成了 .env（跟着 config_path 走，不再写死项目根）",
+      (F_TMP / ".env").exists(), str(sorted(p.name for p in F_TMP.iterdir())))
+check("★临时 config 里是 4242",
+      json.loads((F_TMP / "config.json").read_text(encoding="utf-8"))["llm"]["max_tokens"] == 4242)
+
+_after = (BASE / ".env").read_bytes() if (BASE / ".env").exists() else b""
+check("★★★ 真实 .env 一个字节都没变（这就是当初被写坏的那个文件）",
+      _after == _REAL_ENV_BEFORE,
+      f"len {len(_REAL_ENV_BEFORE)} -> {len(_after)}")
+_key = [ln.split("=", 1)[1].strip() for ln in
+        (BASE / ".env").read_text(encoding="utf-8").splitlines()
+        if ln.strip().startswith("DEEPSEEK_API_KEY=")]
+check("★★ 真实 .env 里的 key 不是测试占位符（防止再被写坏成 test）",
+      bool(_key) and _key[0] != "test" and len(_key[0]) >= 12,
+      f"len={len(_key[0]) if _key else 0}")
+_sh.rmtree(F_TMP, ignore_errors=True)
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:

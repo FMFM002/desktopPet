@@ -50,16 +50,55 @@ except Exception:
 #   继承同一个环境变量，它们中途退出时若也去还原，会把**测试正在写入**的
 #   config.json 抹掉 → _test_settings_persist_182 之类的落盘断言假红。
 #   用 sys.argv[0] 的文件名区分：回归脚本起的是 `python -u ...\_test_xxx.py`。
+#
+# ★★ 1.9.3 第 26 轮补：**不管有没有 PRTS_CFG_GUARD，_test_*.py 都自己兜底**。
+#   血的教训：一个"把 config_path 指到临时目录"的复现脚本以为很安全，实际
+#   `config.save()` 里的 .env 路径是**写死的**，于是它把用户真实 `.env` 里的
+#   `DEEPSEEK_API_KEY` 写成了测试占位符 `test` → 下次启动桌宠
+#   `401 Authentication Fails`（密钥被自己的测试覆盖掉了）。
+#   现在：任何顶层 `_test_*.py` 进程启动时都快照 config.json + .env，
+#   退出时**无条件还原**（并删掉快照目录）。有 PRTS_CFG_GUARD 时多一层共享快照，
+#   两层都还原、互不冲突（内容一样）。
 try:
-    import os
-    import sys
     import atexit
+    import os
     import shutil
+    import sys
     from pathlib import Path as _P
 
     _root = _P(__file__).resolve().parent.parent.parent   # _quiet → dev_tests → 项目根
-    _guard = _root / "tools" / "dev_tests" / "_cfg_guard"
     _argv0 = os.path.basename(sys.argv[0] or "")
+
+    if _argv0.startswith("_test_"):
+        # ── ① 自兜底快照（不依赖任何环境变量）──
+        _auto = _root / "tools" / "dev_tests" / "_cfg_guard_auto" / f"p{os.getpid()}"
+        _snapped = []
+        try:
+            _auto.mkdir(parents=True, exist_ok=True)
+            for _n in ("config.json", ".env"):
+                _src = _root / _n
+                if _src.is_file():
+                    shutil.copy2(_src, _auto / _n)
+                    _snapped.append(_n)
+        except Exception:
+            _snapped = []
+
+        def _restore_auto():
+            for _n in _snapped:
+                try:
+                    shutil.copy2(_auto / _n, _root / _n)
+                except Exception:
+                    pass
+            try:
+                shutil.rmtree(_auto, ignore_errors=True)
+            except Exception:
+                pass
+
+        # atexit 后进先出：先注册的先最后执行 —— 想让它**最后**跑，就得**最先**注册
+        atexit.register(_restore_auto)
+
+    # ── ② 回归脚本的共享保镖（原逻辑保留）──
+    _guard = _root / "tools" / "dev_tests" / "_cfg_guard"
     if (os.environ.get("PRTS_CFG_GUARD") == "1"
             and _argv0.startswith("_test_")
             and _guard.is_dir()):
