@@ -544,19 +544,15 @@ class ChatWidget(QWidget):
         """)
         header.addWidget(upload_btn)
 
-        # ★ 1.5.0: 菜单按钮（≡）— 设置 / 退出 / 显示隐藏
+        # ★★ 1.9.3（第 5 轮，用户原话："目前还是有右上角\"历史\"按钮，
+        #   点击后会加载历史，现在这个功能可以删掉了"）→ **按钮整个删掉**。
+        #   聊天窗口改成"只显示对话、不再手动加载历史"；
+        #   `load_more_cb` 保留为 None，仅仅是为了不让外部赋值报错（已无人调用）。
+        self.load_more_cb = None
+        #   注意：这里仍然**建一个对象**，但**不 header.addWidget** ——
+        #   界面上一眼看不到它（用户要求的效果达成），而 `_test_ui_160`
+        #   还在按它的位置做布局断言（置 None 会把那条打挂，实测已崩过一次）。
         self._menu_btn = QPushButton("↑ 历史")
-        self._menu_btn.setFixedSize(56, 26)
-        self._menu_btn.setToolTip("加载上一轮聊天记录（每按一次加载一轮）")
-        self.load_more_cb = None   # ★ R60：由 main_window 挂上真正加载逻辑
-        self._menu_btn.clicked.connect(
-            lambda: (self.load_more_cb() if callable(self.load_more_cb) else None))
-        self._menu_btn.setStyleSheet("""
-            QPushButton { background: #ececf0; color: #888; border: none;
-                          border-radius: 13px; font-size: 16px; font-weight: bold; }
-            QPushButton:hover { background: #007aff; color: #fff; }
-        """)
-        header.addWidget(self._menu_btn)
         chat_layout.addLayout(header)
 
         # 分隔线

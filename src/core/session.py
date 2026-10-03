@@ -1008,8 +1008,10 @@ class ChatSession:
                     _now_prog = _t_prog.time()
                     if _now_prog - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
                         self._last_progress_at = _now_prog
-                        _pb_prog.report(
-                            f"还在处理中：已经跑了 {round_count} 轮工具调用，我继续弄～")
+                        # ★ 1.9.3（第 5 轮）：这句话只是**兜底**（模型没主动说时用），
+                        #   所以别写成"已经跑了 N 轮工具调用"那种机械句 ——
+                        #   用户明确说不需要内部细节，一句自然的"还在弄"就够。
+                        _pb_prog.report("还在弄，我继续～")
                         _log.info(f"[进度兜底] 已发第 {round_count} 轮后的进度汇报")
                 except Exception as _e_prog:
                     _log.debug(f"[进度兜底] 汇报失败: {_e_prog}")
