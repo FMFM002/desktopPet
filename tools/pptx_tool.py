@@ -187,11 +187,22 @@ def _add_page(prs, title: str, bullets, imgs, theme, assets_dir: Path, page_no: 
             run.text = ("• " if not b.startswith(("•", "-")) else "") + b
             _style_run(run, size, theme["body"])
 
-    # 图片（等比裁剪后放右侧）
+    # 图片（等比裁剪后放右侧；**两张并排**）
+    # ★★ 1.9.3 第 20 轮：修一个静默丢弃 bug —— 旧代码 ``y += 4.7; if y > 6.2: break``
+    #   在第一张图之后立刻成立，于是**第二张及以后的图根本不处理**（也不进 skipped，
+    #   所以"坏图跳过"看起来永远没生效）。现在：1 张=右侧大图；2 张=左右并排；
+    #   超出上限的**记账**（未排版），不再无声无息地丢。
     if imgs:
-        box_ratio = 4.6 / 4.6
-        y = 1.55
-        for name in imgs[:2]:
+        names = list(imgs)
+        if len(names) == 1:
+            slots = [(8.25, 1.55, 4.6, 4.6)]
+        else:
+            slots = [(7.15, 2.0, 3.5, 3.5), (10.85, 2.0, 3.5, 3.5)]
+        placed = 0
+        for name in names:
+            if placed >= len(slots):
+                skipped.append(f"{Path(name).name}(超出每页图片上限，未排版)")
+                continue
             p = Path(name)
             if not p.is_absolute():
                 p = assets_dir / name if assets_dir else p
@@ -202,16 +213,15 @@ def _add_page(prs, title: str, bullets, imgs, theme, assets_dir: Path, page_no: 
             if img is None:
                 skipped.append(f"{p.name}(坏图/无法解码)")
                 continue
+            bx, by, bw, bh = slots[placed]
             tmp = DEFAULT_OUT / "_tmp" / f"{p.stem}_crop.jpg"
-            cropped = _crop_to(p, tmp, box_ratio, img)
+            cropped = _crop_to(p, tmp, bw / bh, img)
             if cropped is None:
                 skipped.append(f"{p.name}(裁剪失败)")
                 continue
-            slide.shapes.add_picture(str(cropped), Inches(8.25), Inches(y),
-                                     width=Inches(4.6), height=Inches(4.6))
-            y += 4.7
-            if y > 6.2:
-                break
+            slide.shapes.add_picture(str(cropped), Inches(bx), Inches(by),
+                                     width=Inches(bw), height=Inches(bh))
+            placed += 1
 
     # 页码
     tb = slide.shapes.add_textbox(Inches(12.35), Inches(6.95), Inches(0.7), Inches(0.35))
