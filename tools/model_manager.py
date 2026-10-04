@@ -132,6 +132,58 @@ def cmd_verify() -> int:
     return 0        # ★ 缺失不返回错误码：这是"可选能力没有"，不是故障
 
 
+def cmd_install(keys: list, yes: bool) -> int:
+    """★ 让"安装程序里问一句、后面一起装"**真的能跑**。
+
+    每种模型的获取方式不同，这里如实分工：
+      · genie   → 内置的 `src/genie_tts/PredefinedCharacter.download_chara()`
+                  （内部走 huggingface_hub.snapshot_download，repo=High-Logic/Genie）
+      · easyocr → 首次使用时它自己下到 data/models/easyocr（这里只需建目录）
+      · whisper → **没有可靠的自动源**（whisper.cpp 的 release 结构会变）→ 如实告知手放
+    """
+    if not keys:
+        print("  没指定要装哪个（用 --key genie,whisper,easyocr 或 --all）")
+        return 1
+    rc = 0
+    for k in keys:
+        spec = MODELS.get(k)
+        if spec is None:
+            print(f"  ❌ 未知模型: {k}")
+            rc = 1
+            continue
+        p, where = resolve_dir(k)
+        if p is not None:
+            print(f"  ✅ {spec.label}：已就位（{where}）→ 跳过")
+            continue
+
+        print(f"\n  · {spec.label}  {spec.size_hint}")
+        if k == "genie":
+            if not yes:
+                print("      [跳过] 需要确认（加 --yes 才真下）")
+                continue
+            try:
+                from src.genie_tts.PredefinedCharacter import download_chara
+                dest = ensure_models_root() / "genie"
+                print(f"      正在从 HuggingFace 下载到 {dest} …")
+                download_chara(str(dest))
+                print("      ✅ 完成")
+            except Exception as e:
+                print(f"      ❌ 下载失败: {type(e).__name__}: {e}")
+                print("         可试: 设 HF_ENDPOINT=https://hf-mirror.com 再跑一次")
+                rc = 1
+        elif k == "easyocr":
+            # easyocr 首次用时会自己下到我们指定的目录（ocr_engine 固定了路径）
+            (ensure_models_root() / "easyocr").mkdir(parents=True, exist_ok=True)
+            print("      ✅ 已建目录 —— easyocr 首次使用时会自动下到这里")
+        else:
+            print(f"      ⚠ 没有可靠的自动源，需要手动放：{spec.rel}")
+            if spec.key == "whisper":
+                print("         （whisper-cli.exe + ggml-small.bin；文件较大，"
+                      "从 whisper.cpp 的 release 取）")
+            rc = 0        # 不当作错误：这是"需要人工"，不是失败
+    return rc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="PTRTS 模型管理器（集中管理 data/models/）")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -140,12 +192,19 @@ def main() -> int:
     m = sub.add_parser("migrate", help="把旧位置的模型搬进 data/models/")
     m.add_argument("--dry-run", action="store_true")
     m.add_argument("--only", default="", help="只迁移某一个（key）")
+    i = sub.add_parser("install", help="获取缺失的模型（安装程序会调它）")
+    i.add_argument("--key", default="", help="逗号分隔，如 genie,easyocr")
+    i.add_argument("--all", action="store_true", help="全部缺失的都装")
+    i.add_argument("--yes", action="store_true", help="不必再确认（安装程序里用）")
     sub.add_parser("verify", help="核对能否解析到每个模型")
     a = ap.parse_args()
     if a.cmd == "status":
         return cmd_status(a.json)
     if a.cmd == "migrate":
         return cmd_migrate(a.dry_run, a.only)
+    if a.cmd == "install":
+        keys = list(MODELS) if a.all else [x.strip() for x in a.key.split(",") if x.strip()]
+        return cmd_install(keys, a.yes)
     return cmd_verify()
 
 
