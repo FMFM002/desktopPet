@@ -801,9 +801,6 @@ class MainWindow:
         except Exception as e:
             _log.error(f"窗口定位失败: {e}")
 
-    def _on_behavior_changed(self, behavior: str):
-        self._reposition_windows()
-
     def _on_pet_clicked(self):
         """★ 单击桌宠 → 翻一下"用户想让聊天窗口开着"的标志，按这个标志处理。
 
@@ -1087,25 +1084,6 @@ class MainWindow:
                 pass
         except Exception as e:
             _log.warning(f"[聊天历史] 加载上一轮失败: {e}")
-
-    def _on_progress_report(self, text: str):
-        """★ 1.9.2（R69）：LLM 的临时汇报 → **立刻**显示在聊天窗口（桌宠说的话）。
-
-        ★ 关键设计（用户要求）：这是**临时**回复 ——
-          · 只进聊天窗口给「你」看，**不写进 session.messages**（不进模型上下文、不落库），
-            所以不会污染对话、下一轮也不会重复看到它；
-          · **不结束本轮**：模型调完工具继续干活，汇报只是「说一句」。
-        """
-        try:
-            from PySide6.QtCore import QThread
-            from PySide6.QtWidgets import QApplication as _QApp
-            _app = _QApp.instance()
-            if _app is not None and QThread.currentThread() is not _app.thread():
-                _log.warning("[临时汇报] 不在 GUI 线程，丢弃这条以免崩溃")
-                return
-            self.chat._append_message("assistant", text)
-        except Exception as e:
-            _log.warning(f"[临时汇报] 显示失败: {e}")
 
     def _on_user_message(self, text: str):
         _log.info(f"收到用户消息: {text}")
@@ -1512,12 +1490,6 @@ class MainWindow:
         #   按"用户已要求不再显示系统信息"的既定行为处理（`append_system_msg` 已惰性化）。
         self.chat.system_msg_in.emit(f"[调用: {tool_name}({arg_short})]")
 
-    def _on_tool_display(self, tool_name: str, arg_short: str):
-        _log.info(f"工具调用: {tool_name}({arg_short[:80]})")
-        self.tool_log.add_log(f"调用: {tool_name}({arg_short[:100]})", "tool_call")
-        self.chat.append_system_msg(f"[调用: {tool_name}({arg_short})]")
-        self._reposition_windows()
-
     def _on_tool_result_safe(self, tool_name: str, result: str):
         short = result[:120] + ("..." if len(result) > 120 else "")
         # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg（同样会进面板）
@@ -1555,12 +1527,6 @@ class MainWindow:
         elif data.get("need_login"):
             self.chat.system_msg_in.emit(
                 "[终末地] 还没登录：请让我「登录终末地」，扫完即可查角色/签到")
-
-    def _on_tool_result_ui(self, tool_name: str, result: str):
-        self.tool_log.add_log(f"结果 [{tool_name}]: {result[:200]}", "tool_result")
-        short = result[:120] + ("..." if len(result) > 120 else "")
-        # append_system_msg 现在改投思考面板（★ 1.9.2），不必再单独写一次
-        self.chat.append_system_msg(f"[{tool_name} 返回]: {short}")
 
     def _on_endfield_login_done(self, ok: bool, message: str, role: dict):
         """★ 1.6.0: 终末地扫码登录结果 → 聊天窗口（回调来自后台线程，走信号）"""
@@ -2594,9 +2560,6 @@ class MainWindow:
         )
         _log.info("增强输入监控已启动")
 
-    def stop_input_monitoring(self):
-        self.input_monitor.stop()
-
     # ============ STT 语音转文字 ============
 
     def _on_task_system_msg(self, text: str):
@@ -2676,30 +2639,6 @@ class MainWindow:
     def _on_stt_speech_end(self):
         """用户停止说话"""
         self._task_relay.system_msg.emit("[语音识别中...]")
-
-    def toggle_stt(self):
-        """切换 STT 实时监听"""
-        if self._stt_active:
-            self.stt.stop_realtime()
-            self._stt_active = False
-            self.chat.append_system_msg("[语音监听已停止]")
-        else:
-            # ★ 1.9.0: 以前这里硬编码 configure(mode="auto", model_name="base")，
-            #   把设置页里配的 STT 模式/模型**当场覆盖**（真机日志能看到它跑的是
-            #   auto 探测而不是用户选的 faster_whisper）。现在按配置来，只在
-            #   配置项缺失时才回落到 auto。
-            try:
-                from src.utils.config import get_config as _gc
-                _c = _gc()
-                _mode = (getattr(_c.stt, "mode", "") or "auto").strip() or "auto"
-                _model = (getattr(_c.stt, "model_name", "") or "base").strip() or "base"
-                _lang = (getattr(_c.stt, "language", "") or "zh").strip() or "zh"
-            except Exception:
-                _mode, _model, _lang = "auto", "base", "zh"
-            self.stt.configure(mode=_mode, model_name=_model, language=_lang)
-            self.stt.start_realtime(duration_per_chunk=3.0, vad_threshold=0.02)
-            self._stt_active = True
-            self.chat.append_system_msg("[语音监听已开启，请说话...]")
 
     # ============ 文件上传（视频/音频/文档） ============
 

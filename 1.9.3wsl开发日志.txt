@@ -707,6 +707,68 @@
 ==================================================================
 
 ==================================================================
+五十二、1.9.3 第 45 轮 —— 用户授权"123都做"：清掉剩余冗余（**367 行**）
+==================================================================
+  [用户] 123都做（= 把第 42 轮列出的"待拍板 / 候选 / 被测试钉着"三类全部处理）
+
+  ★★ 一、Batch A：删掉 30 个"真死 / 疑似能力"的生产符号（**333 行**）
+     | 文件 | 删除 |
+     |---|---|
+     | `src/core/stt_engine.py` | `_auto_detect` / `_init_faster_whisper` / `_init_whisper_cpp` / `pop_audio` / `save_to_wav`（72 行）+ 随之为空的 `import wave` 与 `_resolve_model_dir`（23 行） |
+     | `src/core/whisper_local.py` | `get_whisper_cli` / `transcribe_simple`（39 行） |
+     | `src/core/ocr_engine.py` | `install_ocr_package` / `get_tesseract_install_hint`（43 行） |
+     | `src/core/input_monitor.py` | `on_shortcut` |
+     | `src/core/monitor.py` | `get_raw_data` / `clear_raw_data` |
+     | `src/core/tool_manager.py` | `set_enabled` |
+     | `src/core/pet_manager.py` | `get_character_list`（**不含 `_do_*`**） |
+     | `src/core/session.py` | `estimate_total_tokens` / `is_input_blocked` / `is_streaming` / `reset_session` |
+     | `src/core/database.py` | `search_events` / `search_raw` |
+     | `src/ui/pet_animation.py` | `get_behaviors` / `get_characters` |
+     | `src/ui/tool_log_widget.py` | `show_at` |
+     | `src/ui/main_window.py` | `toggle_stt` / `stop_input_monitoring` / `_on_tool_result_ui` / `_on_tool_display` / `_on_progress_report` / `_on_behavior_changed`（61 行） |
+     · **边界（这三类一律不碰）**：`tools/_vendor/**`（第三方 pixivpy3）、
+       `_do_*`（**动态派发** `getattr(self, f"_do_{cmd}")`）、`dev_tests/_diag_*`。
+
+  ★★ 二、Batch A 引发的连带修复（**这一步很有价值：我的守卫抓到了我自己**）
+     · 删完先跑回归，红了 **4 处**：
+       ① **新加的 import 守卫报 `stt_engine.py:20 import wave`** ——
+          它原本只被 `save_to_wav` 用，函数一删就成了未使用 import。
+          **这正是第 44 轮加那道机器闸的意义**：删代码留下的"孤儿 import"当场被逮住。
+       ② `_test_a190` 三条**结构守卫**失败，而且都指向"我刚删掉的代码"：
+          - `whisper-cli 两个调用点都走 _build_cmd` —— 第二个调用点就是被删的 `transcribe_simple`
+            → 断言改成 `>= 1`（活路径仍然带 `-ng`、仍走 `_build_cmd`，守卫意图不变）。
+          - `faster-whisper 初始化真的走了 _resolve_model_dir` —— 那个初始化器已删，
+            连带 `_resolve_model_dir`（唯一调用方）也删掉，这条断言一并去掉。
+          - `语音监听开关不再硬编码覆盖你配的 STT 模式/模型` —— 钉的是被删的 `toggle_stt`；
+            全仓现在**没有任何 `stt.configure(...)` 调用**了 → 改成更强的断言：
+            **"整个 main_window 里不再有硬编码的 STT configure"**。
+     · `_test_a190` 断言数 466 → 463（净减 3，但每条都换成了对**活代码**的断言）。
+
+  ★★ 三、Batch B：删掉 3 个"被测试养着的**纯包装**"（**11 行**）
+     | 符号 | 它其实是什么 | 测试怎么改 |
+     |---|---|---|
+     | `tools/meme_tool.py::peek_pending` | `from src.core.meme_bus import peek` 一行转发 | a190 里加本地 `_peek_pending()`，4 处改调它 |
+     | `src/core/session.py::clear_pending_images` | `self._pending_images.clear()` 一行包装 | `_test_multimodal` 直接 `s._pending_images.clear()` |
+     | `src/ui/chat_widget.py::think_panel_count` | 恒返回 0 的残留接口 | 守卫改成断言**接口根本不存在**（比"等于 0"更彻底） |
+     · `_test_think_disabled_193` 断言 13 → 14（拆成"两条惰性入口仍在" + "计数接口已删"）。
+
+  ★★ 四、**保留**的两个（不是包装，删了会削弱验证能力）——理由记在这
+     · `src/ui/win_window.py::uninstall_foreground_hook`：真做 `UnhookWinEvent` 的**资源释放**。
+       ★ 顺带查出一件事：`install_foreground_hook` 在生产里被调（`pet_animation.py:397`），
+         而 `uninstall_foreground_hook` **只有测试在调** ——
+         也就是**进程运行期装了 WinEvent 钩子、从不卸载**。
+         因为 `install` 是幂等的（测试里有断言），不卸载在"进程只活一次"的前提下没问题；
+         但如果哪天形象窗口会重建，这里就是个泄漏点。**已记档，未改**。
+     · `src/core/comfyui_jobs.py::wait_all`：文档明确写着"**给自测/收尾用，生产代码不用调**"，
+       而且它的注释里有一条真踩过的坑（**别用 `_queue.empty()` 判断**，worker 在
+       `get()` 与 `_current.update()` 之间有窗口，会提前返回 True）。
+       它操作的是模块私有 `_lock`/`_jobs`，**搬不到测试里**，删了就丢能力。
+
+  ★ 五、回归：**53 套件 FAIL=0**（留档 `run_all_193_round45c.txt`；
+       Batch A 现场见 `run_all_193_round45a.txt`）。
+==================================================================
+
+==================================================================
 五十一、1.9.3 第 44 轮 —— 换个客观判据：清 38 条未使用 import + 给"重复代码"一个否证
 ==================================================================
   （承用户要求："删除冗余代码"）

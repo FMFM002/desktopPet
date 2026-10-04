@@ -40,6 +40,13 @@ os.environ.setdefault("DEEPSEEK_API_KEY", "test")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
+# ★ 1.9.3 第 45 轮：meme_tool.peek_pending() 只是 meme_bus.peek() 的一行包装，
+#   生产代码里已经删掉（全仓只有本套件用它）。测试直接调底层那一层。
+def _peek_pending():
+    from src.core.meme_bus import peek
+    return peek()
+
+
 
 def _doc(name: str):
     """★ 1.9.3（第 3 轮）：这两个文档**可能在根目录，也可能被"清理脚本"移进 临时文件/**。
@@ -1364,21 +1371,11 @@ check('★STT：缺文件时日志说清"缺什么 + 怎么补"（不是干巴�
       and "ggerganov/whisper.cpp" in _stt_src_txt
       and "hf-mirror" in _stt_src_txt)
 
-# ★ 1.9.0（你的要求）：模型也放**项目内**，别散在用户目录里，方便以后打包
-from src.core.stt_engine import _resolve_model_dir as _rmd  # noqa: E402
-
-check("★模型名没有对应目录时原样返回（让库自己去下）",
-      _rmd("不存在的模型xyz") == "不存在的模型xyz" and _rmd("") == "")
-_modprobe = ROOT / "data" / "models" / "_probe_model"
-_modprobe.mkdir(parents=True, exist_ok=True)
-try:
-    check("★data/models/<模型名> 存在时优先用它（离线也能跑，不碰 HuggingFace）",
-          _rmd("_probe_model") == str(_modprobe), _rmd("_probe_model"))
-finally:
-    try:
-        _modprobe.rmdir()
-    except Exception:
-        pass
+# ★★ 1.9.3 第 45 轮（用户「123都做」授权删冗余）：`_resolve_model_dir` 的唯一生产调用方
+#   是被删掉的 `_init_faster_whisper`（faster-whisper 后端已不再初始化），
+#   活的 whisper_local 后端走 `data/whisper` 的固定路径。
+#   ⇒ 这个工具函数连同它的 4 条断言一起删除。**"项目内放模型"这条要求**
+#     仍由数据目录约定满足（`data/whisper/ggml-small.bin`，上方已有断言在测）。
 check("★easyocr 的模型目录固定在项目内 data/models/easyocr",
       str(_oe._MODEL_DIR).replace("\\", "/").endswith("data/models/easyocr")
       and _oe._MODEL_DIR.exists(),
@@ -1393,9 +1390,9 @@ check("★STT 模型已在项目内（data/whisper/ggml-small.bin，约 465MB）
       _gm.exists() and _gm.stat().st_size > 400 * 1024 * 1024,
       f"{_gm.stat().st_size/1024/1024:.0f} MB" if _gm.exists() else "缺失")
 _wl_src = (ROOT / "src" / "core" / "whisper_local.py").read_text(encoding="utf-8")
-check("★whisper-cli 调用带 -ng（防御性禁 GPU 探测；两个调用点都走 _build_cmd）",
+check("★whisper-cli 调用带 -ng（防御性禁 GPU 探测；调用点走 _build_cmd）",
       '"-ng"' in _wl_src and "def _build_cmd" in _wl_src
-      and _wl_src.count("_build_cmd(filepath") >= 2,
+      and _wl_src.count("_build_cmd(filepath") >= 1,
       f"-ng×{_wl_src.count(chr(34) + '-ng' + chr(34))} 调用点×{_wl_src.count('_build_cmd(filepath')}")
 
 # ── ★真机抓到的两个 whisper 坑（都不是"模型不对"）──
@@ -1485,12 +1482,15 @@ else:
     check("★-m 必须用文件名（源码里写死了这点）", '"-m", model_path.name' in _wl_src)
     check("★原始输出兜底存在", "_text_from_raw_output" in _wl_src)
 _w_src = (ROOT / "src" / "core" / "stt_engine.py").read_text(encoding="utf-8")
-check("★faster-whisper 初始化真的走了这个解析（不是白写的函数）",
-      "_resolve_model_dir(self._model_name)" in _w_src)
 _mw_src3 = (ROOT / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
-check("★语音监听开关不再硬编码覆盖你配的 STT 模式/模型",
-      'configure(mode="auto", model_name="base", language="zh")' not in _mw_src3
-      and 'getattr(_c.stt, "model_name"' in _mw_src3)
+# ★★ 1.9.3 第 45 轮：上面那条"faster-whisper 初始化真的走了这个解析"已随
+#   `_init_faster_whisper` + `_resolve_model_dir` 一起删除（后端不再初始化）。
+#   下面这条原来钉的是 `toggle_stt()`（"语音监听开关不硬编码覆盖你配的 STT 模式/模型"）；
+#   该开关连同 `stt.configure(...)` 的唯一调用点已被删除。
+#   ⇒ 改成钉**更强也更持久**的事实：**整个 main_window 里再也没有任何
+#     "硬编码 stt.configure" 的调用**（配置只从 config 读，不会被谁偷偷覆盖）。
+check("★全窗口不再有硬编码的 STT configure（配置只从 config 读）",
+      "stt.configure(" not in _mw_src3 and 'configure(mode="auto"' not in _mw_src3)
 
 # ══════════════════════════════════════════════════════════════
 # 表情包：素材已抓进 data/memes + 库 + 思考协议 + 回复结束后单独一条
@@ -2345,13 +2345,13 @@ _mtool.reset_turn()
 _r1 = json.loads(_mtool.execute(tag="happy", reason="测试"))
 check("★meme 工具能挑一张并进入待发送状态",
       _r1.get("success") and _r1.get("meme", "").lower().endswith((".webp", ".jpg", ".png"))
-      and _mtool.peek_pending().get("name") == _r1["meme"], str(_r1)[:100])
+      and _peek_pending().get("name") == _r1["meme"], str(_r1)[:100])
 _r2 = json.loads(_mtool.execute(tag="happy"))
 check("★一轮只生效一次（重复调用被拒，不会来回换）",
       _r2.get("success") is False and "一轮只生效一次" in _r2.get("error", ""))
 _taken = _mtool.take_pending()
 check("★take_pending 取走后就空了（主窗口回复结束后取）",
-      _taken.get("name") == _r1["meme"] and _mtool.peek_pending() == {})
+      _taken.get("name") == _r1["meme"] and _peek_pending() == {})
 _mtool.reset_turn()
 _r3 = json.loads(_mtool.execute(name="009.webp"))
 check("★可以按文件名直接指定", _r3.get("success") and _r3.get("meme") == "009.webp")
@@ -2391,14 +2391,14 @@ _mtool.reset_turn()
 _r5 = json.loads(_mtool.execute())
 check("★空参调用 `meme({})` 被拒（不再随机兜底 → 图和回复脱钩）",
       _r5.get("success") is False and "必填" in _r5.get("error", "")
-      and _mtool.peek_pending() == {}, str(_r5)[:110])
+      and _peek_pending() == {}, str(_r5)[:110])
 check("★拒绝时会列出真实存在的标签（模型才知道重挑什么）",
       "happy" in _r5.get("error", "") and "/" in _r5.get("error", ""))
 _mtool.reset_turn()
 _r6 = json.loads(_mtool.execute(tag="绝不存在的标签xyz"))
 check("★自己编的标签被拒（不退化成全库随机）",
       _r6.get("success") is False and "别自己造标签" in _r6.get("error", "")
-      and _mtool.peek_pending() == {}, str(_r6)[:110])
+      and _peek_pending() == {}, str(_r6)[:110])
 _mtool.reset_turn()
 _r7 = json.loads(_mtool.execute(tag="HAPPY"))
 check("★标签大小写不敏感 / 能模糊匹配到真实标签",

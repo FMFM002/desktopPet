@@ -56,7 +56,10 @@ check("★思考内容没有出现在聊天里", "一段思考内容" not in _tx
 check("★工具调用/系统信息没有出现在聊天里", "[调用: shell_exec]" not in _txt)
 
 print("\n== 2. 不再产生任何思考面板 ==")
-check("★面板计数恒为 0", int(w.think_panel_count()) == 0, str(w.think_panel_count()))
+# ★ 1.9.3 第 45 轮：`think_panel_count()` 这个"恒返回 0"的残留接口也删掉了
+#   （面板子系统物理删除后它只剩形式）。改成断言**接口本身不存在**——更彻底。
+check("★面板计数接口已彻底删除（不是返回 0，是根本没有）",
+      not hasattr(w, "think_panel_count"))
 check("★_think_panels 状态已彻底不存在",
       not hasattr(w, "_think_panels"), str(getattr(w, "_think_panels", "不存在")))
 
@@ -127,8 +130,10 @@ check("★上面这些残留一个都没回来（AST 口径：注释/docstring �
       not _left, "; ".join(_left[:6]))
 
 # 4c. 三条惰性入口必须还在（契约不能因为清理而丢掉）
-check("★think_write / think_delta / think_panel_count 仍在",
-      all(_has_def(_src, f) for f in ("think_write", "think_delta", "think_panel_count")))
+check("★think_write / think_delta 仍在（惰性入口的契约）",
+      all(_has_def(_src, f) for f in ("think_write", "think_delta")))
+check("★think_panel_count 已删（第 45 轮：连同它的形式一起清掉）",
+      not _has_def(_src, "think_panel_count"))
 
 # 4d. 主窗口不该再往聊天窗口发思考增量（信号已不存在，发就会 AttributeError）
 _names_mw = _used_names(ROOT / "src" / "ui" / "main_window.py")

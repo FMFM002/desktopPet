@@ -171,15 +171,6 @@ class PetAnimationWidget(QWidget):
         for name, behaviors in self._characters.items():
             _log.info(f"  角色 '{name}': {list(behaviors.keys())}")
 
-    def get_characters(self) -> list[str]:
-        return list(self._characters.keys())
-
-    def get_behaviors(self, character: str = None) -> list[str]:
-        char = character or self._current_character
-        if char in self._characters:
-            return list(self._characters[char].keys())
-        return []
-
     def set_character(self, name: str):
         if name in self._characters:
             self._current_character = name

@@ -244,30 +244,6 @@ class RawMonitorDB:
 
     # ---- FTS 搜索 ----
 
-    def search_raw(self, keyword: str, limit: int = 20) -> list[dict]:
-        with self._lock:
-            try:
-                rows = self._conn.execute(
-                    """SELECT r.id, r.source, r.type, r.content, r.created_at
-                       FROM fts_raw_events f JOIN raw_events r ON f.rowid = r.id
-                       WHERE fts_raw_events MATCH ? ORDER BY rank LIMIT ?""",
-                    (keyword, limit)).fetchall()
-                return [dict(r) for r in rows]
-            except Exception:
-                return []
-
-    def search_events(self, keyword: str, limit: int = 20) -> list[dict]:
-        with self._lock:
-            try:
-                rows = self._conn.execute(
-                    """SELECT e.* FROM fts_monitoring_events f
-                       JOIN monitoring_events e ON f.rowid = e.id
-                       WHERE fts_monitoring_events MATCH ? ORDER BY rank LIMIT ?""",
-                    (keyword, limit)).fetchall()
-                return [dict(r) for r in rows]
-            except Exception:
-                return []
-
     def close(self):
         if self._conn:
             try:

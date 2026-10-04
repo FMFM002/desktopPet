@@ -77,49 +77,6 @@ def get_available_ocr_engines() -> list[str]:
     return engines
 
 
-def install_ocr_package(package: str) -> tuple[bool, str]:
-    """
-    尝试 pip 安装 OCR 相关包
-    Returns: (success, message)
-    """
-    pip_packages = {
-        "tesseract": "pytesseract",
-        "easyocr": "easyocr",
-    }
-    pkg = pip_packages.get(package, package)
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", pkg],
-            capture_output=True, text=True, timeout=120,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        if result.returncode == 0:
-            _log.info(f"OCR 包安装成功: {pkg}")
-            return True, f"{pkg} 安装成功"
-        else:
-            _log.error(f"OCR 包安装失败: {result.stderr}")
-            return False, f"安装失败: {result.stderr[:200]}"
-    except subprocess.TimeoutExpired:
-        return False, "安装超时，请手动 pip install"
-    except Exception as e:
-        return False, f"安装异常: {e}"
-
-
-def get_tesseract_install_hint() -> str:
-    """获取 Tesseract 系统级安装提示"""
-    if sys.platform == "win32":
-        return (
-            "Tesseract 未安装。\n"
-            "Windows 安装步骤:\n"
-            "1. 下载: https://github.com/UB-Mannheim/tesseract/wiki\n"
-            "2. 安装时勾选中文语言包 (Chinese Simplified)\n"
-            "3. 安装路径建议: C:\\Program Files\\Tesseract-OCR\\\n"
-            "4. 安装后运行: pip install pytesseract"
-        )
-    elif sys.platform == "darwin":
-        return "macOS: brew install tesseract tesseract-lang\n然后 pip install pytesseract"
-    else:
-        return "Linux: sudo apt install tesseract-ocr tesseract-ocr-chi-sim\n然后 pip install pytesseract"
 
 
 class OCREngine:

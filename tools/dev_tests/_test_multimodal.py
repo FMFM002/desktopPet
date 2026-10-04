@@ -57,7 +57,10 @@ if (BASE / rel).exists():
     check("相对路径被解析为绝对路径",
           len(s._pending_images) == 1 and Path(s._pending_images[0]).is_absolute(),
           str(s._pending_images))
-    s.clear_pending_images()
+    # ★ 1.9.3 第 45 轮：原来调 `s.clear_pending_images()` —— 生产代码里那个
+    #   一行包装已删（**全仓只有本套件用它**，属于"被测试养着的包装"）。
+    #   这里直接清列表，行为完全一样，少一层没用的包装。
+    s._pending_images.clear()
 else:
     check("相对路径测试图片存在", False, rel)
 

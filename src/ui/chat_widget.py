@@ -1990,10 +1990,6 @@ class ChatWidget(QWidget):
         """**已停用**：思考/系统信息不再显示（面板子系统已删除）。"""
         _log.debug(f"[已隐藏] think_delta: {str(delta)[:60]}")
 
-    def think_panel_count(self) -> int:
-        """恒为 0：面板子系统已物理删除（保留这个查询接口给守卫套件）。"""
-        return 0
-
     def _get_image_size(file_path: str) -> str:
         try:
             from PIL import Image

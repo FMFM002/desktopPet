@@ -17,7 +17,6 @@ import time
 import threading
 import logging
 import tempfile
-import wave
 from pathlib import Path
 from typing import Optional, Callable
 from collections import deque
@@ -29,29 +28,6 @@ _log = logging.getLogger("STT")
 # 项目根（用来找项目内的模型；见 _resolve_model_dir）
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-
-def _resolve_model_dir(name: str) -> str:
-    """★ 1.9.0: 把模型名解析成"项目内的模型目录"（找不到就原样返回，交给库去下）。
-
-    你的要求：**尽量别把东西放到项目外面**，方便以后打包 —— 所以优先认这几个位置：
-        · 直接给的绝对/相对目录（存在就用）
-        · 项目根/<name>
-        · 项目根/data/models/<name>
-    例如 `stt.model_name = "small"`，只要 `data/models/small` 存在，就用它，
-    不会再跑去 HuggingFace 下（离线也能用）。
-    """
-    if not name:
-        return name
-    try:
-        p = Path(name)
-        if p.is_dir():
-            return str(p)
-        for cand in (_BASE_DIR / name, _BASE_DIR / "data" / "models" / name):
-            if cand.is_dir():
-                return str(cand)
-    except Exception:
-        pass
-    return name
 
 
 # ============================================================================
@@ -113,18 +89,6 @@ class MicrophoneCapture:
         except Exception as e:
             _log.debug(f"读取音频块失败: {e}")
             return None
-    def pop_audio(self, duration_sec: float) -> Optional[np.ndarray]:
-        target = int(duration_sec * self.sample_rate)
-        chunks = []
-        total = 0
-        while self._buffer and total < target:
-            chunk = self._buffer.popleft()
-            chunks.append(chunk)
-            total += len(chunk)
-        if chunks:
-            return np.concatenate(chunks)
-        return None
-
     def stop(self):
         self._running = False
         if self._stream:
@@ -140,15 +104,6 @@ class MicrophoneCapture:
             except Exception:
                 pass
             self._p = None
-
-    def save_to_wav(self, audio: np.ndarray, filepath: str):
-        """保存 float32 音频为 WAV"""
-        audio_int16 = (audio * 32767).astype(np.int16)
-        with wave.open(filepath, 'wb') as wf:
-            wf.setnchannels(self.channels)
-            wf.setsampwidth(2)
-            wf.setframerate(self.sample_rate)
-            wf.writeframes(audio_int16.tobytes())
 
 
 # ============================================================================
@@ -257,67 +212,6 @@ class STTEngine:
             except Exception as e:
                 _log.error(f"STT 初始化失败: {e}")
 
-        return False
-
-    def _auto_detect(self) -> str:
-        """自动检测可用引擎（优先本地）"""
-        # 1. 检查预编译 whisper.cpp CLI
-        try:
-            from src.core.whisper_local import WhisperCLI
-            cli = WhisperCLI()
-            if cli.available:
-                _log.info("检测到 whisper.cpp CLI (本地)")
-                return "whisper_local"
-        except Exception:
-            pass
-        # 2. 检查 faster_whisper
-        try:
-            import faster_whisper
-            _log.info("检测到 faster-whisper")
-            return "faster_whisper"
-        except ImportError:
-            pass
-        # 3. 检查 whisper.cpp HTTP 服务
-        try:
-            import httpx
-            _log.info("尝试 whisper.cpp HTTP 模式")
-            return "whisper_cpp"
-        except ImportError:
-            pass
-        # 4. 回退到 OpenAI API
-        _log.info("使用 OpenAI Whisper API")
-        return "openai_api"
-
-    def _init_faster_whisper(self) -> bool:
-        try:
-            from faster_whisper import WhisperModel
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            compute_type = "float16" if device == "cuda" else "int8"
-            _path = _resolve_model_dir(self._model_name)   # ★ 优先项目内 data/models/<名>
-            if _path != self._model_name:
-                _log.info(f"使用项目内模型目录: {_path}")
-            self._model = WhisperModel(_path, device=device, compute_type=compute_type)
-            _log.info(f"faster-whisper 模型加载完成: {_path} ({device}/{compute_type})")
-            return True
-        except ImportError:
-            _log.warning("faster-whisper 未安装: pip install faster-whisper")
-            return False
-        except Exception as e:
-            _log.error(f"faster-whisper 初始化失败: {e}")
-            return False
-
-    def _init_whisper_cpp(self) -> bool:
-        """检查 whisper.cpp HTTP 服务是否可用"""
-        try:
-            import httpx
-            resp = httpx.get("http://127.0.0.1:8080/", timeout=3)
-            if resp.status_code == 200:
-                _log.info("whisper.cpp HTTP 服务可用")
-                return True
-        except Exception:
-            pass
-        _log.warning("whisper.cpp HTTP 服务不可用 (http://127.0.0.1:8080/)")
         return False
 
     def _init_whisper_local(self) -> bool:

@@ -826,29 +826,6 @@ class PetManager:
 
     # ══════════ 查询（供设置页） ══════════
 
-    def get_character_list(self) -> list[dict]:
-        """同步获取角色卡片数据（头像+名称）。首次会触发扫描。"""
-        if not self.characters:
-            if not CHARACTERS_DIR.exists():
-                CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
-            for d in sorted(CHARACTERS_DIR.iterdir()):
-                if d.is_dir() and not d.name.startswith("."):
-                    info = CharacterInfo(d)
-                    if info.gifs or info.settings:
-                        self.characters[info.name] = info
-        out = []
-        for name, info in self.characters.items():
-            gif_names = list(info.gifs.keys())
-            out.append({
-                "name": name,
-                "avatar": str(info.avatar) if info.avatar else "",
-                "gif_count": len(gif_names),
-                "gif_names": gif_names,
-                "persona": info.persona_prompt(),
-                "current": name == self.current,
-            })
-        return out
-
 
 # ══════════ 角色卡片扫描（无需 proxy，供设置页使用） ══════════
 

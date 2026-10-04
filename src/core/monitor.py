@@ -528,12 +528,6 @@ class UnifiedMonitor:
         if source == "screen" and "image" in data and self._summarize_callback:
             self._summarize_callback(data["image"])
 
-    def get_raw_data(self) -> list:
-        return list(self._raw_data_queue)
-
-    def clear_raw_data(self):
-        self._raw_data_queue.clear()
-
     def restart(self):
         from src.utils.config import get_config
         self.config = get_config().monitor

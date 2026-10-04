@@ -112,7 +112,3 @@ class ToolLogWidget(QWidget):
     def clear_logs(self):
         self._log_text.clear()
 
-    def show_at(self, x: int, y: int):
-        self.move(x, y)
-        self.show()
-        self.raise_()

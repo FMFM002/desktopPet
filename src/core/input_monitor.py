@@ -94,24 +94,6 @@ class ClipboardMonitor(StoppableSleep):
             if self._nap(self.poll_interval):
                 break
 
-    def on_shortcut(self, op: str):
-        """快捷键触发立即检查 (由键盘监控调用: copy/cut/paste)"""
-        try:
-            text = self._get_clipboard_text()
-            if text:
-                filtered = PIIFilter.filter(text)
-                self._emit({
-                    "type": "clipboard_change",
-                    "content_type": "text",
-                    "content_preview": filtered[:self.preview_max_len],
-                    "content_length": len(text),
-                    "trigger": op,
-                    "timestamp": datetime.now().isoformat(),
-                })
-                self._last_text = text
-        except Exception:
-            pass
-
     @staticmethod
     def _get_clipboard_text() -> Optional[str]:
         try:

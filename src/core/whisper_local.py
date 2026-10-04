@@ -249,40 +249,6 @@ class WhisperCLI:
             _log.error(f"[WhisperCLI] 转写异常: {e}")
             return None
 
-    def transcribe_simple(self, filepath: str, language: str = None) -> Optional[str]:
-        """简化转写：纯文本输出模式（-otxt），用作 fallback"""
-        if not self.available:
-            return None
-
-        lang = language or self.language
-        # 输出到临时 txt 文件
-        import tempfile as tmp
-        fd, out_txt = tmp.mkstemp(suffix=".txt")
-        os.close(fd)
-
-        try:
-            cmd, run_cwd, _hint = self._build_cmd(filepath, lang, json_out=False)
-            cmd += ["-otxt", "-of", out_txt.replace(".txt", "")]
-            result = subprocess.run(cmd, cwd=run_cwd, capture_output=True, text=True,
-                                    timeout=120, encoding="utf-8", errors="replace")
-
-            if result.returncode == 0 and os.path.exists(out_txt):
-                with open(out_txt, "r", encoding="utf-8") as f:
-                    text = f.read().strip()
-                if text:
-                    _log.debug(f"[WhisperCLI] 转写(simple)完成: {text[:80]}...")
-                    return text
-            return None
-        except Exception as e:
-            _log.error(f"[WhisperCLI] 简化转写失败: {e}")
-            return None
-        finally:
-            try:
-                if os.path.exists(out_txt):
-                    os.unlink(out_txt)
-            except Exception:
-                pass
-
 
 # ============================================================================
 # 全局单例
@@ -290,8 +256,3 @@ class WhisperCLI:
 _whisper_instance: Optional[WhisperCLI] = None
 
 
-def get_whisper_cli() -> WhisperCLI:
-    global _whisper_instance
-    if _whisper_instance is None:
-        _whisper_instance = WhisperCLI()
-    return _whisper_instance

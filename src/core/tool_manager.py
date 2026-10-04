@@ -587,11 +587,6 @@ class ToolManager:
     def get_all_tools(self) -> list[ToolInfo]:
         return list(self._tools.values())
 
-    def set_enabled(self, name: str, enabled: bool):
-        if name in self._tools:
-            self._tools[name].enabled = enabled
-            _log.debug(f"工具 {name} {'启用' if enabled else '禁用'}")
-
     def execute_tool(self, tool_name: str, **kwargs) -> str:
         _log.info(f"执行工具: {tool_name}({list(kwargs.keys())})")
         tool = self.get_tool(tool_name)

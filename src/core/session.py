@@ -682,19 +682,6 @@ class ChatSession:
             except Exception as e:
                 _log.warning(f"自动标题生成失败: {e}")
 
-    def estimate_total_tokens(self) -> int:
-        """估算当前消息列表的总 token 数"""
-        total = 0
-        with self._lock:
-            for msg in self.messages:
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    total += self.db.chat._estimate_tokens(content)
-        return total
-
-    def is_input_blocked(self) -> bool:
-        return self._input_blocked
-
     # ══════════════════════════════════════════════════
     # 消息裁剪
     # ══════════════════════════════════════════════════
@@ -766,9 +753,6 @@ class ChatSession:
         if str(p) not in self._pending_images:
             self._pending_images.append(str(p))
         _log.info(f"待直传图片已登记: {p.name} (共 {len(self._pending_images)} 张)")
-
-    def clear_pending_images(self):
-        self._pending_images.clear()
 
     @staticmethod
     def _image_to_data_uri(path: str, max_side: int = 1024, quality: int = 85) -> str:
@@ -1830,9 +1814,6 @@ class ChatSession:
         if self.on_done:
             self.on_done()
 
-    def is_streaming(self) -> bool:
-        return self._streaming
-
 
 _session: Optional[ChatSession] = None
 
@@ -1844,6 +1825,3 @@ def get_session() -> ChatSession:
     return _session
 
 
-def reset_session():
-    global _session
-    _session = ChatSession()

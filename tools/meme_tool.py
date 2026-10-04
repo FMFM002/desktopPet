@@ -124,10 +124,6 @@ def take_pending() -> dict:
     return take()
 
 
-def peek_pending() -> dict:
-    from src.core.meme_bus import peek
-    return peek()
-
 
 def reset_turn():
     from src.core.meme_bus import reset_turn as _r
