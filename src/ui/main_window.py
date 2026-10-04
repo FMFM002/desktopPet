@@ -1029,7 +1029,10 @@ class MainWindow:
             for m in older:
                 role = m.get("role")
                 if role in ("user", "assistant"):
-                    items.append({"role": role, "content": m.get("content") or ""})
+                    # ★ 1.9.3（共享工作台）：往上插的这批也要带 speaker，
+                    #   否则同一条消息"prepend 上来的"和"整段重画出来的"头像不一致。
+                    items.append({"role": role, "content": m.get("content") or "",
+                                  "speaker": m.get("speaker") or ""})
                 # system 行按既有设计不进视图（也不该为它造子窗口）
             if not items:
                 return False
@@ -1328,7 +1331,10 @@ class MainWindow:
                         if m.get("role") == "user":
                             self.chat._append_message("user", content)
                         else:
-                            self.chat._append_message("assistant", content)
+                            # ★ 1.9.3（共享工作台）：归档段也要把 speaker 传下去 ——
+                            #   否则"别的形象当年说的话"会被套上当前形象的头像。
+                            self.chat._append_message(
+                                "assistant", content, m.get("speaker") or "")
                         total += 1
                         if total >= _slots:
                             break
@@ -1368,7 +1374,9 @@ class MainWindow:
                 if role == "user":
                     self.chat._append_message("user", content)
                 elif role == "assistant":
-                    self.chat._append_message("assistant", content)
+                    # ★ 1.9.3（共享工作台）：assistant 消息带 speaker —— 头像按
+                    #   "这句话是谁说的"取（别的形象的话不再套当前形象的脸）。
+                    self.chat._append_message("assistant", content, m.get("speaker") or "")
                 elif role == "system":
                     # ★ 1.9.2（R67，用户："历史信息不加载子窗口"）：
                     #   历史里那些 system 行是**当时的瞬时状态**（[正在思考...]/[调用: ...] 等），
@@ -2118,7 +2126,12 @@ class MainWindow:
             _log.debug(f"[图像识别→显示] step2 append_system_msg...")
             self.chat.append_system_msg(f"[图片识别完成 ({mode_label})]")
             _log.debug(f"[图像识别→显示] step3 _append_message...")
-            self.chat._append_message("assistant", f"[图片: {filename}]\n{result}")
+            # ★ 1.9.3（共享工作台）：这条也是"当前形象现在说的话" → 带 speaker，
+            #   与重画历史时的头像保持一致（不带的话实时用当前头像、
+            #   重画后又被套上别的形象的头像）。
+            self.chat._append_message(
+                "assistant", f"[图片: {filename}]\n{result}",
+                getattr(getattr(self, "session", None), "character", "") or "")
             _log.debug(f"[图像识别→显示] step4 待机...")
             self.pet_mgr.set_behavior("待机")
 

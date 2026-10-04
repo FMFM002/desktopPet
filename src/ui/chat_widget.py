@@ -434,6 +434,11 @@ class ChatWidget(QWidget):
             "user": self._make_avatar_uri(None),
             "bot": self._make_avatar_uri(None),
         }
+        # ★ 1.9.3（共享工作台头像修复）：**别的形象**的头像 URI，按说话者名缓存。
+        #   共享话题里每条 assistant 消息都带 speaker（谁说的），头像必须按 speaker 取；
+        #   `_make_avatar_uri` 要真解码图片（有开销），所以按名字缓存。
+        #   失效点在 `_refresh_avatar_uris()`（set_avatars → 刷新头像时整体清掉）。
+        self._speaker_avatar_uri: dict[str, str] = {}
 
         # ★ 浅色主题（与设置界面同款配色）；文本默认无底色
         self._personalize = {
@@ -663,7 +668,10 @@ class ChatWidget(QWidget):
         #   → 形象气泡显示。**只显示、不写 DB、不进 session.messages、
         #   不喂 LTM**（用户原话："不经过 LLM，不计入上下文，不入库，
         #   不计入长期记忆"）。
-        self.bot_text_in.connect(lambda t: self._append_message("assistant", t))
+        #   ★ 1.9.3（共享工作台）：这是"当前形象现在说的话"，带上 speaker，
+        #     否则同一条消息"刚显示时"和"重画历史后"会拿到不同头像。
+        self.bot_text_in.connect(
+            lambda t: self._append_message("assistant", t, self._char_name))
         # ★ 1.9.1: 原来这里把 topic_list_refresh_in 转发成"刷新侧栏书签"的请求。
         #   书签删了 → 删掉这条转发；总结完成后由主窗口直接接 summary_done_in。
         # ★ 1.9.3 第 41 轮：思考/系统信息子窗口的三个信号连接已随子系统一起删除。
@@ -1085,9 +1093,15 @@ class ChatWidget(QWidget):
             return ""
         return f"padding:{BUBBLE_PAD_Y}px {BUBBLE_PAD_X}px;"
 
-    def _avatar_html(self, is_bot: bool = False) -> str:
-        """当前头像的 <img> 标签（圆形 data URI）"""
-        uri = self._avatar_uri["bot" if is_bot else "user"]
+    def _avatar_html(self, is_bot: bool = False, speaker: str = "") -> str:
+        """当前头像的 <img> 标签（圆形 data URI）
+
+        ★ 1.9.3（共享工作台头像修复）：assistant 侧的头像按 `speaker` 取 ——
+        共享话题里"别人的话"不能再套当前形象的脸（用户报的"切换形象后头像渲染错误"）。
+        user 侧、以及 speaker 为空或就是当前形象时，行为与以前完全一致。
+        """
+        uri = (self._avatar_uri_for_speaker(speaker) if is_bot
+               else self._avatar_uri["user"])
         s = AVATAR_DISPLAY_SIZE
         return f'<img src="{uri}" width="{s}" height="{s}">'
 
@@ -1354,9 +1368,11 @@ class ChatWidget(QWidget):
             f'<img src="{_src}" width="{tw}" height="{th}" '
             f'style="border-radius:8px; cursor:pointer; margin:2px 0;"></a>')
 
-    def _render_message_html(self, role: str, text: str) -> str:
+    def _render_message_html(self, role: str, text: str, speaker: str = "") -> str:
         """生成一条消息的 HTML（表格布局保证左右分列与换行可靠）。
-        ★ 1.5.0: 支持 LLM 返回的 markdown 图片 ![alt](url) → 内联缩略图。"""
+        ★ 1.5.0: 支持 LLM 返回的 markdown 图片 ![alt](url) → 内联缩略图。
+        ★ 1.9.3: `speaker` = 这句话是谁说的（共享工作台）—— 只影响 assistant 侧
+        用哪张头像，气泡布局/正文一个字都不动。"""
         p = self._personalize
         clean_text, images = self._split_inline_images(text)
         clean_text, files = self._split_file_markers(clean_text)
@@ -1501,7 +1517,8 @@ class ChatWidget(QWidget):
             return (
                 f'<table width="100%" cellspacing="0" cellpadding="3" style="margin:6px 0;">'
                 f'<tr>'
-                f'<td width="{col_w}" align="left" valign="top">{self._avatar_html(True)}</td>'
+                f'<td width="{col_w}" align="left" valign="top">'
+                f'{self._avatar_html(True, speaker)}</td>'
                 f'<td align="left" valign="top">{bubble}</td>'
                 f'</tr></table>')
         # system
@@ -1650,8 +1667,12 @@ class ChatWidget(QWidget):
         except Exception as e:
             _log.debug(f"登记气泡区间失败: {e}")
 
-    def _append_message(self, role: str, text: str):
-        """插入一条消息（★ 1.9.0: 同时登记气泡区间）"""
+    def _append_message(self, role: str, text: str, speaker: str = ""):
+        """插入一条消息（★ 1.9.0: 同时登记气泡区间）
+
+        ★ 1.9.3（共享工作台）：`speaker` = 这句话是谁说的（assistant 消息传形象名；
+        user/tool 以及历史遗留的旧数据传空）。放在末尾，老调用点不受影响。
+        """
         self._chat_display.moveCursor(QTextCursor.End)
         _start = self._chat_display.textCursor().position()
         if role == "user":
@@ -1659,7 +1680,7 @@ class ChatWidget(QWidget):
             #   不能用 bubble_spans 里的字段去猜（第一版猜 role 字段，字段名不符，
             #   结果守卫把所有情况都挡掉，清屏压根没执行）。
             self._last_user_start = _start
-        self._chat_display.insertHtml(self._render_message_html(role, text))
+        self._chat_display.insertHtml(self._render_message_html(role, text, speaker))
         self._chat_display.moveCursor(QTextCursor.End)
         self._record_bubble(_start, self._chat_display.textCursor().position(), role)
         # ★ 1.9.2（R52）：**停用**"按轮数自动卸载" —— 用户真机实测"自动卸载不稳定"，
@@ -1733,7 +1754,7 @@ class ChatWidget(QWidget):
                     continue
                 _start = int(cur.position())
                 cur.insertHtml(self._render_message_html(
-                    role, it.get("content") or ""))
+                    role, it.get("content") or "", it.get("speaker") or ""))
                 _end = int(cur.position())
                 if _end > _start:
                     try:
@@ -1930,7 +1951,10 @@ class ChatWidget(QWidget):
         cursor.setPosition(end_pos, QTextCursor.KeepAnchor)
         cursor.removeSelectedText()
 
-        cursor.insertHtml(self._render_message_html("assistant", self._stream_buffer))
+        # ★ 1.9.3（共享工作台）：流式这条是**当前形象**正在说话 —— 显式带上
+        #   `_char_name`，这样"刚说完的这句"和"重画历史后同一句"头像一致。
+        cursor.insertHtml(self._render_message_html(
+            "assistant", self._stream_buffer, self._char_name))
         if getattr(self, "_stream_span", None) is not None:
             self._stream_span["end"] = cursor.position()
 
@@ -1954,7 +1978,8 @@ class ChatWidget(QWidget):
         self._abort_tool_btn.setEnabled(False)
 
     def _handle_idle_message(self, text: str):
-        self._append_message("assistant", text)
+        # ★ 1.9.3（共享工作台）：待机主动说话也是"当前形象说的" → 带 speaker
+        self._append_message("assistant", text, self._char_name)
 
     # ══════════════════════════════════════════
     # 工具追踪
@@ -2408,6 +2433,64 @@ class ChatWidget(QWidget):
         # 最终兜底：空 URI（显示为 broken 图标，几乎不会发生）
         return ""
 
+    @staticmethod
+    def _speaker_avatar_path(name: str) -> str:
+        """角色名 → 该角色的**头像文件路径**（解析不出返回空串）。
+
+        ★ 1.9.3（共享工作台头像修复）：聊天窗口**不自己扫目录**，复用现成能力 ——
+          ① 首选 `pet_manager.get_pet_manager()` 已经扫好的
+             `characters[形象名].avatar`（pet_manager.py:55 定义 / 92-98 解析）；
+          ② 形象管理器还没起来（自测里没有 PetProxy → `get_pet_manager()` 抛
+             RuntimeError）时，退到设置页同款入口
+             `pet_manager.scan_character_cards()`（pet_manager.py:832，
+             按 `data/桌宠形象/<角色>/` 扫出 `{name, avatar}`）。
+        两条路都拿不到（角色被删 / 目录里没头像 / speaker 根本不是角色名）
+        → 返回空串，调用方回退"当前桌宠头像"。
+        """
+        name = (name or "").strip()
+        if not name:
+            return ""
+        try:
+            from src.core.pet_manager import get_pet_manager
+            info = get_pet_manager().characters.get(name)
+            if info is not None and info.avatar:
+                return str(info.avatar)
+        except Exception:
+            # 形象管理器未初始化（RuntimeError）→ 走下面的扫描入口兜住
+            pass
+        try:
+            from src.core.pet_manager import scan_character_cards
+            for card in scan_character_cards():
+                if name == card.get("name"):
+                    return card.get("avatar") or ""
+                # 兜底：settings.json 里的 name 与目录名不一致时，按目录名认
+                if name == Path(card.get("avatar") or "").parent.name:
+                    return card.get("avatar") or ""
+        except Exception as e:
+            _log.debug(f"[头像] 解析说话者「{name}」的形象头像失败: {e}")
+        return ""
+
+    def _avatar_uri_for_speaker(self, speaker: str = "") -> str:
+        """assistant 消息的头像 URI：按**说话者**取（★ 1.9.3 共享工作台修复）。
+
+        规则（与 session 里"谁在回复"的口径一致）：
+          · speaker 为空（历史遗留数据）或就是**当前形象** → 当前桌宠头像（原行为）；
+          · speaker 是**别的**形象 → 那个形象自己的头像；
+          · 解析不到（角色被删 / 没扫到）→ 回退当前桌宠头像。
+        URI 按说话者名缓存（`_speaker_avatar_uri`），刷新头像时整体失效。
+        """
+        name = (speaker or "").strip()
+        if not name or name == (self._char_name or "").strip():
+            return self._avatar_uri["bot"]
+        if name not in self._speaker_avatar_uri:
+            _path = self._speaker_avatar_path(name)
+            # 注意：路径为空时**不能**调 _make_avatar_uri —— 它会回退到
+            # DEFAULT_AVATAR_PATH（可能正好是另一个形象的图），这里要的是
+            # "退回当前桌宠头像"。
+            self._speaker_avatar_uri[name] = (
+                self._make_avatar_uri(_path) if _path else self._avatar_uri["bot"])
+        return self._speaker_avatar_uri.get(name) or self._avatar_uri["bot"]
+
     def set_avatars(self, user_path: str = "", bot_path: str = ""):
         """设置用户 / 桌宠头像路径（空串=使用自带形象），并刷新已显示的消息"""
         self._user_avatar_path = user_path or ""
@@ -2426,6 +2509,10 @@ class ChatWidget(QWidget):
             "user": self._make_avatar_uri(self._user_avatar_path),
             "bot": self._make_avatar_uri(self._bot_avatar_path),
         }
+        # ★ 1.9.3（共享工作台）：**别的形象**的头像缓存一起失效 ——
+        #   换了形象 / 改了头像设置 / 磁盘上的头像被换过，缓存里都可能还是旧图，
+        #   或者压着"解析失败时回退到的旧当前形象头像"。
+        self._speaker_avatar_uri.clear()
 
     # ══════════════════════════════════════════
     # 鼠标拖拽缩放（无边框窗口）
