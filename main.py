@@ -213,6 +213,19 @@ def main():
         app.setOrganizationName("PRTS")
         log.info("QApplication 初始化完成")
 
+        # ★★ 1.9.4：**首次运行**弹一次「首次配置引导」。
+        #   · 判据保守（should_show → 只差 LLM Key 才算首次）→ **老用户绝不会被打扰**；
+        #   · 放在 MainWindow() **之前** —— 用户填的 Key 才能在主窗口建 LLM 客户端之前生效；
+        #   · 整体 try 包住：引导本身出任何问题都**不许拖垮启动**（它只是"更好用"，不是"没它不行"）。
+        try:
+            from src.ui.first_run_wizard import FirstRunWizard, should_show
+            if should_show():
+                log.info("检测到尚未配置 LLM Key → 弹出首次配置引导")
+                FirstRunWizard().exec()
+                log.info("首次配置引导结束")
+        except Exception as _e:
+            log.warning(f"首次配置引导失败（不阻断启动）: {_e}")
+
         from src.ui.main_window import MainWindow
         log.info("MainWindow 导入完成")
 
