@@ -5,7 +5,7 @@
 """
 import logging
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QPushButton,
     QHBoxLayout, QLabel,
@@ -95,20 +95,4 @@ class ToolLogWidget(QWidget):
                 height: 0px;
             }
         """)
-
-    def add_log(self, text: str, log_type: str = "info"):
-        colors = {
-            "info": "#aaa",
-            "tool_call": "#5af",
-            "tool_result": "#5f5",
-            "error": "#f55",
-            "system": "#ff5",
-        }
-        color = colors.get(log_type, "#aaa")
-        self._log_text.moveCursor(QTextCursor.End)
-        self._log_text.insertHtml(f'<span style="color:{color};">{text}</span><br>')
-        self._log_text.moveCursor(QTextCursor.End)
-
-    def clear_logs(self):
-        self._log_text.clear()
 

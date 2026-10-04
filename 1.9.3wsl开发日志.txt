@@ -766,6 +766,33 @@
 
   ★ 五、回归：**53 套件 FAIL=0**（留档 `run_all_193_round45c.txt`；
        Batch A 现场见 `run_all_193_round45a.txt`）。
+
+  ★★ 六、删完之后**又把级联扫出来一批**（这一步证明"删完要再扫一遍"是必要的）
+     · 再跑一次扫描，发现 Batch A 的删除**又孤立了几个符号**：
+       `tool_log_widget.add_log` / `clear_logs`（唯一调用方是被删的 `_on_tool_display`）、
+       `stt_engine.start_realtime`（唯一调用方是被删的 `toggle_stt`）。
+       ⇒ 已删（**35 行**）。删完 import 守卫又报 `tool_log_widget:8 QTextCursor` 成了孤儿
+       —— 也顺手清掉。**三道连锁，全靠"删完再扫 + import 守卫"逮住。**
+     · ★ **教训**：删代码不是一次动作，是"**删 → 扫 → 再删**"的循环，直到扫描稳定。
+
+  ★★ 七、**停在这里，上报一件我认为不该当成"冗余"处理的事**：
+     · 再扫时发现 `MicrophoneCapture`（76 行）/ `EnergyVAD`（105 行）/ `_realtime_loop`（46 行）
+       / `stop_realtime` 这一整套**实时麦克风语音**随之孤立 —— 它们原来只被
+       `start_realtime` 用，而 `start_realtime` 只被 `toggle_stt` 用。
+     · 但这不是"没人要的代码"，证据是**用户明显想要它**：
+       `config.json` 里 `stt.enabled = true`；设置窗口有 STT 开关（`_stt_enabled`）；
+       `data/whisper/ggml-small.bin` **465MB 的模型已装好**；
+       `main_window` 还把 `on_transcription` / `on_speech_start` / `on_speech_end`
+       三个回调接好了。
+     · ⇒ 真相更像：**语音输入的功能被弄丢了**（触发它的那个按钮/热键不知何时没了，
+       `toggle_stt` 在**我删它之前就是 0 调用**），而不是"这段代码没人要"。
+     · **所以我没有删这套麦克风代码**（约 240 行）。删了等于把用户配置好、装好模型的功能
+       彻底抹掉。**这需要用户拍板**：
+       a) **接回去**（把 `toggle_stt` 或一个新触发接上）→ 那是**功能修复**；
+       b) 确认不要了 → 我再把 `MicrophoneCapture`/`EnergyVAD`/`_realtime_loop`/`stop_realtime`
+          连同 main_window 里那个永远进不去的 `if self._stt_active:` 分支一起删掉。
+     · 另：**文件转写那条路是活的**（`transcribe` / `transcribe_file` / `_init_whisper_local`），
+       与实时麦克风那套互不依赖 —— 所以 `file_view` 用音频文件转文字的链路**没受影响**。
 ==================================================================
 
 ==================================================================

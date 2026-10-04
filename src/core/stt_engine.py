@@ -339,25 +339,6 @@ class STTEngine:
 
     # ---- 实时语音识别流 ----
 
-    def start_realtime(self, duration_per_chunk: float = 3.0, vad_threshold: float = 0.02):
-        """启动实时语音识别（后台线程）"""
-        if not self.initialize():
-            return
-
-        self._realtime_running = True
-        self._mic = MicrophoneCapture()
-        self._vad = EnergyVAD(threshold=vad_threshold)
-        self._realtime_chunk_duration = duration_per_chunk
-        self._speech_buffer: list[np.ndarray] = []
-
-        if not self._mic.start():
-            _log.error("实时 STT: 麦克风启动失败")
-            return
-
-        self._realtime_thread = threading.Thread(target=self._realtime_loop, daemon=True)
-        self._realtime_thread.start()
-        _log.info(f"实时 STT 启动: chunk={duration_per_chunk}s, vad_threshold={vad_threshold}")
-
     def _realtime_loop(self):
         while getattr(self, '_realtime_running', False):
             try:
