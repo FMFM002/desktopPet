@@ -196,6 +196,107 @@ def build(out: Path, dry: bool, include_models: bool, clear_persona: bool,
     return 0
 
 
+_LAUNCHER_BAT = """@echo off
+chcp 65001 >nul
+REM ══════════════════════════════════════════════════════════════
+REM  铃兰桌宠（PRTS Desktop Pet）—— 便携版启动器
+REM  ★ 双击我就能跑。第一次会自动装依赖（需要联网）。
+REM ══════════════════════════════════════════════════════════════
+cd /d "%~dp0"
+
+where python >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo   [X] 没找到 python。请先安装 Python 3.10~3.12 并勾选 "Add to PATH"。
+    echo       下载: https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
+)
+
+python -c "import PySide6, openai" >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo   首次运行：正在安装依赖（需要联网，几分钟）...
+    echo.
+    python -m pip install --upgrade pip
+    python -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo.
+        echo   [X] 依赖安装失败。请检查网络，或手动跑: pip install -r requirements.txt
+        echo.
+        pause
+        exit /b 1
+    )
+)
+
+echo   启动中...（首次会弹出配置引导，填一个 LLM API Key 就能用了）
+python main.py
+if errorlevel 1 pause
+"""
+
+_FIRST_READ = """══════════════════════════════════════════════════════════════
+ 铃兰桌宠（PRTS Desktop Pet）v{ver} —— 便携版 · 首次使用必读
+══════════════════════════════════════════════════════════════
+
+【怎么跑】
+  双击  启动.bat
+  第一次会自动装依赖（需要联网）。之后就直接启动了。
+
+【需要什么】
+  · Windows 10 / 11
+  · Python 3.10 ~ 3.12  —— 没装的话去 https://www.python.org/downloads/
+    安装时**务必勾选 "Add Python to PATH"**
+  · 一个 LLM API Key —— 去 https://platform.deepseek.com 申请
+    （首次启动会弹出配置引导，只有这一项是必填的）
+
+【配置写在哪】
+  · .env          —— 密钥（绝不外传）
+  · config.json   —— 界面/工具等运行配置（第一次会自动生成）
+
+【哪些功能需要额外下载模型】
+  ★ 以下都是**可选的**：没有它们程序照常跑，只是对应功能不可用。
+     语音合成 / 语音识别 / 本地 OCR / 本地画图（ComfyUI）
+  看当前状态:  python tools\\model_manager.py status
+  集中管理说明: 所有模型统一放在  data/models/  下
+
+【遇到问题】
+  1. 先看  logs\\prts_*.log  （最新那个）
+  2. 设置入口:  右键桌宠 → 设置
+  3. ⚠ 如果连 python 都跑不起来，看这个:
+     `python -c "print(1)"` 若直接报错 → 你的 Python 安装里可能有
+     GBK 编码的 .pth 文件（某些中文项目会留），Python 读它会崩。
+     去  Python安装目录\\Lib\\site-packages\\  找 *.pth 排查。
+
+══════════════════════════════════════════════════════════════
+"""
+
+
+def _write_launcher(out: Path) -> None:
+    """往产物里写**便携版的启动器与必读**（A 形态：解压即用）。"""
+    (out / "启动.bat").write_text(_LAUNCHER_BAT, encoding="utf-8")
+    (out / "首次使用必读.txt").write_text(_FIRST_READ.format(ver=__version__),
+                                          encoding="utf-8")
+
+
+def _make_zip(out: Path, include_models: bool) -> Path:
+    """把产物打成便携 zip。★ 文件名里带版本与是否含模型，免得拿错。"""
+    tag = "-with-models" if include_models else "-portable"
+    zpath = out.parent / f"{out.name}{tag}.zip"
+    if zpath.exists():
+        zpath.unlink()
+    import zipfile
+    n = 0
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        for p in sorted(out.rglob("*")):
+            if p.is_file():
+                z.write(p, p.relative_to(out.parent))   # 顶层带一层目录名，解压不散
+                n += 1
+    print(f"  便携包: {zpath}")
+    print(f"          {zpath.stat().st_size/1024/1024:.1f} MB / {n} 个文件")
+    return zpath
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="PTRTS 发布装配器")
     ap.add_argument("--out", default=None, help="输出目录（默认 dist/<APP_ID>-<版本>）")
@@ -206,10 +307,18 @@ def main() -> int:
                     help="把角色人设清成通用（默认**保留为出厂预设**，用户 2026-10-04 拍板）")
     ap.add_argument("--include-tts-models", action="store_true",
                     help="带上 GENIE 的 TTS 模型（src/genie_tts/assets，约 1855MB）")
+    ap.add_argument("--zip", action="store_true",
+                    help="★ A 形态：装配后打成**便携 zip**（含启动器与必读）")
     a = ap.parse_args()
     out = Path(a.out) if a.out else (ROOT / "dist" / f"{APP_ID}-{__version__}")
-    return build(out, a.dry_run, a.include_models, a.clear_persona,
-                 a.include_tts_models)
+    rc = build(out, a.dry_run, a.include_models, a.clear_persona,
+               a.include_tts_models)
+    if rc == 0 and not a.dry_run:
+        _write_launcher(out)
+        print(f"  已写入便携版启动器: 启动.bat / 首次使用必读.txt")
+        if a.zip:
+            _make_zip(out, a.include_models)
+    return rc
 
 
 if __name__ == "__main__":
