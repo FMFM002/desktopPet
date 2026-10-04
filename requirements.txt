@@ -1,70 +1,85 @@
-# 核心依赖
-PySide6>=6.5.0
-openai>=1.0.0
+# ══════════════════════════════════════════════════════════════
+# 铃兰桌宠（PRTS Desktop Pet）—— 依赖清单
+#
+# ★ 1.9.4 发布前审计重写。**旧版有两个真问题**：
+#
+#   ① **该装没装**：PyMuPDF / python-pptx / python-docx / pywin32 / scipy /
+#      pyperclip / uiautomation 这些**代码里真在用**的包，旧版只把它们写在
+#      **注释**里（"pip install PyMuPDF"）—— 而 `pip install -r requirements.txt`
+#      **不会执行注释**。于是新用户装完照旧："PPT 工具报缺 python-pptx"、
+#      "看 PDF 报缺 PyMuPDF"、"开不了 Word"、"剪贴板监控失灵"，
+#      而且**不报错、只是功能没了**，很难定位。
+#
+#   ② **装了没用**：PyMySQL / SQLAlchemy / opencv-python / pystray 全仓
+#      **0 处引用**（本项目数据库就是原生 sqlite3，托盘走的是 Qt 的
+#      QSystemTrayIcon）。装它们纯属拖慢安装、还可能装出冲突。
+#
+#   现在按「**装了才解锁什么功能**」分组，每行都注明用途。
+#   标【可选】的段落不需要就整段注释掉；核心段落删了会少功能。
+#
+# 安装：  pip install -r requirements.txt
+# ══════════════════════════════════════════════════════════════
+
+# ─────────── 一、核心：界面 / LLM / 监控（缺了跑不起来）───────────
+PySide6>=6.5.0            # 界面
+openai>=1.0.0             # LLM 调用
 httpx>=0.25.0
-python-dotenv>=1.0.0
-
-# 数据库
-pymysql>=1.1.0
-sqlalchemy>=2.0.0
-
-# 监控
-Pillow>=10.0.0
-pynput>=1.7.0
-mss>=9.0.0
-pyaudio>=0.2.11
-pygetwindow>=0.0.9
-psutil>=5.9.0
-
-# 图像处理
-opencv-python>=4.8.0
-numpy>=1.24.0
-
-# 系统托盘
-pystray>=0.19.0
-
-# 工具
+python-dotenv>=1.0.0      # 读 .env（API Key 等）
 requests>=2.31.0
 aiohttp>=3.9.0
-openpyxl>=3.1.0
+numpy>=1.24.0
+Pillow>=10.0.0            # 图片处理
+mss>=9.0.0                # 屏幕截图
+psutil>=5.9.0             # 进程/系统状态
+pygetwindow>=0.0.9        # 窗口标题监控
+pynput>=1.7.0             # 键鼠监控
+pyaudio>=0.2.11           # 麦克风输入（音频监控 / STT 入口）
+pyperclip>=1.8.2          # ★1.9.4补: 剪贴板监控（src/core/input_monitor.py）
 
-# ====== TTS 语音合成 ======
-# GENIE TTS (GPT-SoVITS ONNX) — 默认引擎
+# ─────────── 二、Windows 系统能力 ───────────
+pywin32>=306              # ★1.9.4补: win32gui/win32process/win32com/pythoncom
+                          #   前台窗口与进程识别、应用启动器、PPT 的 COM 导出
+uiautomation>=2.0.18      # ★1.9.4补: 浏览器 URL 检测（input_monitor）
+
+# ─────────── 三、文档：读 PDF / Word / Excel / PPT（file_ops · office · pptx）───────────
+PyMuPDF>=1.23.0           # ★1.9.4补: 看 PDF（file_view 用 fitz）
+python-docx>=1.1.0        # ★1.9.4补: Word（.docx 读/写）
+python-pptx>=0.6.23       # ★1.9.4补: PPT（tools/pptx_tool.py，代码里 23 处引用）
+openpyxl>=3.1.0           # Excel（.xlsx）
+
+# ─────────── 四、TTS 语音合成（GENIE，默认引擎）───────────
+#   ★ GENIE 的**代码**已内置在 src/genie_tts/（不需要另外 pip install genie_tts），
+#     但它运行所需的库要在环境里；模型文件放 data/（首次配置引导会协助获取）。
 onnx>=1.16.0
 onnxruntime==1.22.1
 tokenizers>=0.20.0
 soundfile>=0.12.0
 sounddevice>=0.5.0
 soxr>=0.4.0
-pyyaml>=6.0
 pydantic>=2.0.0
-# 中文 G2P (feibi 角色必需)
-pypinyin>=0.50.0
+pypinyin>=0.50.0          # 中文 G2P（feibi 角色必需）
 g2pM>=0.1.0
 jieba>=0.42.0
-
-# Edge-TTS — 后备方案
-edge-tts>=6.1.0
+edge-tts>=6.1.0           # 后备 TTS
 pygame>=2.5.0
 
-# 本地 OCR（可选，通过设置界面一键安装）
-# pip install pytesseract     # Tesseract OCR Python 封装（需先装系统 Tesseract）
-# pip install easyocr         # EasyOCR 深度学习 OCR（中文友好，首次自动下载模型）
+# ─────────── 五、STT 语音转文字 ───────────
+scipy>=1.11.0             # ★1.9.4补: stt_engine 用它做重采样
+#   注：whisper.cpp 的**可执行文件与模型**不走 pip，放 data/whisper/。
 
-# ====== 增强输入监控（可选） ======
-# pip install pyperclip       # 剪贴板访问
-# pip install pywin32         # Windows API (win32gui/win32process)
-# pip install uiautomation    # Windows UI Automation（浏览器URL检测）
-
-# ====== STT 语音转文字（可选，选一） ======
-# pip install faster-whisper  # 推荐：本地高性能 Whisper
-# pip install openai-whisper  # OpenAI Whisper 原版
-
-# ====== 文档读取（可选） ======
-# pip install PyMuPDF         # PDF 读取
-# pip install python-docx     # Word 文档读取
-# pip install python-pptx     # PowerPoint 读取
-
-# ====== 外部工具（可选） ======
-# pip install yt-dlp          # B站视频下载
-# pip install jmcomic         # JMComic 爬虫
+# ─────────── 六、【可选】按需开启，没装对应工具会优雅报错 ───────────
+#
+# OCR 本地文字识别（选一个）
+# easyocr>=1.7.0          # 中文友好；首跑自动下模型（约 100MB）
+# pytesseract>=0.3.10     # 需另装系统级 Tesseract
+#
+# 下载类
+# yt-dlp>=2024.4.9        # B站视频下载（bilibili 工具）
+# jmcomic>=2.7.0          # JM/禁漫（装不上时工具会明确提示 pip install jmcomic）
+#                         #   注：jmcomic 自己会拉 pyyaml / curl_cffi 等，无需我们声明
+#                         #   （1.9.4 审计确认：我们的代码与内置 GENIE 都不 import yaml）
+#
+# 其它
+# qrcode>=7.4.2           # 终末地工具生成二维码
+# certifi>=2024.0.0       # fetch_aria2 取 CA 证书
+# pixivpy3>=3.7.0         # P站；项目内已内置 tools/_vendor/pixivpy3，通常无需安装
