@@ -428,6 +428,12 @@ class PetAnimationWidget(QWidget):
             _log.debug(f"Win32 加固失败: {e}")
         try:
             # 前台变化 → 由 pet_process 的队列转到主线程处理（回调在别的线程）
+            # ★★ 1.9.3 第 57 轮备忘：**这里装了钩子，而生产代码从来不 `uninstall`**
+            #   （全仓唯一调 `UnhookWinEvent` 的地方是 `uninstall_foreground_hook`，
+            #    只有测试在调）。当前无害 —— install 幂等、钩子是进程级资源、
+            #    进程退出 Windows 自动回收。**若将来做"形象窗口销毁重建"，
+            #    这里必须连同 `win_window.uninstall_foreground_hook()` 一起改**
+            #    （详见那个函数的 docstring）。
             _ww.install_foreground_hook(self._on_foreground_changed_win32)
         except Exception as e:
             _log.debug(f"装前台监听失败: {e}")
