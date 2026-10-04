@@ -662,7 +662,18 @@ def list_jobs() -> dict:
                 "jobs": [_brief(_jobs[i]) for i in list(_jobs.keys())],
                 "active": _active_ids(),
                 "characters": list_characters(),
-                "safe_tools": sorted(SUBAGENT_SAFE_TOOLS.keys())}
+                "safe_tools": sorted(SUBAGENT_SAFE_TOOLS.keys()),
+                # ★★ 1.9.3 第 61 轮：**这份结果里必须自带"还能 start"**。
+                #   真机那次模型调完 `action=list`、读完这份 JSON 之后，在思考里
+                #   断言"schema 只提到 list，action enum 只有 [list]" —— 而那份
+                #   schema 明明是五个值（见 tools/subagent_tool.py 的 TOOL_PARAMETERS）。
+                #   它把**这份"名册"当成了工具能力的全部**，于是自己把天气查了。
+                #   光靠工具描述不够，这里在它"刚读完的那段文本"里再给一次实话：
+                #   能力清单 + 下一步该怎么调（两个字段既给人看、也给模型看）。
+                "actions": ["start", "status", "close", "list", "approve_tools"],
+                "hint": ("要派活就调 subagent(action=\"start\", agent=\"形象名\", "
+                         "prompt=\"要它做的事\")；想先放行工具可再加 tool=\"工具名\"。"
+                         "list 只是名册，不是这个工具能力的全部。")}
 
 
 def wait_all(timeout: float = 60.0) -> bool:

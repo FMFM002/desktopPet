@@ -133,6 +133,20 @@ check("★参数齐（agent/prompt/context/timeout/job/tool/times）",
       {"agent", "prompt", "context", "timeout", "job", "tool", "times"}
       <= set((_tp.get("properties") or {}).keys()))
 
+# ★★ 1.9.3 第 61 轮：**"模型看不看得见 action"** 单独钉住。
+#   真机事故（logs/prts_20261004_200450.log）：模型看了 schema 却断言
+#   "action enum 只有 [list]"，于是不派活。上面两条只钉了"enum 五个都在"，
+#   钉不住"**描述里有没有把 start 说出来**、五个 action 有没有放在**最前面**"
+#   —— 那才是它略读时会漏的地方。描述变了但模型仍看不见，等于没修。
+_desc = _mod.TOOL_DESCRIPTION
+check("★【61】描述里确实提到 start（模型能读到「派活」这个动作）",
+      "start" in _desc, _desc[:60])
+check("★【61】描述里说清 action 必填且列全五个取值",
+      "必填" in _desc and all(a in _desc[:260] for a in _acts), _desc[:180])
+check("★【61】五个 action 在最前面一句话列全（不是埋在散文中间）",
+      "action" in _desc[:80]
+      and all(a in _desc[:260] for a in _acts), _desc[:160])
+
 # 工具管理器里真的注册上了（ToolManager 是按 TOOL_* 扫的）
 from src.core.tool_manager import get_tool_manager  # noqa: E402
 _tm = get_tool_manager()
@@ -500,6 +514,14 @@ try:
     check("★list 返回可用形象 + 默认只读工具",
           _j.get("success") is True and _j.get("characters")
           and _j.get("safe_tools"), str(_j.get("characters")))
+    # ★★ 1.9.3 第 61 轮：**那份"名册"自己得说清它只是名册**。
+    #   真机那次模型读完 list 的返回，就当成了"这个工具只会 list"，
+    #   所以能力清单 + "要派活就 start" 必须写进这份 JSON 本身。
+    check("★【61】list 返回里写着全部 action（不是只有 list）",
+          (_j.get("actions") or []) == ["start", "status", "close", "list",
+                                        "approve_tools"], str(_j.get("actions")))
+    check("★【61】list 返回里有一句「要派活就 start」的提示",
+          "start" in str(_j.get("hint") or ""), str(_j.get("hint"))[:80])
     _j2 = json.loads(_mod.execute(action="start"))
     check("★start 少参数时给出可读的错误（不抛异常）",
           _j2.get("success") is False and "prompt" in str(_j2.get("error")),
@@ -715,6 +737,26 @@ check("★【3】TOOL_PARAMETERS 里 tool/times 的描述**覆盖 start**（模�
       "start" in _tp2["tool"]["description"]
       and "start" in _tp2["times"]["description"],
       f"{_tp2['tool']['description'][:40]} | {_tp2['times']['description'][:40]}")
+
+# ══════════════════ 【61】系统提示词里的"派活引导" ══════════════════
+#   真机那次失败时，系统提示词里 `subagent` 出现次数是 **0**（long_term_memory /
+#   file_ops / progress_report / office / pptx / web_search 都有专门段落）。
+#   这里钉三件事：这段**存在**、**确实点名 subagent+start**、**版本进了 cache_key**
+#   （不进缓存键的话，改了这段还会命中旧缓存 → 白改）。
+print("\n== 【61】系统提示词里的派活引导（独立一段 + 进 cache_key）==")
+from src.core.llm_client import ChatClient  # noqa: E402
+_deleg_txt = ChatClient._delegation_prompt_section(None)
+check("★【61】引导段存在且点名 subagent 与 start",
+      "subagent" in _deleg_txt and "start" in _deleg_txt, _deleg_txt[:80])
+_llm_src = (BASE / "src" / "core" / "llm_client.py").read_text(encoding="utf-8")
+check("★【61】引导段的版本标记进了 cache_key（否则改完还会命中旧提示词缓存）",
+      "_DELEGATION_TAG" in _llm_src and "self._DELEGATION_TAG}" in _llm_src)
+check("★【61】两个分支都追加了这段（personality_prompt 分支 + 默认模板分支）",
+      _llm_src.count("self._delegation_prompt_section()") >= 2,
+      f"出现 {_llm_src.count('self._delegation_prompt_section()')} 次")
+check("★【61】没有动 _SHARED_CONTEXT_NOTE（用户明确要求那段别碰）",
+      "_SHARED_CONTEXT_NOTE = (" in _llm_src
+      and '_SHARED_CONTEXT_TAG = "shared_identity_v1"' in _llm_src)
 
 _old_sess2 = getattr(_sess_mod, "_session", None)
 _fake2 = _FakeSession("铃兰")

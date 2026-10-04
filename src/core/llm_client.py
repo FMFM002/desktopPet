@@ -348,6 +348,38 @@ class ChatClient:
     #   进缓存键用的版本标记：这一段变了就必须重建提示词缓存。
     _SHARED_CONTEXT_TAG = "shared_identity_v1"
 
+    # ★ 1.9.3 第 61 轮：**派活引导**的版本标记（同样必须进 cache_key）。
+    _DELEGATION_TAG = "subagent_hint_v1"
+
+    def _delegation_prompt_section(self) -> str:
+        """★ 1.9.3 第 61 轮：**把"派活入口"写进系统提示词**（用户要求的方向 4）。
+
+        为什么（真机证据 logs/prts_20261004_200450.log）：
+          用户连着两轮说「让铃兰去…/让铃兰查…」，模型在**该派活的那一轮**的思考里
+          写「工具 schema 只提到 list（列出）……action enum 只有 ["list"]」，
+          然后编了个"接口是关着的"的理由，自己把天气查了。
+        实测对照（临时文件/_scratch_dev/ab_anchor_probe_193.py，真配置真工具表）：
+          干净上下文里它**会**调 `action="start"`（5/5 次都派了），
+          而 `tools/subagent_tool.py` 的 `TOOL_PARAMETERS` 也从来没被裁剪过
+          （enum 五个值、required=['action']，见 probe_subagent_schema_193.py）。
+          ⇒ 不是"接口被关"，是**注意力**：当时系统提示词里提到 `subagent` 的次数是 **0**，
+            而 long_term_memory / file_ops / progress_report / office / pptx / web_search
+            都有专门段落（`_progress_prompt_section` 的注释里记着同一个教训：
+            "某一条工具描述对它的注意力不够 → 所以在系统提示词里再明确说一次"）。
+        这里按同一个先例补一段**独立**的；★ 不动 `_SHARED_CONTEXT_NOTE`
+        （那是共享工作台身份标注，用户明确不许碰）。版本号已进 cache_key。
+        """
+        return ("\n\n## 要派人帮忙，就用 subagent 工具（重要）\n"
+                "- 用户说「让 XX 去做…」「叫 XX 来…」「让 XX 帮我看一下…」"
+                "（XX 是另一个形象的名字）时，**用 `subagent` 的 `action=\"start\"` "
+                "把活派出去**（agent=形象名、prompt=要它做的事），**不要自己代劳**。\n"
+                "- 这个工具的五个 action **一直都在、随时可用**："
+                "start / status / close / list / approve_tools。"
+                "上一轮没派成、你一时记不清细节，**都不代表它被关掉了**。\n"
+                "- 拿不准有哪些形象就先 `action=\"list\"`；"
+                "拿不准也照样可以 `action=\"start\"` —— 参数不对它会直接告诉你。\n"
+                "- 只有用户明确说「你自己去做」时，才由你亲自做。")
+
     # 默认模板（支持变量替换）
     _DEFAULT_PROMPT = """你是一个可爱的桌面宠物助手，名叫"{character}"。
 你生活在用户的桌面上，可以观察用户的活动并提供帮助。
@@ -659,7 +691,7 @@ class ChatClient:
                      f"{cfg.personality_prompt}|{len(self.tools)}|"
                      f"{getattr(cfg, 'no_markdown', None)}|{getattr(cfg, 'no_action_description', None)}|"
                      f"{getattr(cfg, 'meme_tendency', None)}|{getattr(cfg, 'gif_reaction', None)}|"
-                     f"{self._SHARED_CONTEXT_TAG}")
+                     f"{self._SHARED_CONTEXT_TAG}|{self._DELEGATION_TAG}")
         if cache_key == self._cached_prompt_hash and self._cached_prompt:
             return self._cached_prompt
 
@@ -676,6 +708,7 @@ class ChatClient:
             prompt += "\n\n══════════════════════════════════════\n" + self._SHARED_CONTEXT_NOTE + "\n"
             prompt += rules
             prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
+            prompt += self._delegation_prompt_section()
             self._cached_prompt = prompt
             self._cached_prompt_hash = cache_key
             return prompt
@@ -703,6 +736,7 @@ class ChatClient:
         # ★ 1.9.3: 共享工作台身份标注（所有分支都要带；已进 cache_key）
         prompt += "\n\n══════════════════════════════════════\n" + self._SHARED_CONTEXT_NOTE + "\n"
         prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
+        prompt += self._delegation_prompt_section()
         self._cached_prompt = prompt
         self._cached_prompt_hash = cache_key
         return prompt
