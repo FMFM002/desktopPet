@@ -261,51 +261,124 @@ class KeyboardMonitor(BaseMonitor):
 
 
 class AudioMonitor(BaseMonitor):
-    """音频监控 — 保持现有 pyaudio 方案，待下一轮升级到 sounddevice+VAD"""
+    """音频监控 —— **音量过阈值就用本地 STT 转写，结果作为监控事件入库**。
+
+    ★★ 1.9.3 第 49 轮（用户设计，2026-10-04）：
+      *"STT 属于监控的一部分，开启后，麦克风声音超过一定阈值才会启动 STT"*，
+      并明确选了：**转写结果写进监控事件（raw_events）→ 进 Pipeline 汇总，
+      不直接当用户消息发给桌宠**。
+
+    于是它和"屏幕截图 → vision"完全对称：
+        屏幕：定时截图 → `_summarize_callback(image)`
+        麦克风：**一直在采**，音量过阈值才开始、静音 1.5s 判为说完 → 本地 STT → `text`
+      转写文本走 `_emit({"type": "speech", "text": ...})` →
+      `UnifiedMonitor._on_monitor_data` → `raw_events`。
+
+    · 复用现成的 `MicrophoneCapture`（阻塞式 `read_chunk`）+ `EnergyVAD`（能量端点检测），
+      不再自己开一套 pyaudio 流 —— 这两个类此前无人调用，现在**活了**。
+    · **STT 没就绪时自动退回旧行为**（只报音量），监控不会变成哑巴。
+    · 单段最长 30s 封顶，防止一直有噪声时无限攒内存。
+    """
+
+    MAX_UTTERANCE_SEC = 30.0
 
     def __init__(self, threshold: int = 500):
         super().__init__("audio")
         self._threshold = threshold
+        self._stt = None            # 就绪的 STT 引擎；None = 退回"只报音量"
+
+    def _get_stt(self):
+        """拿到**真的能用**的 STT 引擎；拿不到返回 None（于是退回只报音量）。
+
+        ★ 踩坑：`STTEngine` **没有 `available` 属性** —— 我第一版用
+          `getattr(stt, "available", True)` 判定，等于永远"可用"，
+          会把没装模型的机器引到必然失败的转写上。
+          正确的就绪信号是 **`initialize()`**（幂等，返回 bool；
+          `transcribe()` 内部也是先调它）。
+        """
+        try:
+            from src.core.stt_engine import get_stt
+            stt = get_stt()
+            if stt is not None and stt.initialize():
+                return stt
+            _log.info("[audio] STT 未就绪（缺 exe/模型）→ 音频监控退回只报音量")
+        except Exception as e:
+            _log.debug(f"[audio] 取 STT 失败，退回只报音量: {e}")
+        return None
+
+    def _emit_speech(self, samples, volume: float):
+        """把一段语音交给 STT，成功就发一条 `speech` 监控事件。"""
+        try:
+            import numpy as np
+            text = self._stt.transcribe(np.concatenate(samples))
+        except Exception as e:
+            _log.warning(f"[audio] 转写失败: {e}")
+            return
+        text = (text or "").strip()
+        if not text:
+            _log.debug("[audio] 这段没转出文字（静音/噪声），不入库")
+            return
+        _log.info(f"[audio] 语音转写 {len(text)} 字 → 监控事件")
+        self._emit({"type": "speech", "text": text,
+                    "volume": float(volume),
+                    "seconds": round(len(samples) * 1024 / 16000.0, 1),
+                    "timestamp": datetime.now().isoformat()})
 
     def _run(self):
         try:
-            import pyaudio
             import numpy as np
         except ImportError as e:
-            _log.error(f"[audio] pyaudio/numpy未安装: {e}")
+            _log.error(f"[audio] numpy未安装: {e}")
             return
 
-        _log.info(f"[audio] 音频监听启动 (pyaudio 麦克风模式, 阈值={self._threshold})")
-        CHUNK, FORMAT, CHANNELS, RATE = 1024, pyaudio.paInt16, 1, 16000
-        p = pyaudio.PyAudio()
-        stream = None
+        from src.core.stt_engine import EnergyVAD, MicrophoneCapture
+
+        self._stt = self._get_stt()
+        _log.info(f"[audio] 音频监听启动（阈值={self._threshold}，"
+                  f"STT={'已就绪 → 转写入库' if self._stt else '不可用 → 只报音量'}）")
+
+        cap = MicrophoneCapture(sample_rate=16000)
+        if not cap.start():
+            _log.error("[audio] 麦克风打不开，音频监控未启动")
+            return
+        vad = EnergyVAD(threshold=0.02, silence_duration=1.5)
+        utt, pre, peak = [], [], 0.0
         try:
-            stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
-                            input=True, frames_per_buffer=CHUNK)
             while self._running:
-                try:
-                    data = np.frombuffer(stream.read(CHUNK, exception_on_overflow=False), dtype=np.int16)
-                    volume = np.abs(data).mean()
-                    if volume > self._threshold:
-                        self._emit({"volume": float(volume), "timestamp": datetime.now().isoformat()})
-                    if self._nap(0.5):      # ★ 第 36 轮：可打断
+                chunk = cap.read_chunk(1024 / 16000.0)      # ≈64ms
+                if chunk is None:
+                    if self._nap(0.5):
                         break
-                except Exception:
-                    if self._nap(2):        # ★ 第 36 轮：可打断
-                        break
-        except Exception as e:
-            _log.error(f"[audio] 音频流错误: {e}")
+                    continue
+                vol = float(np.abs(chunk).mean())
+                if self._stt is None:
+                    # ── 退回旧行为：只报音量（沿用原阈值语义）──
+                    if vol * 32768 > self._threshold:
+                        self._emit({"volume": vol * 32768,
+                                    "timestamp": datetime.now().isoformat()})
+                    continue
+                was = vad.is_speaking
+                trig = vad.process(chunk)
+                if trig and not was:                        # 语音开始
+                    utt = list(pre)                         # 带点"预滚"，别切掉首字
+                    peak = vol
+                if vad.is_speaking:
+                    utt.append(chunk)
+                    peak = max(peak, vol)
+                    if len(utt) * 1024 / 16000.0 > self.MAX_UTTERANCE_SEC:
+                        _log.debug("[audio] 单段超 30s，强制切段转写")
+                        self._emit_speech(utt, peak)
+                        utt, peak = [], 0.0
+                        vad = EnergyVAD(threshold=0.02, silence_duration=1.5)
+                if trig and was:                            # 语音结束
+                    if utt:
+                        self._emit_speech(utt, peak)
+                    utt, peak = [], 0.0
+                pre.append(chunk)                           # 预滚只留最近 3 块（≈200ms）
+                if len(pre) > 3:
+                    pre.pop(0)
         finally:
-            if stream is not None:
-                try:
-                    stream.stop_stream()
-                    stream.close()
-                except Exception:
-                    pass
-            try:
-                p.terminate()
-            except Exception:
-                pass
+            cap.stop()
 
 
 class SystemMonitor(BaseMonitor):
@@ -448,8 +521,23 @@ class UnifiedMonitor:
         if cfg.keyboard_enabled:
             self.monitors["keyboard"] = KeyboardMonitor()
         # MouseMonitor 已删除 — mouse_enabled 仅保留配置兼容性，不再实例化
-        if cfg.audio_enabled:
+        # ★★ 1.9.3 第 49 轮（用户设计）：**STT 属于监控的一部分**。
+        #   开了 STT（`cfg.stt.enabled`）就该把麦克风监控跑起来 ——
+        #   否则"启用语音转文字"这个开关等于没接线（真机现状就是这样：
+        #   audio_enabled=False、stt.enabled=True，于是语音监控根本不存在）。
+        #   `audio_enabled` 仍然单独有效（只报音量的老行为）。
+        #   ★ 注意开关分两处：麦克风在 `config.monitor.audio_enabled`，
+        #     STT 在 `config.stt.enabled`（`self.config` 只是 monitor 那一段）。
+        try:
+            from src.utils.config import get_config as _gc
+            _stt_on = bool(_gc().stt.enabled)
+        except Exception:
+            _stt_on = False
+        if cfg.audio_enabled or _stt_on:
             self.monitors["audio"] = AudioMonitor(threshold=cfg.audio_threshold)
+            if not cfg.audio_enabled:
+                _log.info("[audio] 因「启用语音转文字（STT）」而启动麦克风监控"
+                          " → 音量过阈值自动转写进 raw_events")
         if cfg.system_enabled:
             self.monitors["system"] = SystemMonitor(interval=cfg.sys_interval)
 
@@ -486,8 +574,14 @@ class UnifiedMonitor:
                 content = f"[截图] {data.get('hash', '')}"
                 type_ = "screenshot"
             elif source == "audio":
-                content = f"[音量] {data.get('volume', 0):.0f}"
-                type_ = "volume"
+                # ★ 1.9.3 第 49 轮：音频监控现在有两种事件 ——
+                #   `speech`（STT 转写出来的文字，用户要的那种）和
+                #   `volume`（STT 不可用时的老行为兜底）。
+                if type_ == "speech":
+                    content = f"[语音] {data.get('text', '')[:2000]}"
+                else:
+                    content = f"[音量] {data.get('volume', 0):.0f}"
+                    type_ = "volume"
             elif source == "system":
                 if type_ == "window_change":
                     prev = data.get("previous_window", "")

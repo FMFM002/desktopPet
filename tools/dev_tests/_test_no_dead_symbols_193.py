@@ -43,12 +43,13 @@ FRAMEWORK_HOOKS = {
 
 # ── 显式放行：每条都必须写清"为什么留着" ──
 ALLOWED = {
-    # ↓ 实时麦克风那一套：**不是死代码，是被弄丢的功能**（等用户拍板 a/b）
-    "MicrophoneCapture": "实时麦克风采集；stt.enabled=true、设置里有开关、"
-                         "465MB 模型已装 —— 触发它的 toggle_stt 早已 0 调用，"
-                         "这是'功能被弄丢'，等用户决定接回去还是删掉",
-    "EnergyVAD": "实时语音端点检测，同上（实时麦克风那一套）",
-    "_realtime_loop": "实时转写主循环，同上（实时麦克风那一套）",
+    # ★ 注意：`MicrophoneCapture` / `EnergyVAD` / `_realtime_loop` 原来也在名单里
+    #   （"实时语音被弄丢"）。第 49 轮按用户设计把 STT **接进监控**后，
+    #   前两个已被 `AudioMonitor` 直接使用 → **已从名单移出**（本套件的
+    #   "过期项检查"会强制你做这件事）。`_realtime_loop` 仍是旧的一次性实时循环，
+    #   与新的监控式触发重叠，暂留待用户定夺。
+    "_realtime_loop": "旧的实时转写主循环；第 49 轮改成'音频监控 + VAD 自动触发'后"
+                      "与它职责重叠，暂留待用户确认是否删除",
     # ↓ 测试支撑 API：删了会削弱验证能力
     "uninstall_foreground_hook": "真做 UnhookWinEvent 的资源释放；只有测试在调，"
                                  "用于验证'装/卸对称'（生产 install 幂等，进程只活一次）",

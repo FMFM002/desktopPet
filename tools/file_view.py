@@ -484,7 +484,17 @@ def view_file(path: str, method: str = "auto", pages: str = "", max_chars: int =
         if m in ("multimodal", "vision"):
             return _result(False, kind, m, meta=meta,
                            error='音频没有画面；请用 method="stt" 或 text')
-        return _result(True, kind, "stt", text=stt_fn(str(p)), meta=meta,
+        # ★★ 1.9.3 第 49 轮：**把 stt_fn 包起来**。
+        #   原来这里是 `text=stt_fn(str(p))` 裸调 —— 只要它抛（注入的假函数、
+        #   将来换别的 STT 实现、whisper 进程异常…），整个"看文件"就跟着炸，
+        #   调用方拿到的是异常而不是"转写失败"。转写失败应该是**可预期的结果**。
+        try:
+            _txt = stt_fn(str(p))
+        except Exception as e:
+            _log.warning(f"STT 转写失败: {e}")
+            return _result(False, kind, "stt", meta=meta,
+                           error=f"STT 转写失败: {e}")
+        return _result(True, kind, "stt", text=_txt, meta=meta,
                        note="音频转写（STT）")
 
     # ── 视频：元信息 + 音轨转写 ──
