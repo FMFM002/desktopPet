@@ -37,6 +37,11 @@ def build_shared_context(messages: list, current_character: str = "",
         （本轮对话循环里工具结果必须回传给模型，否则工具调用整条断掉）；
         配不上对的就是历史遗留/孤儿工具结果 → 跳过（放进请求会 400）。
 
+    ★ 1.9.3 第 60 轮：带 `ctx_exclude` 标记的消息（子代理的**中间发言**）**一律跳过** ——
+      它们落库只是为了"重启后窗口里还看得到"，对主 LLM 而言**不存在**
+      （定稿第 8 条：只回传交付物，token 有界）。窗口渲染走 `_reload_chat_view`，
+      读的是 `session.messages`，**不受这里影响**。
+
     最后只把**最近 `limit` 条**非 system 消息放进去（system 消息始终保留），
     更早的那段折成一条 system 摘要；`summary` 为空时只注明"更早的消息已省略" ——
     不为此新造一个会调 LLM 的同步轮子。
@@ -54,6 +59,8 @@ def build_shared_context(messages: list, current_character: str = "",
 
     kept: list = []
     for m in messages:
+        if m.get("ctx_exclude"):
+            continue                      # ★ 只给人看的（子代理中间发言）→ 不进上下文
         role = m.get("role")
         if role == "tool":
             if m.get("tool_call_id") in _paired_tc_ids:
@@ -702,7 +709,13 @@ class ChatSession:
         pass
 
     def _load_topic_messages(self, topic_id: int):
-        """从数据库加载话题消息到内存（★ 1.9.3: 带上 speaker，供拼上下文时标注身份）"""
+        """从数据库加载话题消息到内存（★ 1.9.3: 带上 speaker，供拼上下文时标注身份）
+
+        ★ 1.9.3 第 60 轮：`ctx_exclude` 也一起带进内存 ——
+          子代理的**中间发言**落库了（重启后窗口里还能看到），
+          但它们在内存里也带着这个标记，`build_shared_context` 会把它们跳过，
+          **不会**被灌进主 LLM 上下文。窗口渲染不看这个标记，照旧显示。
+        """
         try:
             db_messages = self.db.get_topic_messages(topic_id)
             with self._lock:
@@ -717,6 +730,8 @@ class ChatSession:
                         msg["tool_name"] = m["tool_name"]
                     if m.get("speaker"):
                         msg["speaker"] = m["speaker"]
+                    if m.get("ctx_exclude"):
+                        msg["ctx_exclude"] = 1
                     self.messages.append(msg)
             _log.debug(f"加载话题 #{topic_id} 消息: {len(self.messages)} 条")
         except Exception as e:
@@ -1070,6 +1085,49 @@ class ChatSession:
                 pass
         _log.info(f"[自动工具] {tool_name} 触发（工具条目样式注入会话）")
         threading.Thread(target=self._run_loop, daemon=True).start()
+        return True
+
+    def resume_after_subagent(self, job_label: str = "") -> bool:
+        """★ 1.9.3 第 60 轮：子代理交付了 → **主 LLM 立刻续一轮**（不许"还在等"）。
+
+        用户原话："主LLM能够感知到子代理的行为就行。不要出现子代理已经交付文件了
+        主LLM还说再等。"
+
+        做法（选的是 b：**把结果当工具结果的返回，让工具调用循环自然延续**）：
+          交付物早由 `main_window._flush_pending_subagent_results()` 以
+          `assistant(tool_calls=[subagent]) + tool(交付物)` 一对补进 `self.messages`，
+          这里**只负责把这一轮跑起来** —— 对模型来说，它就是"我刚调的那个工具返回了"，
+          于是它会直接据此汇报，而不是继续等一个"还没回来"的子代理。
+
+        ★ 为什么不再自己注入一条 system 提示（不选 c）：
+          那一对 tool 结果本身就是模型必须回应的东西，再塞一条系统提示纯属重复烧
+          token；而且 `_prepare_messages` 已保证这对消息合法（补 reasoning_content、
+          按块配对），不需要额外兜底。
+        ★ 为什么**只在这个时机**被调用：调用方（主窗口）已经确认"子代理完成了、
+          而且当前没有别的一轮在跑"。主 LLM 正忙时**不许**走这里 ——
+          那种情况由主窗口把交付物排队，等本轮结束统一补进上下文再触发一次
+          （见 `_on_session_done_safe`），避免把正在跑的轮次打断/叠轮。
+        """
+        if self._streaming:
+            _log.warning("子代理交付续轮：已有进行中的对话，本次跳过（交付物已在上下文里）")
+            return False
+        if self._summarizing:
+            _log.warning("子代理交付续轮：正在总结话题，本次跳过")
+            return False
+        try:
+            if self._topic_id and self.db.is_topic_full(self._topic_id):
+                _log.warning("子代理交付续轮：上下文已满，跳过（等下次发言时自动总结）")
+                return False
+        except Exception:
+            pass
+
+        self._abort_chat = False
+        self._abort_tool = False
+        self._streaming = True
+        _log.info(f"[子代理] 交付物已在上下文里 → 主动续一轮让主 LLM 汇报"
+                  f"{('（' + job_label + '）') if job_label else ''}")
+        threading.Thread(target=self._run_loop, daemon=True,
+                         name="subagent-followup").start()
         return True
 
     # ★ 1.4.0+: 爬虫拦截守卫

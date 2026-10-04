@@ -268,6 +268,13 @@ try:
     class _FakeChat:
         def __init__(self):
             self.agent_text_in = _Rec()
+            self.busy = 0
+
+        def start_busy(self):
+            self.busy += 1
+
+        def stop_busy(self):
+            self.busy = max(0, self.busy - 1)
 
     class _ChatStore:
         def __init__(self):
@@ -275,8 +282,9 @@ try:
             self.marked = []
 
         def add(self, role, content, tool_name=None, tool_call_id=None,
-                topic_id=None, speaker=None):
-            self.added.append({"role": role, "content": content, "speaker": speaker})
+                topic_id=None, speaker=None, ctx_exclude=0):
+            self.added.append({"role": role, "content": content, "speaker": speaker,
+                               "ctx_exclude": ctx_exclude})
             return len(self.added)
 
         def mark_processed(self, ids, status=1):
@@ -294,10 +302,18 @@ try:
     _w.db = _FakeDB()
     _w.session = _fake_sess
     _w._pending_subagent_results = []
+    _w._pending_subagent_lines = []
     _w._turn_active = False
+    _w._subagent_followup_active = False
+    _w.followups = []
+    _w._show_subagent_text = lambda a, t: MainWindow._show_subagent_text(_w, a, t)
     _w._on_subagent_msg = lambda a, t: MainWindow._on_subagent_msg(_w, a, t)
+    _w._flush_pending_subagent_lines = (
+        lambda: MainWindow._flush_pending_subagent_lines(_w))
     _w._flush_pending_subagent_results = (
         lambda: MainWindow._flush_pending_subagent_results(_w))
+    # 【4】的主动续轮在这里只记账（真逻辑由第 12 段用真方法单独钉）
+    _w._request_subagent_followup = lambda j="": _w.followups.append(j)
 
     MainWindow._on_subagent_done(_w, _st)
 
@@ -313,9 +329,15 @@ try:
     check("★交付物确实在 tool 结果里（带「子代理」标注）",
           "子代理" in _msgs[1]["content"] and "1+1=2" in _msgs[1]["content"])
     check("★主上下文里**只有交付物**，没有子代理的整段会话/中间过程",
-          len(_msgs[1]["content"]) < 600
+          len(_msgs[1]["content"]) < 700
           and "（deepseek 上线）" not in _msgs[1]["content"],
           f"{len(_msgs[1]['content'])} 字")
+    check("★★★【4】空闲时交付 = **立刻触发一轮**（不许等下一条用户消息）",
+          _w.followups == [_st.get("job_id")], str(_w.followups))
+    check("★【4】交付物落库那条**不带** ctx_exclude（它必须进主上下文）",
+          [a for a in _w.db.chat.added if a["ctx_exclude"] == 0]
+          and _w.db.chat.added[-1]["ctx_exclude"] == 0,
+          str([(a["speaker"], a["ctx_exclude"]) for a in _w.db.chat.added]))
 
     # ══════════════════ 5. 窗口显示 + 落库：speaker = 子代理形象名 ══════════════════
     print("\n== 5. 窗口显示 + chat_records 落库（speaker = 那个形象名）==")
@@ -332,9 +354,30 @@ try:
           str(_added[0]["speaker"] if _added else ""))
     check("★落库内容与窗口显示一致", _added and _added[0]["content"] == _shown[-1][0])
 
-    # 落库**只有交付物**（逐条落库会让重启后的主上下文被灌满 → 违反 token 有界）
-    check("★落库的只有交付物这一条（没把中间过程逐条写进 chat_records）",
+    # ★★ 口径变更（第 60 轮）：交付物**不是**"唯一落库的东西"了 ——
+    #   中间发言也落库（用户要求"重启后还能看到中间过程"），但必须带 ctx_exclude=1；
+    #   交付物则是唯一**不带**这个标记、因而唯一会进主上下文的那条。
+    check("★这次这条链里只有交付物一条落库（呼叫语/中间发言由 _on_subagent_msg 落）",
           len(_added) == 1)
+    check("★★交付物那条 ctx_exclude=0（它是唯一会进主 LLM 上下文的）",
+          _added and _added[0]["ctx_exclude"] == 0,
+          str(_added[0]["ctx_exclude"] if _added else ""))
+
+    # 中间发言：走 `_on_subagent_msg` → **落库 + ctx_exclude=1** + 排队补内存
+    _n_before = len(_w.db.chat.added)
+    _w._on_subagent_msg("deepseek", "（deepseek 上线）我先去查一下～")
+    _mid = _w.db.chat.added[-1]
+    check("★【2】子代理的中间发言**也落库**了（用户要求重启后还看得到）",
+          len(_w.db.chat.added) == _n_before + 1
+          and "上线" in _mid["content"], str(_mid)[:70])
+    check("★★★【2】中间发言那条 speaker = 子代理形象名", _mid["speaker"] == "deepseek")
+    check("★★★【2】中间发言带 ctx_exclude=1（只给人看，**不进主 LLM 上下文**）",
+          _mid["ctx_exclude"] == 1, str(_mid["ctx_exclude"]))
+    check("★【2】空闲时中间发言立刻补进内存（窗口重画看得到）且带 ctx_exclude 标记",
+          _fake_sess.messages
+          and _fake_sess.messages[-1].get("ctx_exclude") == 1
+          and _fake_sess.messages[-1].get("speaker") == "deepseek",
+          str(_fake_sess.messages[-1])[:80])
 
     # ══════════════════ 6. 超时真能中止 ══════════════════
     print("\n== 6. 超时 / close 真能中止 ==")
@@ -485,6 +528,488 @@ finally:
     sa.MIN_TIMEOUT = 10
     sa.WAIT_APPROVAL_SECONDS = 20
     _sess_mod._session = _old_session
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ★★ 1.9.3 第 60 轮新增：【2】中间发言落库 · 【3】start 预放行 · 【4】交付即感知
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════ 10.【2】中间发言落库，但**重启后也不进主 LLM 上下文** ══════════════════
+print("\n== 10.【2】中间发言落库 + ctx_exclude=1：重启后看得到、但灌不进主上下文 ==")
+
+import shutil  # noqa: E402
+import src.core.database as _dbmod  # noqa: E402
+from src.core.database import ChatRecordsDB, SHARED_CHARACTER  # noqa: E402
+from src.core.session import ChatSession, build_shared_context  # noqa: E402
+
+_TMP = BASE / "_test_tmp_dbs_subagent193"
+shutil.rmtree(_TMP, ignore_errors=True)
+_TMP.mkdir(parents=True, exist_ok=True)
+_OLD_DB_DIR = _dbmod.DB_DIR
+_dbmod.DB_DIR = _TMP
+
+_MID_TEXT = "（deepseek 上线）我先去翻一下文件，马上回来～"
+_DELIV = "「deepseek」交回来的（sa-9）：\n查到了：1+1=2"
+
+
+class _DbShim:
+    """只当 ChatSession.db 用（真 ChatRecordsDB + 两个摘要接口）。"""
+
+    def __init__(self, chat):
+        self.chat = chat
+
+    def get_topic_messages(self, tid):
+        return self.chat.get_topic_messages(tid)
+
+    def get_topic_summary(self, tid):
+        return ""
+
+    def get_last_archived_summary(self, character, before_topic_id=0):
+        return ""
+
+
+def _session_for(topic_id, db_shim, character="铃兰"):
+    """绕开 `ChatSession.__init__`（那会建话题/开库），只装配本段要用的字段。"""
+    s = ChatSession.__new__(ChatSession)
+    s._lock = threading.Lock()
+    s.messages = []
+    s._character = character
+    s._topic_id = topic_id
+    s.db = db_shim
+    s._streaming = False
+    s._summarizing = False
+    s._abort_chat = False
+    s._abort_tool = False
+    s.on_done = None
+    return s
+
+
+try:
+    _chatdb = ChatRecordsDB()
+    _cols = {r["name"] for r in _chatdb._conn.execute("PRAGMA table_info(chat_records)")}
+    check("★【2】chat_records 有了 ctx_exclude 列（幂等迁移出来的）",
+          "ctx_exclude" in _cols, str(sorted(_cols)))
+    # 幂等：反复启动不许报错
+    try:
+        _chatdb._init_tables()
+        _chatdb._init_tables()
+        _chatdb2 = ChatRecordsDB()
+        _cols2 = {r["name"] for r in _chatdb2._conn.execute(
+            "PRAGMA table_info(chat_records)")}
+        _chatdb2.close()
+        _idem2 = "ctx_exclude" in _cols2
+    except Exception as _e:          # noqa: BLE001
+        _idem2 = False
+        print("    迁移重复执行抛异常:", _e)
+    check("★★【2】ctx_exclude 迁移幂等（每次启动都跑、重复不报错）", _idem2)
+
+    _tid = _chatdb.create_topic("", SHARED_CHARACTER)
+    _chatdb.add("user", "主人：帮我看一下", topic_id=_tid)
+    # 子代理的中间发言（第 60 轮起落库；标记"不进上下文"）
+    _chatdb.add("assistant", _MID_TEXT, topic_id=_tid,
+                speaker="deepseek", ctx_exclude=1)
+    # 交付物（不带标记 → 会进上下文）
+    _chatdb.add("assistant", _DELIV, topic_id=_tid, speaker="deepseek")
+    _rows = _chatdb.get_topic_messages(_tid)
+    check("★【2】中间发言真的落库了（重启后库里有它）",
+          any(r["content"] == _MID_TEXT for r in _rows),
+          str([(r["role"], (r["content"] or "")[:8]) for r in _rows]))
+    check("★【2】库里那条中间发言 ctx_exclude=1、交付物那条 =0",
+          [r["ctx_exclude"] for r in _rows] == [0, 1, 0],
+          str([r["ctx_exclude"] for r in _rows]))
+
+    # ── "重启"：重新从库里 load 进内存 ──
+    _s2 = _session_for(_tid, _DbShim(_chatdb))
+    _s2._load_topic_messages(_tid)
+    check("★★【2】重启后 session.messages 里有那些中间发言",
+          any(m.get("content") == _MID_TEXT for m in _s2.messages),
+          str([(m.get("role"), (m.get("content") or "")[:8]) for m in _s2.messages]))
+    check("★★【2】从库带进内存时 ctx_exclude 标记也跟着（不然守卫就白设了）",
+          [m.get("ctx_exclude") for m in _s2.messages] == [None, 1, None],
+          str([m.get("ctx_exclude") for m in _s2.messages]))
+
+    _ctx = build_shared_context([dict(m) for m in _s2.messages], "铃兰")
+    _ctx_text = "\n".join(str(m.get("content") or "") for m in _ctx)
+    check("★★★【2】重启后 build_shared_context **跳过**中间发言（主 LLM 看不到）",
+          _MID_TEXT not in _ctx_text, _ctx_text[:120])
+    check("★★【2】交付物照旧进上下文（重启后也看得到它的结果）",
+          "1+1=2" in _ctx_text and "[deepseek]：" in _ctx_text,
+          _ctx_text[:160])
+    check("★【2】被跳过的只是「中间发言」这一类，用户消息一条不少",
+          any(m.get("role") == "user" and "帮我看一下" in (m.get("content") or "")
+              for m in _ctx))
+
+    # ── 窗口渲染：真跑 `_reload_chat_view`，中间发言必须照旧画出来 ──
+    from PySide6.QtWidgets import QApplication  # noqa: E402
+    _app = QApplication.instance() or QApplication([])
+    from src.ui.chat_widget import ChatWidget  # noqa: E402
+    from src.ui.main_window import MainWindow  # noqa: E402
+
+    class _RecChat(ChatWidget):
+        def __init__(self):
+            super().__init__()
+            self.events = []
+
+        def _append_message(self, role, text, speaker=""):
+            self.events.append((role, text, speaker))
+            return super()._append_message(role, text, speaker)
+
+    class _ViewDb:
+        def list_character_topics(self, character, limit=50):
+            return []
+
+        def get_topic_messages(self, tid):
+            return []
+
+    class _StubMW(MainWindow):
+        def __init__(self):
+            pass
+
+    _mw = _StubMW()
+    _mw.chat = _RecChat()
+    _mw._chat_load_rounds = 999
+    _mw._chat_scroll_hooked = True
+    _mw._chat_archived_rendered = False
+    _mw._pending_attachments = []
+    _mw.session = _s2
+    _mw.db = _ViewDb()
+    MainWindow._reload_chat_view(_mw)
+    _texts = [e for e in _mw.chat.events if e[1]]
+    check("★★【2】窗口重画**照旧渲染**中间发言（不因 ctx_exclude 被藏起来）",
+          any(_MID_TEXT in e[1] for e in _texts),
+          str([e[1][:12] for e in _texts]))
+    check("★★【2】中间发言在窗口里按**子代理自己的头像**渲染（speaker=deepseek）",
+          any(_MID_TEXT in e[1] and e[2] == "deepseek" for e in _texts),
+          str([(e[1][:8], e[2]) for e in _texts]))
+    check("★【2】交付物在窗口里也在（渲染没被这件事影响）",
+          any("1+1=2" in e[1] for e in _texts))
+    _chatdb.close()
+finally:
+    _dbmod.DB_DIR = _OLD_DB_DIR
+    shutil.rmtree(_TMP, ignore_errors=True)
+
+
+# ══════════════════ 11.【3】start 预放行工具 ══════════════════
+print("\n== 11.【3】start 支持预放行工具（tool/times），不传则行为完全不变 ==")
+
+check("★【3】build_grants：字符串一个工具",
+      sa.build_grants("ppt", 2) == {"ppt": 2}, str(sa.build_grants("ppt", 2)))
+check("★【3】build_grants：逗号/顿号/空格分隔多个",
+      sa.build_grants("a, b、c d", 1) == {"a": 1, "b": 1, "c": 1, "d": 1},
+      str(sa.build_grants("a, b、c d", 1)))
+check("★【3】build_grants：数组 + 次数按位置对应（缺的算 1 次）",
+      sa.build_grants(["a", "b", "c"], [3, 2]) == {"a": 3, "b": 2, "c": 1},
+      str(sa.build_grants(["a", "b", "c"], [3, 2])))
+check("★★【3】build_grants：不传/空 → {}（= 不预放行，向后兼容）",
+      sa.build_grants(None, 1) == {} and sa.build_grants("", 5) == {}
+      and sa.build_grants("  ", 3) == {})
+check("★【3】次数被夹到 1~20（与 approve_tools 同口径）",
+      sa.build_grants("x", 999) == {"x": sa.MAX_GRANT_TIMES}
+      and sa.build_grants("x", 0) == {"x": 1})
+
+_fix = importlib.util.spec_from_file_location(
+    "_sa_tool_probe2", BASE / "tools" / "subagent_tool.py")
+_mod2 = importlib.util.module_from_spec(_fix)
+_fix.loader.exec_module(_mod2)
+_tp2 = _mod2.TOOL_PARAMETERS["properties"]
+check("★【3】TOOL_PARAMETERS 里 tool/times 的描述**覆盖 start**（模型看得懂）",
+      "start" in _tp2["tool"]["description"]
+      and "start" in _tp2["times"]["description"],
+      f"{_tp2['tool']['description'][:40]} | {_tp2['times']['description'][:40]}")
+
+_old_sess2 = getattr(_sess_mod, "_session", None)
+_fake2 = _FakeSession("铃兰")
+_sess_mod._session = _fake2
+try:
+    sa.MIN_TIMEOUT = 1
+    # ① 预放行：第一轮的工具声明里就该有那个工具，而且**能真的用**（不是"未授权"）
+    _script11 = [
+        [_chunk(tool_calls=[_call("fancy_pre", {"q": "x"}, "p1")])],
+        [_chunk(content="交付：预放行的工具真的用上了")],
+    ]
+    _box11 = {"script": _script11, "clients": [], "prompts": [], "max_tokens": []}
+    _install_factory(_box11)
+    _r11 = sa.submit(agent="deepseek", prompt="用预放行的工具查一下",
+                     timeout=30, grants=sa.build_grants("fancy_pre", 2))
+    check("★【3】start 接受 grants（仍立即返回 handle）",
+          _r11.get("success") is True and _r11.get("granted") == ["fancy_pre"],
+          str(_r11.get("granted")))
+    sa.wait_all(20)
+    _st11 = sa.status(_r11["job"])
+    _tr11 = [m["content"] for m in _box11["clients"][0].messages_seen[-1]
+             if m.get("role") == "tool"]
+    check("★★【3】预放行的工具**立刻可用**（返回的不是「未授权」）",
+          bool(_tr11) and "未授权" not in _tr11[-1],
+          (_tr11[-1][:60] if _tr11 else "(没有 tool 结果)"))
+    check("★【3】预放行的次数被真的扣掉（2 → 1）",
+          (_st11.get("grants") or {}).get("fancy_pre") == 1,
+          str(_st11.get("grants")))
+    check("★【3】start 的返回文案里说清了预放行了什么",
+          "预放行" in str(_r11.get("text")), str(_r11.get("text"))[:80])
+
+    # ①b **真实存在**的预放行工具必须进第一轮声明（`fancy_pre` 只是假名，声明不出来）；
+    #     顺带钉住"放行能解锁最小只读集里被没收的动作"（第 59 轮这里是空的）
+    _tmp_dir = BASE / "data" / "桌宠私有data"
+    _tmp_dir.mkdir(parents=True, exist_ok=True)
+    _tmp_w = _tmp_dir / "_test_tmp_subagent_write193.txt"
+    try:
+        _tmp_w.unlink()
+    except Exception:
+        pass
+    _script11b = [
+        [_chunk(tool_calls=[_call("file_ops",
+                                  {"action": "write", "path": str(_tmp_w),
+                                   "content": "预放行真的能写"}, "w1")])],
+        [_chunk(content="交付：写完了")],
+    ]
+    _box11b = {"script": _script11b, "clients": [], "prompts": [], "max_tokens": []}
+    _install_factory(_box11b)
+    _r11b = sa.submit(agent="deepseek", prompt="写个文件",
+                      timeout=30, grants=sa.build_grants("file_ops", 2))
+    sa.wait_all(20)
+    _names11b = (_box11b["clients"][0].tools_seen[0] if _box11b["clients"] else [])
+    check("★★【3】预放行的**真实**工具进了第一轮的工具声明（模型看得到才能调）",
+          "file_ops" in _names11b, str(_names11b))
+    _tr11b = [m["content"] for m in _box11b["clients"][0].messages_seen[-1]
+              if m.get("role") == "tool"]
+    check("★★★【3】预放行真的解锁了被没收的动作（file_ops.write 写成功，不是「未授权」）",
+          bool(_tr11b) and "未授权" not in _tr11b[-1]
+          and _tmp_w.exists() and "预放行真的能写" in _tmp_w.read_text(encoding="utf-8"),
+          (_tr11b[-1][:70] if _tr11b else "(没有 tool 结果)"))
+    check("★【3】这次也是靠放行才成立的调用 → 次数被扣（2 → 1）",
+          (sa.status(_r11b["job"]).get("grants") or {}).get("file_ops") == 1,
+          str(sa.status(_r11b["job"]).get("grants")))
+    try:
+        _tmp_w.unlink()
+    except Exception:
+        pass
+
+    # ② 不传：与第 59 轮**完全一致**（工具表里没有它，调用被拦）
+    _script12 = [
+        [_chunk(tool_calls=[_call("fancy_none", {"q": "x"}, "n1")])],
+        [_chunk(content="交付：没这个工具，做不了")],
+    ]
+    _box12 = {"script": _script12, "clients": [], "prompts": [], "max_tokens": []}
+    _install_factory(_box12)
+    _r12 = sa.submit(agent="deepseek", prompt="随便调一个没有的工具", timeout=30)
+    check("★★【3】不传 tool/times → 没有任何预放行（向后兼容）",
+          _r12.get("success") is True and not _r12.get("granted")
+          and "预放行" not in str(_r12.get("text")),
+          f"granted={_r12.get('granted')}")
+    sa.wait_all(20)
+    _st12 = sa.status(_r12["job"])
+    check("★【3】不传时那个工具**不在**第一轮工具声明里",
+          "fancy_none" not in (_box12["clients"][0].tools_seen[0]
+                               if _box12["clients"] else []))
+    _tr12 = [m["content"] for m in _box12["clients"][0].messages_seen[-1]
+             if m.get("role") == "tool"]
+    check("★★【3】不传时行为与第 59 轮一致：调用被拦下（「未授权」）",
+          bool(_tr12) and "未授权" in _tr12[-1],
+          (_tr12[-1][:60] if _tr12 else "(没有 tool 结果)"))
+    check("★【3】不传时 grants 是空的（记账口径没变）",
+          not (_st12.get("grants") or {}), str(_st12.get("grants")))
+
+    # ③ 工具层：`subagent start` 的 tool/times 真的透传到 grants
+    _box13 = {"script": [[_chunk(content="交付：走了工具层的 start")]],
+              "clients": [], "prompts": [], "max_tokens": []}
+    _install_factory(_box13)
+    _j13 = json.loads(_mod2.execute(action="start", agent="deepseek", prompt="透传检查",
+                                    tool="g1,g2", times=3))
+    check("★【3】工具层 start 带 tool/times → 预放行真的落进 job",
+          _j13.get("success") is True and _j13.get("granted") == ["g1", "g2"],
+          str(_j13.get("granted")))
+    _st13 = sa.status(_j13.get("job") or "")
+    check("★【3】两个工具的放行次数都是 3",
+          (_st13.get("grants") or {}) == {"g1": 3, "g2": 3}, str(_st13.get("grants")))
+    sa.wait_all(20)
+finally:
+    sa.set_client_factory(None)
+    sa.MIN_TIMEOUT = 10
+    _sess_mod._session = _old_sess2
+
+
+# ══════════════════ 12.【4】完成 → 主 LLM 下一轮的输入里**必含交付物** ══════════════════
+print("\n== 12.【4】交付即感知：下一轮输入必含交付物；忙时排队、合并成一次 ==")
+
+_cap = {"inputs": []}
+_orig_run_loop = ChatSession._run_loop
+
+
+def _fake_run_loop(self):
+    """替身：不真的打 API，只把"这一轮**实际会发给模型的输入**"记下来。
+
+    ★ 这是【4】那条硬要求唯一可信的验法：用户要的就是
+      "子代理已交付 → 主 LLM 下一轮的输入里必定有它"，那就把那份输入抓出来看。
+    """
+    with self._lock:
+        _snap = [dict(m) for m in self.messages]
+    _cap["inputs"].append(
+        self._prepare_messages(build_shared_context(_snap, self._character)))
+    self._streaming = False
+    if self.on_done:
+        self.on_done()
+
+
+ChatSession._run_loop = _fake_run_loop
+
+
+def _mk_ui_session(messages=None, character="铃兰"):
+    s = ChatSession.__new__(ChatSession)
+    s._lock = threading.Lock()
+    s.messages = list(messages or [])
+    s._character = character
+    s._topic_id = None
+    s.db = None
+    s._streaming = False
+    s._summarizing = False
+    s._abort_chat = False
+    s._abort_tool = False
+    s.on_done = None
+    return s
+
+
+class _UiChat:
+    def __init__(self):
+        self.agent_text_in = _Rec()
+        self.busy = 0
+
+    def start_busy(self):
+        self.busy += 1
+
+    def stop_busy(self):
+        self.busy = max(0, self.busy - 1)
+
+
+class _UiWin:
+    pass
+
+
+def _mk_win(sess):
+    """借 MainWindow 的**真**方法（含 `_request_subagent_followup` / `_settle_*`）。"""
+    w = _UiWin()
+    w.chat = _UiChat()
+    w.session = sess
+    w.db = _FakeDB()
+    w._pending_subagent_results = []
+    w._pending_subagent_lines = []
+    w._turn_active = False
+    w._subagent_followup_active = False
+    w._show_subagent_text = lambda a, t: MainWindow._show_subagent_text(w, a, t)
+    w._on_subagent_msg = lambda a, t: MainWindow._on_subagent_msg(w, a, t)
+    w._flush_pending_subagent_lines = (
+        lambda: MainWindow._flush_pending_subagent_lines(w))
+    w._flush_pending_subagent_results = (
+        lambda: MainWindow._flush_pending_subagent_results(w))
+    w._request_subagent_followup = (
+        lambda j="": MainWindow._request_subagent_followup(w, j))
+    w._settle_subagent_after_turn = (
+        lambda: MainWindow._settle_subagent_after_turn(w))
+    return w
+
+
+def _wait_inputs(n, timeout=5.0):
+    _end = time.time() + timeout
+    while time.time() < _end and len(_cap["inputs"]) < n:
+        time.sleep(0.02)
+    return len(_cap["inputs"]) >= n
+
+
+try:
+    # ① 空闲时完成 → **立刻**触发一轮，且那一轮的输入里有交付物
+    _cap["inputs"] = []
+    _sess_a = _mk_ui_session()
+    _w_a = _mk_win(_sess_a)
+    MainWindow._on_subagent_msg(
+        _w_a, "deepseek", "（deepseek 上线）我先去查一下，别急～")
+    MainWindow._on_subagent_done(_w_a, {
+        "job_id": "sa-77", "agent": "deepseek", "state": "done",
+        "deliverable": "查到了：文件已经放在 D:\\out\\a.xlsx", "requests": []})
+    _ok_a = _wait_inputs(1)
+    check("★★★【4】空闲时子代理一交付 → **立刻**跑起主 LLM 的下一轮",
+          _ok_a, f"{len(_cap['inputs'])} 轮")
+    _in_a = "\n".join(str(m.get("content") or "") for m in (_cap["inputs"][0]
+                                                           if _cap["inputs"] else []))
+    check("★★★【4】那一轮的输入里**必定含那条交付物**（不可能再说「还在等」）",
+          "已经放在 D:\\out\\a.xlsx" in _in_a, _in_a[-160:])
+    check("★★【4】也明确告诉模型「这就是交付物、别再等」",
+          "不要再等它" in _in_a)
+    check("★★【4】中间发言**不在**那一轮的输入里（token 有界没被破）",
+          "我先去查一下" not in _in_a, _in_a[:120])
+    check("★★【4】交付物是以 **tool 结果**的身份进去的（结构上不是「我说的」）",
+          [m.get("role") for m in _cap["inputs"][0]] == ["assistant", "tool"]
+          and _cap["inputs"][0][1].get("tool_call_id")
+          == _cap["inputs"][0][0]["tool_calls"][0]["id"])
+
+    # ② 主 LLM 正忙 → 只排队，**不许**叠一轮；本轮结束统一处理
+    _cap["inputs"] = []
+    _sess_b = _mk_ui_session()
+    _w_b = _mk_win(_sess_b)
+    _w_b._turn_active = True                     # 模拟"主 LLM 正在跑"
+    MainWindow._on_subagent_done(_w_b, {
+        "job_id": "sa-78", "agent": "deepseek", "state": "done",
+        "deliverable": "结果：B 任务完成", "requests": []})
+    check("★★★【4】主 LLM 正忙时**不触发新一轮**（不叠轮、不烧 token）",
+          _cap["inputs"] == [] and _w_b._pending_subagent_results,
+          str(_w_b._pending_subagent_results))
+    check("★【4】忙的时候交付物只是排队（等本轮结束统一补）",
+          len(_w_b._pending_subagent_results) == 1)
+    # 本轮结束 → 走真的 `_settle_subagent_after_turn`
+    _w_b._turn_active = False
+    _n_b = MainWindow._settle_subagent_after_turn(_w_b)
+    _ok_b = _wait_inputs(1)
+    check("★★【4】本轮结束统一处理 → 这时才触发，且只触发**一次**",
+          _n_b == 1 and _ok_b, f"flush={_n_b} 轮数={len(_cap['inputs'])}")
+    _in_b = "\n".join(str(m.get("content") or "") for m in _cap["inputs"][0])
+    check("★★★【4】触发那一轮的输入里含那条交付物",
+          "B 任务完成" in _in_b, _in_b[-120:])
+
+    # ③ 多条结果同时到达 → **合并成一次触发**
+    _cap["inputs"] = []
+    _sess_c = _mk_ui_session()
+    _w_c = _mk_win(_sess_c)
+    _w_c._turn_active = True                     # 忙：两条都只能排队
+    MainWindow._on_subagent_done(_w_c, {
+        "job_id": "sa-79", "agent": "deepseek", "state": "done",
+        "deliverable": "交付物甲", "requests": []})
+    MainWindow._on_subagent_done(_w_c, {
+        "job_id": "sa-80", "agent": "铃兰", "state": "done",
+        "deliverable": "交付物乙", "requests": []})
+    _w_c._turn_active = False
+    _n_c = MainWindow._settle_subagent_after_turn(_w_c)
+    _wait_inputs(1)
+    check("★★★【4】两条一起到 → **只触发一轮**（合并成一次，绝不各来一轮）",
+          _n_c == 2 and len(_cap["inputs"]) == 1,
+          f"flush={_n_c} 轮数={len(_cap['inputs'])}")
+    _in_c = "\n".join(str(m.get("content") or "") for m in _cap["inputs"][0])
+    check("★【4】两条交付物都在同一轮的输入里",
+          "交付物甲" in _in_c and "交付物乙" in _in_c)
+
+    # ④ "为交付物而续的那一轮"不会自我无限触发
+    _cap["inputs"] = []
+    _sess_d = _mk_ui_session()
+    _w_d = _mk_win(_sess_d)
+    MainWindow._on_subagent_done(_w_d, {
+        "job_id": "sa-81", "agent": "deepseek", "state": "done",
+        "deliverable": "只有一条", "requests": []})
+    _wait_inputs(1)
+    _w_d._turn_active = False
+    MainWindow._settle_subagent_after_turn(_w_d)   # 这一轮本来就是为它续的
+    time.sleep(0.2)
+    check("★★【4】这一轮结束后**不会**再自我触发（否则无限烧 token）",
+          len(_cap["inputs"]) == 1, f"轮数={len(_cap['inputs'])}")
+    check("★【4】收尾后 `_subagent_followup_active` 已让出（后续交付还能触发）",
+          _w_d._subagent_followup_active is False)
+
+    # ⑤ `resume_after_subagent` 的守卫：忙 / 总结中 → 返回 False（不乱起轮次）
+    _sess_e = _mk_ui_session()
+    _sess_e._streaming = True
+    check("★【4】已有流式请求在跑 → resume_after_subagent 返回 False",
+          _sess_e.resume_after_subagent("x") is False)
+    _sess_f = _mk_ui_session()
+    _sess_f._summarizing = True
+    check("★【4】正在总结话题 → 返回 False",
+          _sess_f.resume_after_subagent("x") is False)
+finally:
+    ChatSession._run_loop = _orig_run_loop
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:

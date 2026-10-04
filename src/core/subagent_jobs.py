@@ -37,6 +37,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -342,6 +343,101 @@ def _narrow_action_enum(info, name: str) -> dict:
     return spec
 
 
+def tools_for(job_id: str) -> list:
+    """★ 第 60 轮：子代理**这一轮实际拿到的工具表**。
+
+    = 最小只读集 + 申请入口 + **主模型已放行的工具**（真的声明出来）。
+
+    ★ 为什么必须在这里重算（第 59 轮的一个真实缺口）：
+      第 59 轮只把放行记进 `job["grants"]`，**从来没有再改过 client 的工具表** ——
+      模型根本"看不到"那个工具，`approve_tools` 那句"它下一轮就能用了"是空话
+      （`_test_subagent_193` 第 7 段能假通过，是因为假客户端的脚本**硬写**了要调它）。
+      预放行（start 的 tool/times）同理：不真的进工具表 = 预放行等于没放。
+    ★ 放行的工具**不做 action 收窄**：放行就是放行（用户可以放行任意工具）。
+    """
+    out = subagent_tools()
+    have = {(t.get("function") or {}).get("name") for t in out}
+    with _lock:
+        names = list((_jobs.get(job_id) or {}).get("granted") or [])
+    if not names:
+        return out
+    try:
+        from src.core.tool_manager import get_tool_manager
+        tm = get_tool_manager()
+    except Exception as e:
+        _log.warning(f"[子代理] 取放行工具时工具管理器失败: {e}")
+        return out
+    for name in names:
+        if not name or name in have:
+            continue
+        info = tm.get_tool(name)
+        if info is None:
+            _log.warning(f"[子代理 {job_id}] 放行的工具「{name}」不存在，跳过")
+            continue
+        try:
+            out.append(info.to_openai_tool())
+            have.add(name)
+        except Exception as e:
+            _log.debug(f"[子代理] 放行工具 {name} 的声明生成失败: {e}")
+    return out
+
+
+# ══════════════════ 预放行（start 的 tool / times）══════════════════
+
+MAX_GRANT_TIMES = 20
+
+
+def _clamp_times(v, default: int = 1) -> int:
+    """放行次数夹到 1~20（与 `approve_tools` 同一口径）。"""
+    try:
+        return max(1, min(MAX_GRANT_TIMES, int(v)))
+    except Exception:
+        return default
+
+
+def build_grants(tool, times=1) -> dict:
+    """把 `start` 的 **tool / times** 参数归一成 `{工具名: 次数}`。
+
+    用户要的是"**start 时就预放行**"，所以参数得让模型好写、也好写多个：
+      · `tool` 省略/空        → 不预放行（**与第 59 轮行为完全一致**）；
+      · `tool="ppt"`          → 放行 1 次；
+      · `tool="ppt,shell"`    → 两个都放行（也认中文逗号 / 顿号 / 分号 / 空格）；
+      · `tool=["ppt","shell"]`（或它们混着写）→ 同上；
+      · `times=3`             → 上面每个都放行 3 次；
+      · `times=[1,2]`         → 按位置一一对应，缺的按 1 次。
+    """
+    if not tool:
+        return {}
+    out: dict = {}
+    if isinstance(tool, dict):
+        for k, v in tool.items():
+            name = str(k or "").strip()
+            if name:
+                out[name] = _clamp_times(v)
+        return out
+    raw = list(tool) if isinstance(tool, (list, tuple, set)) else [tool]
+    names: list = []
+    for item in raw:
+        if isinstance(item, dict):                 # 允许 {"tool": "x", "times": 2}
+            name = str(item.get("tool") or item.get("name") or "").strip()
+            if name:
+                out[name] = _clamp_times(item.get("times"), _clamp_times(times))
+            continue
+        if isinstance(item, (list, tuple)):        # 允许 ("x", 2)
+            name = str(item[0] or "").strip() if item else ""
+            if name:
+                out[name] = _clamp_times(item[1] if len(item) > 1 else 1)
+            continue
+        names.extend([s for s in re.split(r"[,，、;；\s]+", str(item or "")) if s])
+    tlist = list(times) if isinstance(times, (list, tuple)) else None
+    for i, name in enumerate(names):
+        if tlist is not None:
+            out[name] = _clamp_times(tlist[i] if i < len(tlist) else 1)
+        else:
+            out[name] = _clamp_times(times)
+    return out
+
+
 # ══════════════════ 提交 ══════════════════
 
 def _active_ids() -> list:
@@ -351,8 +447,14 @@ def _active_ids() -> list:
 
 
 def submit(agent: str, prompt: str, context: str = "",
-           timeout: int = DEFAULT_TIMEOUT) -> dict:
+           timeout: int = DEFAULT_TIMEOUT, grants: dict = None) -> dict:
     """交给某个形象去办一件事 → **立刻返回 handle，不阻塞**。
+
+    ★ 第 60 轮：`grants` = **预放行**（`{工具名: 次数}`，由 `build_grants` 归一）。
+      传了就等于"start 的那一刻就把工具批给它" —— 不必再赌主 LLM 在 20 秒窗口里
+      主动 `status` + `approve_tools`（真机上主 LLM 常常 `start` 完就收尾，
+      于是没人放行，子代理只能降级做完、把"缺 X"写进交付物）。
+      **不传（None/空）→ 行为与第 59 轮完全一致**，一个字都不变。
 
     返回 {"success": True, "job": "sa-1", "agent": ..., "state": "running", "text": ...}
     """
@@ -378,6 +480,17 @@ def submit(agent: str, prompt: str, context: str = "",
                 "error": f"找不到形象「{agent}」。",
                 "characters": list_characters()}
 
+    # 预放行：只认非空工具名；次数夹到 1~20（与 approve_tools 同口径）
+    pre = {}
+    try:
+        for _k, _v in (grants or {}).items():
+            _k = str(_k or "").strip()
+            if _k:
+                pre[_k] = _clamp_times(_v)
+    except Exception as e:
+        _log.debug(f"[子代理] 预放行参数解析失败（按不预放行处理）: {e}")
+        pre = {}
+
     with _lock:
         if len(_active_ids()) >= MAX_CONCURRENT:
             cur = _active_ids()[0]
@@ -395,7 +508,8 @@ def submit(agent: str, prompt: str, context: str = "",
             "main": main_name, "prompt": prompt, "context": context or "",
             "timeout": timeout, "state": "running",
             "created": time.time(), "finished": None, "elapsed": 0.0,
-            "rounds": 0, "grants": {}, "requests": [], "granted": [],
+            "rounds": 0, "grants": dict(pre), "requests": [],
+            "granted": list(pre),
             "lines": [], "deliverable": "", "error": "", "cancel": False,
             "persona": persona,
         }
@@ -404,11 +518,14 @@ def submit(agent: str, prompt: str, context: str = "",
     threading.Thread(target=_run_one, args=(job_id,), daemon=True,
                      name=f"subagent-{job_id}").start()
     _log.info(f"[子代理] {job_id} 已派出：{disp_name}（上限 {timeout}s，"
-              f"人设 {len(persona)} 字）")
+              f"人设 {len(persona)} 字"
+              f"{'，预放行 ' + '、'.join(f'{k}×{v}' for k, v in pre.items()) if pre else ''}）")
+    _pre_note = ("已预放行：" + "、".join(f"{k}×{v}" for k, v in pre.items()) + "。"
+                 if pre else "")
     return {"success": True, "action": "subagent", "job": job_id, "agent": disp_name,
-            "state": "running",
+            "state": "running", "granted": sorted(pre),
             "text": (f"已经把活交给「{disp_name}」（{job_id}），它自己在后台做，"
-                     f"不会占着你。做完它的交付物会自动回来。"
+                     f"不会占着你。{_pre_note}做完它的交付物会自动回来。"
                      f"期间可以 subagent status 看进度。")}
 
 
@@ -643,7 +760,9 @@ def _run_one(job_id: str):
     partial = ""
     try:
         system_prompt = build_system_prompt(agent, main_name, job.get("persona") or "")
-        tools = subagent_tools()
+        # ★ 第 60 轮：工具表**按 job 现算**（最小只读集 + 预放行/已放行的工具）。
+        #   预放行的工具必须在**第一轮**就出现在声明里，否则"预放行"等于没放。
+        tools = tools_for(job_id)
         client = _make_client(system_prompt, SUBAGENT_MAX_TOKENS, tools)
         client.set_tools(list(tools))
         # ★★ 独立的 messages 列表 —— 局部变量，**绝不写进 session.messages**
@@ -659,6 +778,12 @@ def _run_one(job_id: str):
         while rounds < MAX_TOOL_ROUNDS:
             _check_stop(job_id, deadline)
             rounds += 1
+            # ★ 第 60 轮：**每轮重算工具表** —— 主模型在上一轮放行（approve_tools）
+            #   或 start 时预放行的工具，从这一轮起就真的出现在声明里，模型看得到、调得动。
+            try:
+                client.set_tools(tools_for(job_id))
+            except Exception as e:
+                _log.debug(f"[子代理 {job_id}] 刷新工具表失败（沿用上一轮）: {e}")
             content, thinking, tool_calls = _stream_once(client, messages, job_id, deadline)
             with _lock:
                 if job_id in _jobs:
@@ -826,17 +951,34 @@ def _handle_request(job_id: str, agent: str, args: dict, deadline: float) -> str
             f"并在交付物里说明「缺 {tool}，所以哪一步没做」。")
 
 
-def _tool_allowed(job: dict, name: str, args: dict) -> bool:
-    """最小只读集（且 action 在白名单里）**或** 主模型已放行的剩余次数。"""
-    if name in SUBAGENT_SAFE_TOOLS:
-        allowed = SUBAGENT_SAFE_TOOLS[name]
-        if allowed is None:
-            return True
-        return str(args.get("action") or "") in allowed
-    try:
-        return int((job.get("grants") or {}).get(name, 0)) > 0
-    except Exception:
+def _safe_action_ok(name: str, args: dict) -> bool:
+    """这个调用**光靠最小只读集**就合法吗（不靠"放行"）？
+
+    ★ 抽出来是为了让"要不要扣放行次数"判断准确：只有**靠放行**才成立的调用才扣次数。
+    """
+    if name not in SUBAGENT_SAFE_TOOLS:
         return False
+    allowed = SUBAGENT_SAFE_TOOLS[name]
+    if allowed is None:
+        return True
+    return str(args.get("action") or "") in allowed
+
+
+def _tool_allowed(job: dict, name: str, args: dict) -> bool:
+    """最小只读集（且 action 在白名单里）**或** 主模型已放行的剩余次数。
+
+    ★ 第 60 轮修正：**放行优先**。
+      原来先查最小只读集、命中就只按白名单裁决 —— 于是
+      `approve_tools(job, "file_ops")` 对 `write` **完全无效**：放行了照样是"未授权"，
+      "放行"这个功能在**最需要它的那个工具**上是空话（预放行同理）。
+      现在：只要有剩余放行次数就直接放行（放行就是放行，次数由 `_run_tool` 扣）。
+    """
+    try:
+        if int((job.get("grants") or {}).get(name, 0)) > 0:
+            return True
+    except Exception:
+        pass
+    return _safe_action_ok(name, args)
 
 
 def _run_tool(job_id: str, name: str, args: dict) -> str:
@@ -848,8 +990,9 @@ def _run_tool(job_id: str, name: str, args: dict) -> str:
     if not _tool_allowed(job, name, args):
         return (f"[未授权] 工具「{name}」不在你的最小只读集里（或者这个动作被禁）。"
                 f"请用 request_tools 申请：把工具名、次数、理由写清楚。")
-    # ★ 放行的次数要真的扣掉（不是无限用）
-    if name not in SUBAGENT_SAFE_TOOLS:
+    # ★ 放行的次数要真的扣掉（不是无限用）：只有**靠放行**才成立的调用才扣
+    #   （只读集里本来就允许的调用，不该消耗主模型批的次数）
+    if not _safe_action_ok(name, args):
         with _lock:
             j = _jobs.get(job_id)
             if j is not None:

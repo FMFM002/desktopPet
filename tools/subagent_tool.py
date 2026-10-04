@@ -6,6 +6,9 @@
   跑完由主窗口把**交付物**以 tool 结果的身份补进主上下文，并带着那个形象的头像
   显示 + 落库到聊天记录。`status` 查进度、`close` 中止、`list` 看有哪些形象，
   `approve_tools` 放行子代理申请的工具。
+  ★ 第 60 轮：`start` 也接受 `tool`/`times` —— **预放行**（不必赌主 LLM 回头放行）；
+  子代理的**中间发言**也会落库（`ctx_exclude=1`：重启后窗口里看得到，
+  但**不进**主 LLM 上下文）。
 
 【实现放在 src/core/subagent_jobs.py —— 不在这里】
   理由同 comfyui：LAZY 工具会被 ToolManager 空闲卸载并重新 import，
@@ -32,9 +35,13 @@ TOOL_DESCRIPTION = (
     "你继续聊你的，它做完会把**交付物**送回来（会以工具结果的身份出现在你面前）。"
     "参数 agent=形象名（必须是存在的角色，不能是你自己）、"
     "prompt=要它做的事（写清「只做这件事」）、context=你挑给它的少量关键记录。"
+    "★ 它一上来只有最小只读集；**你现在就知道它缺哪个工具**的话，"
+    "用 `tool` + `times` 在 start 时就**预放行**（例如 tool=\"download\"、times=2；"
+    "要放行多个就写 tool=\"download,office\" 或 tool=[\"download\",\"office\"]）——"
+    "这样它第一轮就能用，不必等你在 20 秒窗口里回头放行。"
     "\n· `action=status`：查它做得怎么样了（job=handle，留空=看全部）。"
     "**它如果申请了工具，会显示在这里**。"
-    "\n· `action=approve_tools`：★ 放行它申请的工具（参数 tool=工具名、times=次数）。"
+    "\n· `action=approve_tools`：★ 放行它申请的工具（参数 job=handle、tool=工具名、times=次数）。"
     "它的工具集一开始被收走、只有最小只读集，缺工具时会向你申请 —— 你审核后放行。"
     "\n· `action=close`：中止它（job=handle）。"
     "\n· `action=list`：看看有哪些形象可用、以及它默认能用的只读工具。"
@@ -74,11 +81,12 @@ TOOL_PARAMETERS = {
         },
         "tool": {
             "type": "string",
-            "description": "[approve_tools] 要放行的工具名（就是它申请的那个）",
+            "description": "[approve_tools/start] 工具名。approve_tools=要放行它申请的那个；"
+                           "start=**预放行**（可省；要放行多个就写成 \"a,b\"）",
         },
         "times": {
             "type": "integer",
-            "description": "[approve_tools] 放行几次（默认 1）",
+            "description": "[approve_tools/start] 放行几次（默认 1，上限 20）",
         },
     },
     "required": ["action"],
@@ -107,6 +115,9 @@ def execute(action: str = "", **kwargs) -> str:
             prompt=kwargs.get("prompt") or "",
             context=kwargs.get("context") or "",
             timeout=kwargs.get("timeout") or _jobs.DEFAULT_TIMEOUT,
+            # ★ 第 60 轮：start 时**预放行**（tool / times，可写多个）。
+            #   不传 → `build_grants` 返回 {} → 行为与第 59 轮完全一致。
+            grants=_jobs.build_grants(kwargs.get("tool"), kwargs.get("times") or 1),
         )
         if not res.get("success"):
             _log.warning(f"[子代理工具] start 被拒: {res.get('error')}")

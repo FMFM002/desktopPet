@@ -289,6 +289,7 @@ CREATE TABLE IF NOT EXISTS chat_records (
     tool_call_id    TEXT    DEFAULT NULL,     -- OpenAI tool_call_id（用于重建 tool_calls 链路）
     memory_processed INTEGER DEFAULT 0,      -- 0=未判断, 1=已处理, -1=失败
     speaker         TEXT    DEFAULT NULL,     -- ★ 1.9.3: 谁说的（assistant 存形象名；user/tool 留空）
+    ctx_exclude     INTEGER DEFAULT 0,        -- ★ 1.9.3 第 60 轮: 1=只在窗口显示，**不进主 LLM 上下文**
     created_at      TEXT    DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -345,6 +346,20 @@ class ChatRecordsDB:
                 try:
                     self._conn.execute(
                         "ALTER TABLE chat_records ADD COLUMN speaker TEXT DEFAULT NULL")
+                except sqlite3.OperationalError:
+                    pass  # 并发/重复迁移：列已存在
+            # ★ 1.9.3 第 60 轮：**子代理中间发言**要落库给"人"看（重启后窗口里还在），
+            #   但**绝不能**跟着 speaker 一起被 `_load_topic_messages` 读回、再由
+            #   `build_shared_context` 以 `[名字]：…` 灌进主 LLM 上下文
+            #   （那等于把子代理整段会话喂给主模型，违反"只回传交付物 / token 有界"）。
+            #   所以加这一列当"**不进上下文**"的标记：
+            #     · 1 = 只给人看（窗口渲染照旧，拼上下文时跳过）；
+            #     · 0 = 正常（默认，老数据全是 0，行为一字不变）。
+            #   迁移口径与 speaker 完全一致：先 PRAGMA 判定再 ALTER，幂等、重复不报错。
+            if "ctx_exclude" not in _cols:
+                try:
+                    self._conn.execute(
+                        "ALTER TABLE chat_records ADD COLUMN ctx_exclude INTEGER DEFAULT 0")
                 except sqlite3.OperationalError:
                     pass  # 并发/重复迁移：列已存在
             # ★ 1.6.0: topics 表迁移（角色 / 状态 / 总结）
@@ -521,18 +536,20 @@ class ChatRecordsDB:
 
     def add(self, role: str, content: str, tool_name: str = None,
             tool_call_id: str = None, topic_id: int = None,
-            speaker: str = None) -> int:
+            speaker: str = None, ctx_exclude: int = 0) -> int:
         """添加聊天记录，返回 id。自动估算 token 数。
 
         ★ 1.9.3: speaker = 这句话是谁说的。assistant 消息存当前形象名；
         user / tool 消息留空（None）。拼上下文时据此决定要不要加 [名字]： 前缀。
+        ★ 1.9.3 第 60 轮: ctx_exclude = 1 → **只在窗口里显示，不进主 LLM 上下文**
+        （子代理的中间发言走这条；交付物仍然照常进上下文）。
         """
         token_count = ChatRecordsDB._estimate_tokens(content)
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO chat_records (topic_id, role, content, token_count, tool_name, tool_call_id, speaker) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO chat_records (topic_id, role, content, token_count, tool_name, tool_call_id, speaker, ctx_exclude) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (topic_id, role, content, token_count, tool_name, tool_call_id,
-                 (speaker or None)))
+                 (speaker or None), 1 if ctx_exclude else 0))
             # 更新话题计数
             if topic_id:
                 self._conn.execute(
@@ -930,9 +947,11 @@ class Database:
 
     def add_chat_history(self, role: str, content: str, tool_name: str = None,
                          tool_call_id: str = None, topic_id: int = None,
-                         speaker: str = None):
-        """★ 1.9.3: speaker = 说话者（assistant 消息传当前形象名，其余留空）"""
-        self.chat.add(role, content, tool_name, tool_call_id, topic_id, speaker)
+                         speaker: str = None, ctx_exclude: int = 0):
+        """★ 1.9.3: speaker = 说话者（assistant 消息传当前形象名，其余留空）
+        ★ 1.9.3 第 60 轮: ctx_exclude = 1 → 只给人看，不进主 LLM 上下文"""
+        self.chat.add(role, content, tool_name, tool_call_id, topic_id, speaker,
+                      ctx_exclude)
     # ---- 话题管理 ----
 
     def create_topic(self, title: str = "", character: str = "") -> int:

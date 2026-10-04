@@ -306,6 +306,16 @@ class MainWindow:
         #   必须等**子代理线程真结束**再补，且补进去的是 `assistant(tool_calls)
         #   + tool 结果`这一对（这样主 LLM 结构上不会把交付物当成自己说的）。
         self._pending_subagent_results: list[tuple] = []
+        # ★ 1.9.3 第 60 轮（子代理）：子代理的**中间发言**待补进 `session.messages`。
+        #   为什么要排一下（而不是落完库就直接 append）：
+        #     · 这些发言是 `role='assistant'` 的**裸文本**；若正好插在主 LLM 那一轮的
+        #       `assistant(tool_calls) ↔ tool` 中间，工具链就断了（API 400）；
+        #     · 所以与附件走同一套：**本轮结束再补**（空闲时立刻补）。
+        #   它们带 `ctx_exclude=1` → 只在窗口显示，`build_shared_context` 会跳过。
+        self._pending_subagent_lines: list[tuple] = []
+        # ★ 1.9.3 第 60 轮：这批交付物触发的那一轮主动汇报是否已经发出去了。
+        #   作用只有一个 —— "同一批完成事件只触发一轮"（避免叠轮烧 token）。
+        self._subagent_followup_active: bool = False
         # ★ 1.9.0: 本轮已经推送过的附件路径（小写）——LLM 常先调 download
         #   再调 file_ops send，同一张图会显示两遍（W6 反馈"封面发了两次"）。
         #   每轮用户消息开始时清空。
@@ -2055,27 +2065,94 @@ class MainWindow:
     # ══════════════════ ★ 1.9.3 第 59 轮：子代理（subagent）══════════════════
     # 设计定稿见 1.9.3wsl开发日志.txt 第六十二节·三。三条路线在这里汇合：
     #   ① **给人看的**：子代理每说一句 → `_on_subagent_msg` → 聊天窗口（按它的头像显示）；
-    #   ② **落库的**：只有**最终交付物**写 chat_records（speaker=那个形象名）——
-    #      见 `_on_subagent_done` 里为什么不能逐条落库；
+    #   ② **落库的**：★ 第 60 轮起**中间发言 + 交付物都落库**（speaker=那个形象名）
+    #      —— 但中间发言带 `ctx_exclude=1`（只给人看，**不进主 LLM 上下文**），
+    #      见 `_on_subagent_msg` 里为什么必须分开标记；
     #   ③ **给模型看的**：只有那一小段交付物，且以
     #      `assistant(tool_calls=[subagent]) + tool(结果)` 的形态补进主上下文
-    #      （`_flush_pending_subagent_results`）→ 结构上不会被误认成主 LLM 自己说的。
+    #      （`_flush_pending_subagent_results`）→ 结构上不会被误认成主 LLM 自己说的；
+    #      ★ 第 60 轮：补进去之后还会**主动续一轮**（`_request_subagent_followup`），
+    #      让主 LLM 当场汇报，而不是等下一条用户消息。
 
-    def _on_subagent_msg(self, agent: str, text: str):
-        """① 子代理在窗口里说的每一条（**只显示，不落库**）。
+    def _show_subagent_text(self, agent: str, text: str):
+        """只把一句话送进聊天窗口（带子代理自己的头像）—— 不落库、不进上下文。
 
-        为什么不落库：`chat_records` 里 role='assistant' 的消息在**重启后**会被
-        `_load_topic_messages` 读回 `session.messages`，再由 `build_shared_context`
-        以 `[名字]：内容` 的形式喂给主 LLM —— 逐条落库 = 把子代理的**整段会话**
-        灌进主上下文，正好违反定稿第 8 条"只回传交付物（token 有界）"。
+        抽出来是因为有两个调用者：中间发言（`_on_subagent_msg`，它另外还要落库）
+        和交付物（`_on_subagent_done`，它自己那条落库口径不一样）。
         """
         try:
             self.chat.agent_text_in.emit(str(text), str(agent))
         except Exception as e:
             _log.debug(f"[子代理] 窗口显示失败: {e}")
 
+    def _on_subagent_msg(self, agent: str, text: str):
+        """① 子代理的**每条中间发言**：显示 + 落库 + 排队补进内存（但**不进上下文**）。
+
+        ★★ 第 60 轮用户拍板：中间过程也要**重启后还能看到**，所以必须落库。
+        但落库会从后面捅穿第 59 轮定的规矩：
+          `chat_records` 里 role='assistant' 的行在**重启后**会被 `_load_topic_messages`
+          读回 `session.messages`，再由 `build_shared_context` 以 `[名字]：内容` 喂给主 LLM
+          → 等于把子代理**整段会话**灌进主上下文（违反定稿第 8 条"只回传交付物 / token 有界"）。
+        ⇒ 解法：**落库时打标记 `ctx_exclude=1`**（`chat_records` 新列，幂等迁移）：
+          · `_load_topic_messages` 把这个标记带进内存消息；
+          · `build_shared_context` 遇到带标记的**直接跳过** → 主 LLM 永远看不到中间过程；
+          · 窗口渲染（`_reload_chat_view`）不看这个标记 → 重启后照旧显示。
+        ★ 选"加列"而不是"塞进 tool_name 之类的旁路"的理由见交付报告：
+          标记是**数据的属性**，必须跟着消息走（重启、换话题、被检索都不丢），
+          借字段会把语义搅浑、且一旦有人用它做别的事就崩。
+        """
+        text = str(text or "").strip()
+        agent = str(agent or "").strip()
+        if not text:
+            return
+        # ① 立刻显示（带它自己的头像）
+        self._show_subagent_text(agent, text)
+        # ② 落库：speaker = 那个形象名；ctx_exclude = 1 → 只给人看
+        try:
+            tid = None
+            try:
+                tid = self.session.topic_id
+            except Exception:
+                pass
+            rid = self.db.chat.add("assistant", text, topic_id=tid,
+                                   speaker=agent, ctx_exclude=1)
+            if rid:
+                # 过程性发言对长期记忆没有语义 → 不进 LTM 提取队列
+                self.db.chat.mark_processed([rid], 1)
+        except Exception as e:
+            _log.warning(f"[子代理] 中间发言落库失败: {e}")
+        # ③ 排队补进 session.messages（带 speaker + ctx_exclude），
+        #    这样**当前话题的重画**也能画出来；本轮忙就等本轮结束统一补。
+        try:
+            self._pending_subagent_lines.append((agent, text))
+        except Exception as e:
+            _log.debug(f"[子代理] 中间发言排队失败: {e}")
+        if not getattr(self, "_turn_active", False):
+            self._flush_pending_subagent_lines()
+
+    def _flush_pending_subagent_lines(self):
+        """把排队的子代理中间发言补进 `session.messages`（**带 ctx_exclude 标记**）。
+
+        补进去以后：窗口重画看得到（`_reload_chat_view` 读的就是它），
+        而 `build_shared_context` 会跳过 —— 两边各取所需。
+        """
+        pend = getattr(self, "_pending_subagent_lines", None)
+        if not pend:
+            return
+        self._pending_subagent_lines = []
+        try:
+            with self.session._lock:
+                for item in pend:
+                    _agent, _text = item[0], item[1]
+                    self.session.messages.append(
+                        {"role": "assistant", "content": _text,
+                         "speaker": _agent, "ctx_exclude": 1})
+            _log.debug(f"[子代理] 中间发言已补进会话（不进上下文）: {len(pend)} 条")
+        except Exception as e:
+            _log.debug(f"[子代理] 中间发言补进会话失败: {e}")
+
     def _on_subagent_done(self, info: dict):
-        """②③ 子代理跑完：显示 + 落库交付物，并把它排进主上下文。"""
+        """②③ 子代理跑完：显示 + 落库交付物，排进主上下文，并**主动让主 LLM 汇报**。"""
         if not isinstance(info, dict):
             return
         agent = str(info.get("agent") or "").strip()
@@ -2090,8 +2167,8 @@ class MainWindow:
             req_line = "\n（它申请过工具：" + "、".join(
                 f"{r.get('tool')}×{r.get('times')}" for r in reqs[-3:] if isinstance(r, dict)) + "）"
         shown = f"「{agent}」交回来的（{job}）：\n{deliverable}{req_line}"
-        # ② 显示（带它自己的头像）+ 落库（speaker = 那个形象名）
-        self._on_subagent_msg(agent, shown)
+        # ② 显示（带它自己的头像，但**不走**中间发言那条落库路径）
+        self._show_subagent_text(agent, shown)
         try:
             tid = None
             try:
@@ -2110,9 +2187,77 @@ class MainWindow:
         except Exception as e:
             _log.debug(f"[子代理] 交付物排队失败: {e}")
         if not getattr(self, "_turn_active", False):
-            # 空闲（子代理本来就是异步的，最常见）：直接补进上下文，
-            # 这样**下一条用户消息**就能看到它 —— 与 _on_context_note 同一套判断。
+            # 空闲（子代理本来就是异步的，最常见）：立刻把这一批补进上下文，
+            # **并且马上让主 LLM 说一轮** —— 绝不让它"还在等"。
+            self._flush_pending_subagent_lines()
             self._flush_pending_subagent_results()
+            self._request_subagent_followup(job)
+        else:
+            # 主 LLM 正忙：只排队，等本轮结束由 `_on_session_done_safe` 统一
+            # flush + 触发**一次**（复用现成的 flush 机制，不叠轮、不烧 token）。
+            _log.debug(f"[子代理] 主 LLM 正忙 → {job} 的交付物先排队，本轮结束统一上报")
+
+    def _settle_subagent_after_turn(self):
+        """★ 第 60 轮：**一轮结束时**统一收尾子代理相关的东西，并**合并成一次触发**。
+
+        顺序（每一步都有理由）：
+          ① 让出 `_subagent_followup_active` 占位 —— 刚刚结束的这一轮有可能**就是**
+             那次主动汇报；不放掉的话下一批交付物永远触发不了；
+          ② 把排队的**中间发言**补进 `session.messages`（带 ctx_exclude=1）；
+          ③ 把排队的**交付物**补进上下文（`assistant.tool_calls + tool` 一对）；
+          ④ 只有**真的补进了东西**才触发一次主动续轮 —— 多条结果在 ③ 里被一次性
+             抽干、只触发一轮（各触发一轮会白烧 token，用户明确不要）。
+
+        ★ 为什么本轮是"为交付物续的那一轮"时不会无限自我触发：
+          那种情况这一批交付物在**触发前**就已经被 ③ 抽走了 → 这里 `_n == 0` → 不触发。
+        ★ 抽成独立方法还有一个作用：`_on_session_done_safe` 里还有 pet_mgr / tts /
+          LTM 等一堆拉不起的重东西，回归没法整个跑；这个方法能被断言直接调。
+        """
+        self._subagent_followup_active = False
+        self._flush_pending_subagent_lines()
+        _n = self._flush_pending_subagent_results()
+        if _n:
+            self._request_subagent_followup(f"本轮攒下 {_n} 条")
+        return _n
+
+    def _request_subagent_followup(self, job: str = ""):
+        """★ 第 60 轮（选 b）：交付物已经进上下文 → 让主 LLM **立刻续一轮**。
+
+        ★ 触发条件（只有这两条同时成立才走这里）：
+          ① 子代理**完成了**（`_on_subagent_done` 或本轮结束时的 flush 里确实补进了东西）；
+          ② **没有别的事情在跑**（`_turn_active` 为假）。
+        ★ 不会触发的情况：
+          · 主 LLM 正在跑一轮（含它自己的工具调用链）→ 交付物排队，本轮结束再触发一次；
+          · 已经在总结话题 / 上下文已满 / 已有流式请求在跑 → `resume_after_subagent()`
+            返回 False，这里**不占位、不重试**（交付物已在上下文里，下一条消息照样看得到）；
+          · 同一批已经有一次汇报在飞（`_subagent_followup_active`）→ 直接返回，
+            多条结果合并成一次，绝不各触发一轮。
+        """
+        if getattr(self, "_subagent_followup_active", False):
+            _log.debug("[子代理] 这一批已经有一次主动汇报在跑 → 合并，不重复触发")
+            return
+        self._subagent_followup_active = True
+        # 先占位：随后到达的交付物会被当成"本轮正忙"而排队，与本轮天然合并
+        self._turn_active = True
+        try:
+            self.chat.start_busy()
+        except Exception:
+            pass
+        try:
+            sess = getattr(self, "session", None)
+            ok = bool(sess is not None and sess.resume_after_subagent(job))
+        except Exception as e:
+            _log.warning(f"[子代理] 主动续一轮失败: {e}")
+            ok = False
+        if not ok:
+            # 没真的跑起来（总结中/满了/已有流式在跑）→ 让出占位，
+            # 免得把 `_turn_active` 永久卡在 True（那会让后续交付物永远排不上队）
+            self._subagent_followup_active = False
+            self._turn_active = False
+            try:
+                self.chat.stop_busy()
+            except Exception:
+                pass
 
     def _flush_pending_subagent_results(self):
         """把交付物以 **tool 结果的形态**补进主上下文。
@@ -2125,11 +2270,14 @@ class MainWindow:
           · 所以补 `assistant(tool_calls=[subagent]) + tool(交付物)` 这一对：
             对模型来说它就是**一次工具调用的返回**，结构上天然不是"我说的"。
             （现成先例：`send_auto_tool_trigger` 注入 idle_talk 就是这么干的。）
+        ★ 第 60 轮：补完之后由调用方决定要不要 `_request_subagent_followup()`
+          —— 这里只管"进上下文"，不自己起轮次（不然本轮结束那条路会叠轮）。
         """
         pend = getattr(self, "_pending_subagent_results", None)
         if not pend:
-            return
+            return 0
         self._pending_subagent_results = []
+        _n = 0
         for item in pend:
             try:
                 if isinstance(item, (tuple, list)) and len(item) >= 3:
@@ -2138,7 +2286,9 @@ class MainWindow:
                 else:
                     continue
                 tc_id = f"subagent_{job}"
-                content = (f"【子代理「{agent}」的交付物（{job}）】\n{deliverable}{req_line}")
+                content = (f"【子代理「{agent}」的交付物（{job}）】\n{deliverable}{req_line}"
+                           f"\n（这就是它的交付物，已经送到你手上了：请据此直接回复/汇报，"
+                           f"不要再等它。）")
                 with self.session._lock:
                     self.session.messages.append({
                         "role": "assistant", "content": None,
@@ -2152,9 +2302,11 @@ class MainWindow:
                     })
                     self.session.messages.append({
                         "role": "tool", "tool_call_id": tc_id, "content": content})
+                _n += 1
                 _log.info(f"[子代理] 交付物已以 tool 结果身份补进主上下文：{job}（{agent}）")
             except Exception as e:
                 _log.debug(f"[子代理] 交付物补进上下文失败: {e}")
+        return _n
 
     def _on_system_msg_safe(self, msg: str):
         # chat.system_msg_in 已经是跨线程 Signal，直接 emit
@@ -2273,16 +2425,20 @@ class MainWindow:
         self._turn_active = False
         # ★ 1.9.0: 本轮结束 → 把工具推来的附件消息补进会话（错开工具调用链）
         self._flush_pending_attachments()
-        # ★ 1.9.3 第 59 轮：子代理的交付物同样等本轮结束再补（同一个理由：
-        #   不能插在 assistant(tool_calls) ↔ tool 的中间）
-        self._flush_pending_subagent_results()
         # ★ 1.9.3（第 6 轮）：收尾之后才关「工作中」指示器
         #   ★ 位置注意：**必须在 _flush_pending_attachments 之后** ——
         #     a190 有一条断言钉着「结束/中断都先收尾附件」，插前面会打挂（已踩过）。
+        #   ★ 第 60 轮：**挪到子代理收尾之前** —— 子代理那条路会启动一轮新对话
+        #     （`_request_subagent_followup` → `chat.start_busy()`），
+        #     关指示器放在它后面会把刚点亮的"工作中"又灭掉。
         try:
             self.chat.stop_busy()
         except Exception:
             pass
+        # ★ 1.9.3 第 60 轮：子代理相关的收尾（中间发言补进内存 + 交付物补进上下文
+        #   + 需要的话**统一触发一次**主动汇报）。抽成方法是为了能被打回归钉住，
+        #   见 `_settle_subagent_after_turn` 的说明。
+        self._settle_subagent_after_turn()
         # ★ 1.9.0（你的方案）：表情包**优先走 meme 工具** —— LLM 在回复前调用一次，
         #   工具把选中的放进"待发送"；这里（文字回复结束之后）取走并发一条。
         #   老的"思考/正文里写 {"meme": …}"协议保留为兜底（模型偶尔还是会那么写）。
@@ -2330,8 +2486,13 @@ class MainWindow:
         self._turn_active = False
         # ★ 1.9.0: 中断同样要收尾附件消息（否则会永远留在待补队列里）
         self._flush_pending_attachments()
+        # ★ 1.9.3 第 60 轮：中间发言也要收尾（否则永远留在待补队列里，重画就少几条）
+        self._flush_pending_subagent_lines()
         # ★ 1.9.3 第 59 轮：子代理交付物同理（留在队列里就永远送不进上下文了）
         self._flush_pending_subagent_results()
+        # ★ 1.9.3 第 60 轮：中断了就不再自动续一轮（用户刚喊停，别自己又跑起来）；
+        #   交付物已经在上下文里，用户下一条消息照样看得到。
+        self._subagent_followup_active = False
         # ★ 1.9.3（第 6 轮）：收尾之后才关「工作中」指示器（位置同上）
         try:
             self.chat.stop_busy()
