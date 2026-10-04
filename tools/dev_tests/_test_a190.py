@@ -1246,26 +1246,32 @@ if _av.exists():
     check("★图片：真的把图片对象交给了视觉（拿得到尺寸）",
           isinstance(_seen.get("size"), tuple) and _seen["size"][0] > 0)
 
-# 真实 PDF（有就用它跑端到端：扫描件应自动落到视觉）
-_pdf_dir = ROOT / "data" / "downloads" / "jmcomic" / "PDFs"
-_pdfs = sorted(_pdf_dir.glob("*.pdf")) if _pdf_dir.is_dir() else []
-if _pdfs:
-    _pdf = view_file(str(_pdfs[0]), method="text", pages="1", max_chars=300)
-    check("★PDF：能识别总页数并只取指定页",
-          _pdf["success"] and _pdf["pages"] == [1]
-          and int(_pdf["meta"].get("pages_total", 0)) > 5,
-          f"总页数={_pdf['meta'].get('pages_total')} 本次={_pdf['pages']}")
+# ★★ 1.9.4 阶段2：PDF 端到端改成**自造 fixture**。
+#   原来它找 `data/downloads/jmcomic/PDFs/*.pdf`（**用户下载来的**）——
+#   用户在模拟全新状态时删掉 data/ 之后，这块就**静默跳过**（打印 NOTE，
+#   但断言计数从 463 掉到 461）→ **新用户那里这两项永远不跑**，
+#   与"独立运行 / 新用户流程"直接冲突。
+#   形状要求照 `file_view._view_pdf` 的判据反推：**总页数 > 5**，
+#   且**第 2 页文字 < 30 字**（那样才会自动落到视觉）。
+sys.path.insert(0, str(ROOT / "tools" / "dev_tests"))
+from _fixtures_193 import make_pdf, fixture_dir          # noqa: E402
 
-    def _fake_v2(img, prompt):
-        return "[假视觉] 这一页是扫描图"
+_pdf_fixture = make_pdf(fixture_dir("a190_pdf") / "sample.pdf", pages=8, sparse_page=2)
+_pdf = view_file(str(_pdf_fixture), method="text", pages="1", max_chars=300)
+check("★PDF：能识别总页数并只取指定页",
+      _pdf["success"] and _pdf["pages"] == [1]
+      and int(_pdf["meta"].get("pages_total", 0)) > 5,
+      f"总页数={_pdf['meta'].get('pages_total')} 本次={_pdf['pages']}")
 
 
-    _pdf_v = view_file(str(_pdfs[0]), method="auto", pages="2", vision_fn=_fake_v2,
-                       max_chars=300)
-    check("★PDF：文本很少的页自动改走视觉（扫描件也能看）",
-          _pdf_v["success"] and "[假视觉]" in _pdf_v["text"], _pdf_v["note"][:50])
-else:
-    print("  NOTE 没找到真实 PDF，跳过 PDF 端到端两项")
+def _fake_v2(img, prompt):
+    return "[假视觉] 这一页是扫描图"
+
+
+_pdf_v = view_file(str(_pdf_fixture), method="auto", pages="2", vision_fn=_fake_v2,
+                   max_chars=300)
+check("★PDF：文本很少的页自动改走视觉（扫描件也能看）",
+      _pdf_v["success"] and "[假视觉]" in _pdf_v["text"], _pdf_v["note"][:50])
 
 # 工具层：action=view 应有 JSON 输出、描述里要有 view
 _view_json = _fops.execute(action="view", path="README.md", max_chars=120)

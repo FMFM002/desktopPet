@@ -57,6 +57,38 @@ def make_pptx(dest, pages: int = 2, title: str = "测试演示文稿") -> Path:
     return dest
 
 
+def make_pdf(dest, pages: int = 8, sparse_page: int = 2) -> Path:
+    """造一个**真** PDF（PyMuPDF/fitz 生成）—— 供 PDF 端到端断言用。
+
+    ★ 1.9.4 阶段2 为什么补这个：
+      `_test_a190` 里有一块 "PDF 端到端两项" 依赖
+      `data/downloads/jmcomic/PDFs/*.pdf`（**用户下载来的**）。
+      用户在模拟全新状态时删掉了 `data/`，那块就**静默跳过**（打印 NOTE，但计数从
+      463 掉到 461）—— 也就是说**新用户那里这两项永远不跑**。
+      这与"独立运行 / 新用户流程"直接冲突，所以改成自造。
+
+    形状要求（照 `file_view._view_pdf` 的判据反推）：
+      · **总页数 > 5** —— 断言里核对 `pages_total > 5`；
+      · **`sparse_page` 那一页的文字 < 30 字** —— `_view_pdf` 的逻辑是
+        "该页文本 < 30 字就渲染成图走**视觉**"，所以那页**故意留白**。
+    """
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    import fitz                                    # PyMuPDF；项目读 PDF 用的就是它
+    doc = fitz.open()
+    for i in range(1, max(6, pages) + 1):
+        page = doc.new_page()
+        if i == sparse_page:
+            continue                               # ★ 留白 → 触发"文本太少走视觉"
+        page.insert_text((72, 72),
+                         f"Fixture 第 {i} 页。" + "这是用于回归的测试文本。" * 6)
+    doc.save(str(dest))
+    doc.close()
+    return dest
+
+
 def make_wav(dest, seconds: float = 1.0, freq: int = 440,
              rate: int = 16000) -> Path:
     """造一个**真**的 16kHz 单声道 PCM wav（给转写/音频链路当输入）。"""
