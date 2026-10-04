@@ -356,17 +356,25 @@ try:
     # ══════════════════ 5. 窗口显示 + 落库：speaker = 子代理形象名 ══════════════════
     print("\n== 5. 窗口显示 + chat_records 落库（speaker = 那个形象名）==")
     _shown = _w.chat.agent_text_in.calls
-    check("★窗口里显示了交付物（走带 speaker 的那条通道）",
-          bool(_shown) and "1+1=2" in _shown[-1][0], str(_shown[-1][:1])[:60])
-    check("★窗口那条的 speaker = 子代理的形象名（deepseek）",
-          _shown and _shown[-1][1] == "deepseek", str(_shown[-1][1] if _shown else ""))
     _added = _w.db.chat.added
+    # ★★ 第 61 轮口径变更（用户真机："同一段内容显示了两遍" + "（sa-1）不该给用户看"）：
+    #   交付物在子代理那边**就是它最后那句发言**（`subagent_jobs._run_one` 把 final
+    #   既 `_emit` 出去又当交付物回调回来）→ 已经显示过一次的，不再显示第二遍。
+    #   它真正该去的地方只有一个：主 LLM 的上下文（下面第 4 段已经钉住了）。
+    check("★★★【61】交付物**不再**当成聊天消息显示（窗口调用里没有它）",
+          not any("1+1=2" in str(c[0]) for c in _shown), str(_shown))
+    check("★★★【61】窗口调用里也没有内部 handle（sa-… 一律不给用户看）",
+          not any("sa-" in str(c[0]) for c in _shown), str(_shown))
     check("★交付物落库了一条（role=assistant）",
           len(_added) == 1 and _added[0]["role"] == "assistant")
     check("★★★落库那条的 speaker = 子代理形象名（不是当前形象 铃兰）",
           _added and _added[0]["speaker"] == "deepseek",
           str(_added[0]["speaker"] if _added else ""))
-    check("★落库内容与窗口显示一致", _added and _added[0]["content"] == _shown[-1][0])
+    check("★★★【61】落库那条（它要进主上下文）里也**没有**内部 handle（sa-1 已删）",
+          _added and "sa-" not in str(_added[0]["content"]),
+          str(_added[0]["content"] if _added else "")[:80])
+    check("★【61】落库正文仍然是那段交付物（只是不再给用户看第二遍）",
+          _added and "1+1=2" in str(_added[0]["content"]))
 
     # ★★ 口径变更（第 60 轮）：交付物**不是**"唯一落库的东西"了 ——
     #   中间发言也落库（用户要求"重启后还能看到中间过程"），但必须带 ctx_exclude=1；
@@ -379,6 +387,7 @@ try:
 
     # 中间发言：走 `_on_subagent_msg` → **落库 + ctx_exclude=1** + 排队补内存
     _n_before = len(_w.db.chat.added)
+    _n_shown_before = len(_w.chat.agent_text_in.calls)
     _w._on_subagent_msg("deepseek", "（deepseek 上线）我先去查一下～")
     _mid = _w.db.chat.added[-1]
     check("★【2】子代理的中间发言**也落库**了（用户要求重启后还看得到）",
@@ -392,6 +401,12 @@ try:
           and _fake_sess.messages[-1].get("ctx_exclude") == 1
           and _fake_sess.messages[-1].get("speaker") == "deepseek",
           str(_fake_sess.messages[-1])[:80])
+    # ★ 第 61 轮：显示搬进了 `_flush_pending_subagent_lines` —— 空闲时它仍然立刻显示
+    check("★★★【61】空闲时中间发言**照旧立刻显示**（显示走 flush，空闲时是同步的）",
+          len(_w.chat.agent_text_in.calls) == _n_shown_before + 1
+          and _w.chat.agent_text_in.calls[-1][1] == "deepseek"
+          and "上线" in _w.chat.agent_text_in.calls[-1][0],
+          str(_w.chat.agent_text_in.calls[-1] if _w.chat.agent_text_in.calls else []))
 
     # ══════════════════ 6. 超时真能中止 ══════════════════
     print("\n== 6. 超时 / close 真能中止 ==")
@@ -704,6 +719,39 @@ try:
           str([(e[1][:8], e[2]) for e in _texts]))
     check("★【2】交付物在窗口里也在（渲染没被这件事影响）",
           any("1+1=2" in e[1] for e in _texts))
+
+    # ── ★★ 第 61 轮：交付物与"子代理最后那句发言"是**同一段文字** → 窗口只画一次 ──
+    #   真机上这两条**内容完全一样**（`_emit(...final)` 发的 final 就是交付物）：
+    #     ① ctx_exclude=1 的那条（管窗口显示：重启后还能看到中间过程）；
+    #     ② ctx_exclude=0 的那条（管主 LLM 上下文：重启后交付物还在上下文里）。
+    #   两条都必须留在数据里 —— 但**给用户看的只能一条**。
+    _tid2 = _chatdb.create_topic("", SHARED_CHARACTER)
+    _DUP = "铃兰查好啦，明天（10-05）重庆的天气是：小雨转多云，18~21°C，记得带伞～"
+    _chatdb.add("user", "叫铃兰帮我查一下明天天气", topic_id=_tid2)
+    _chatdb.add("assistant", _DUP, topic_id=_tid2, speaker="铃兰", ctx_exclude=1)
+    _chatdb.add("assistant", _DUP, topic_id=_tid2, speaker="铃兰")      # ctx_exclude=0
+    _s3 = _session_for(_tid2, _DbShim(_chatdb))
+    _s3._load_topic_messages(_tid2)
+    check("★★【61】重启后：同内容的两条都在内存里（各有各的用途，一条都不许丢）",
+          [m.get("content") for m in _s3.messages].count(_DUP) == 2,
+          str([(m.get("content") or "")[:8] for m in _s3.messages]))
+    _mw3 = _StubMW()
+    _mw3.chat = _RecChat()
+    _mw3._chat_load_rounds = 999
+    _mw3._chat_scroll_hooked = True
+    _mw3._chat_archived_rendered = False
+    _mw3._pending_attachments = []
+    _mw3.session = _s3
+    _mw3.db = _ViewDb()
+    MainWindow._reload_chat_view(_mw3)
+    _dup_shown = [e for e in _mw3.chat.events if _DUP in (e[1] or "")]
+    check("★★★【61】窗口重画时同一段文字**只画一条**（用户只看到一次）",
+          len(_dup_shown) == 1, f"{len(_dup_shown)} 条")
+    check("★【61】画的那条是子代理自己的头像（speaker=铃兰）",
+          bool(_dup_shown) and _dup_shown[0][2] == "铃兰",
+          str([(e[1][:8], e[2]) for e in _dup_shown]))
+    check("★【61】去重没有误伤普通消息（用户那条照旧渲染）",
+          any("叫铃兰帮我查" in (e[1] or "") for e in _mw3.chat.events))
     _chatdb.close()
 finally:
     _dbmod.DB_DIR = _OLD_DB_DIR
@@ -980,6 +1028,18 @@ try:
           [m.get("role") for m in _cap["inputs"][0]] == ["assistant", "tool"]
           and _cap["inputs"][0][1].get("tool_call_id")
           == _cap["inputs"][0][0]["tool_calls"][0]["id"])
+    # ★★ 第 61 轮：主 LLM 续轮的输入里，交付物那条 tool 结果**就在最末位**
+    #   （模型最容易看到的位置 —— 真机日志里"再说等"那轮根本不是这一轮）。
+    check("★★★【61】续轮的 messages 里，交付物那条 tool 结果**就是最后一条**",
+          len(_cap["inputs"][0]) == 2
+          and _cap["inputs"][0][-1].get("role") == "tool",
+          str([m.get("role") for m in _cap["inputs"][0]]))
+    # ★★ 第 61 轮：子代理**一个字都没吐过**（快照里没有 lines）→ 兜底补显示一条，
+    #   否则窗口里"派了活却什么都没有"；而且兜底那条同样不带内部 handle。
+    _fb = _w_a.chat.agent_text_in.calls
+    check("★★【61】兜底：子代理没吐过正文 → 交付物补显示一条，且**不带** handle",
+          bool(_fb) and "a.xlsx" in str(_fb[-1][0]) and "sa-" not in str(_fb[-1][0]),
+          str(_fb[-1] if _fb else []))
 
     # ② 主 LLM 正忙 → 只排队，**不许**叠一轮；本轮结束统一处理
     _cap["inputs"] = []
@@ -1050,6 +1110,53 @@ try:
     _sess_f._summarizing = True
     check("★【4】正在总结话题 → 返回 False",
           _sess_f.resume_after_subagent("x") is False)
+
+    # ══════════════ ⑥ 【61】忙时子代理的话延后显示（"交付了还说等"的根治）══════════════
+    #   真机现象：子代理的"查好啦"先显示，然后**交付之前就已经在飞的那一轮**正文
+    #   （"稍等一下下就好～"）才流出来 → 读起来像"主 LLM 无视了交付"。
+    #   修法：主 LLM 正忙时，子代理的话（含最后那句=交付物）**不抢显示**，
+    #   等本轮结束统一放 —— 顺序变成"主 LLM 说完 → 子代理的话 → 主 LLM 汇报"。
+    print("\n== 12b.【61】忙时子代理的话延后显示：交付物在窗口里只出现一次 ==")
+    _cap["inputs"] = []
+    _DELIV_TEXT = "铃兰查好啦，明天（10-05）重庆的天气是：小雨转多云，18~21°C。"
+    _sess_g = _mk_ui_session()
+    _w_g = _mk_win(_sess_g)
+    _w_g._turn_active = True                     # 模拟"主 LLM 这一轮还在跑"
+    MainWindow._on_subagent_msg(_w_g, "铃兰", "（铃兰 上线）我是被叫来帮忙的，这就去做～")
+    MainWindow._on_subagent_msg(_w_g, "铃兰", _DELIV_TEXT)   # 子代理最后那句 = 交付物
+    check("★★★【61】主 LLM 正忙 → 子代理的话**先不显示**（否则会排在"
+          "「主 LLM 还在说稍等」的前面）",
+          _w_g.chat.agent_text_in.calls == [], str(_w_g.chat.agent_text_in.calls))
+    check("★★【61】忙的时候中间发言**照旧立刻落库**（重启后还能看到中间过程）",
+          len(_w_g.db.chat.added) == 2
+          and all(a["ctx_exclude"] == 1 and a["speaker"] == "铃兰"
+                  for a in _w_g.db.chat.added),
+          str([(a["speaker"], a["ctx_exclude"]) for a in _w_g.db.chat.added]))
+    MainWindow._on_subagent_done(_w_g, {
+        "job_id": "sa-82", "agent": "铃兰", "state": "done",
+        "deliverable": _DELIV_TEXT, "requests": [],
+        "lines": ["（铃兰 上线）我是被叫来帮忙的，这就去做～", _DELIV_TEXT]})
+    check("★★★【61】交付物**没有**被当成第二条聊天消息（忙的时候也不显示、也不抢跑）",
+          _w_g.chat.agent_text_in.calls == [], str(_w_g.chat.agent_text_in.calls))
+    _w_g._turn_active = False
+    MainWindow._settle_subagent_after_turn(_w_g)
+    _wait_inputs(1)
+    _shown_g = [c[0] for c in _w_g.chat.agent_text_in.calls]
+    check("★★★【61】本轮结束 → 子代理的话统一放出来，交付物那句话**只出现一次**",
+          _shown_g.count(_DELIV_TEXT) == 1
+          and "（铃兰 上线）我是被叫来帮忙的，这就去做～" in _shown_g,
+          str([s[:14] for s in _shown_g]))
+    check("★★【61】放出来的每条都带那个形象的 speaker（头像才对）",
+          bool(_w_g.chat.agent_text_in.calls)
+          and all(c[1] == "铃兰" for c in _w_g.chat.agent_text_in.calls))
+    check("★【61】窗口里没有任何内部 handle",
+          not any("sa-" in s for s in _shown_g), str(_shown_g))
+    _in_g = "\n".join(str(m.get("content") or "") for m in _cap["inputs"][0])
+    check("★★【61】紧接着续的那一轮：交付物在输入里、而且**在最后一条**"
+          "（模型最先看到的位置）",
+          _DELIV_TEXT in _in_g
+          and [m.get("role") for m in _cap["inputs"][0]][-1:] == ["tool"],
+          str([m.get("role") for m in _cap["inputs"][0]]))
 finally:
     ChatSession._run_loop = _orig_run_loop
 

@@ -272,6 +272,33 @@ def _render_history_message(chat, role: str, content: str, speaker: str = "") ->
         return drew
 
 
+def _subagent_text_key(text: str) -> str:
+    """★ 1.9.3 第 61 轮：把一段话压成"去掉所有空白"的比对键。
+
+    用途只有一个：判"交付物那条"和"子代理最后那句发言"是不是**同一段文字**
+    （它们在数据里是两条，各有各的用途，但给用户看时只能出现一次）。
+    """
+    return "".join(str(text or "").split())
+
+
+def _subagent_deliverable_already_shown(last_line: str, deliverable: str) -> bool:
+    """★ 1.9.3 第 61 轮：这段交付物是不是已经作为"子代理最后那句发言"显示过了？
+
+    真机上它们**就是同一段文字**：`subagent_jobs._run_one()` 把交付物 `final`
+    既 `_emit(job_id, agent, final)`（→ 窗口显示）又当成交付物回调回来。
+    两边会被**不同的上限**截断（`MAX_EMIT_CHARS=1200` / `MAX_DELIVERABLE_CHARS=2000`），
+    所以除判等外，再认一种"短的那边是长的那边的前缀"（且足够长，避免误判）。
+    """
+    a = _subagent_text_key(last_line)
+    b = _subagent_text_key(deliverable)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 30 and long.startswith(short)
+
+
 class MainWindow:
     """主窗口管理器"""
 
@@ -1557,8 +1584,22 @@ class MainWindow:
                     first = (msgs[0].get("content") or "").strip().replace("\n", " ")
                     self.chat.append_topic_divider(first, topic_id=t.get("id"))
                     self._chat_archived_rendered = True
+                    # ★ 第 61 轮：给"子代理交付物去重"留的状态（口径与下面当前话题一致）
+                    _a_mid, _a_spk, _a_key = False, "", ""
                     for m in msgs:
                         content = m.get("content") or ""
+                        # ★★ 第 61 轮：子代理"最后那句发言"（ctx_exclude=1）和"交付物
+                        #   落库那条"（ctx_exclude=0）是**同一段文字**，两条都必须留在
+                        #   数据里（前者管窗口显示、后者管主 LLM 上下文），
+                        #   但**给用户看的只能一条** —— 否则重启后又看到两遍。
+                        if (_a_mid and (m.get("speaker") or "") == _a_spk
+                                and _subagent_text_key(content) == _a_key):
+                            _log.debug("[聊天历史] 归档段：子代理交付物与它上一句发言重复"
+                                       " → 只画一条")
+                            continue
+                        _a_mid = bool(m.get("ctx_exclude"))
+                        _a_spk = m.get("speaker") or ""
+                        _a_key = _subagent_text_key(content)
                         # ★ 第 52 轮（用户真机"重画后少了一张表情包"）：归档段里的
                         #   **本地图片**先走共用小工具 —— 它会 `append_image_preview`
                         #   把图真画出来（与实时那条路一致）。不是图片 → 返回 False，
@@ -1608,11 +1649,26 @@ class MainWindow:
                     msgs = _keep[_start:]
                 else:
                     msgs = _keep
+            # ★ 第 61 轮：给"子代理交付物去重"留的状态 —— 上一条是不是带 ctx_exclude
+            #   的子代理发言、它说的是谁、内容是什么（口径与上面归档段一致）。
+            _prev_mid, _prev_spk, _prev_key = False, "", ""
             for m in msgs:
                 role = m.get("role")
                 content = m.get("content") or ""
                 if not content:
                     continue
+                # ★★ 第 61 轮（用户真机："同一段内容显示了两遍"）：
+                #   子代理"最后那句发言"（ctx_exclude=1，管窗口显示）和"交付物落库那条"
+                #   （ctx_exclude=0，管主 LLM 上下文）是**同一段文字**。两条都必须留在
+                #   数据里，但**给用户看的只能一条** —— 这里判"紧跟着的上一条是同一个人
+                #   说的同一段话"就跳过（重启后/重画时都不会再出现两遍）。
+                if (_prev_mid and (m.get("speaker") or "") == _prev_spk
+                        and _subagent_text_key(content) == _prev_key):
+                    _log.debug("[聊天历史] 子代理交付物与它上一句发言重复 → 只画一条")
+                    continue
+                _prev_mid = bool(m.get("ctx_exclude"))
+                _prev_spk = m.get("speaker") or ""
+                _prev_key = _subagent_text_key(content)
                 # ★ 第 52 轮（用户真机"重画后少了一张表情包"）：当前话题里的**本地图片**
                 #   先走共用小工具 —— 里面会 `append_image_preview` 把图真画出来
                 #   （与实时 `bot_image_in` 那条路完全一致）。不是图片 → 返回 False，
@@ -2065,6 +2121,8 @@ class MainWindow:
     # ══════════════════ ★ 1.9.3 第 59 轮：子代理（subagent）══════════════════
     # 设计定稿见 1.9.3wsl开发日志.txt 第六十二节·三。三条路线在这里汇合：
     #   ① **给人看的**：子代理每说一句 → `_on_subagent_msg` → 聊天窗口（按它的头像显示）；
+    #      ★ 第 61 轮：**显示也走队列**（主 LLM 这一轮没说完就先攒着，等本轮结束统一放），
+    #      理由见 `_on_subagent_msg`；
     #   ② **落库的**：★ 第 60 轮起**中间发言 + 交付物都落库**（speaker=那个形象名）
     #      —— 但中间发言带 `ctx_exclude=1`（只给人看，**不进主 LLM 上下文**），
     #      见 `_on_subagent_msg` 里为什么必须分开标记；
@@ -2073,12 +2131,19 @@ class MainWindow:
     #      （`_flush_pending_subagent_results`）→ 结构上不会被误认成主 LLM 自己说的；
     #      ★ 第 60 轮：补进去之后还会**主动续一轮**（`_request_subagent_followup`），
     #      让主 LLM 当场汇报，而不是等下一条用户消息。
+    #  ★★ 第 61 轮（真机两个问题）：
+    #      · 交付物**不再单独当聊天消息显示**（它就是子代理最后那句发言，显示两遍；
+    #        而且原来那句还带内部 handle `（sa-1）`）→ 见 `_on_subagent_done`；
+    #      · 重启后渲染时，两条同内容的行**只画一条** → 见 `_reload_chat_view`。
 
     def _show_subagent_text(self, agent: str, text: str):
         """只把一句话送进聊天窗口（带子代理自己的头像）—— 不落库、不进上下文。
 
-        抽出来是因为有两个调用者：中间发言（`_on_subagent_msg`，它另外还要落库）
-        和交付物（`_on_subagent_done`，它自己那条落库口径不一样）。
+        两个调用者：
+          · `_flush_pending_subagent_lines` —— 子代理的中间发言（含"最后那句 =
+            交付物"），★ 第 61 轮起显示统一走这里；
+          · `_on_subagent_done` 的**兜底** —— 子代理一个字都没吐出来时（半路失败/
+            没给正文），别让交付物在窗口里一点痕迹都没有。
         """
         try:
             self.chat.agent_text_in.emit(str(text), str(agent))
@@ -2086,7 +2151,7 @@ class MainWindow:
             _log.debug(f"[子代理] 窗口显示失败: {e}")
 
     def _on_subagent_msg(self, agent: str, text: str):
-        """① 子代理的**每条中间发言**：显示 + 落库 + 排队补进内存（但**不进上下文**）。
+        """① 子代理的**每条中间发言**：落库 + 排队（**显示**和补进内存都等 flush）。
 
         ★★ 第 60 轮用户拍板：中间过程也要**重启后还能看到**，所以必须落库。
         但落库会从后面捅穿第 59 轮定的规矩：
@@ -2100,14 +2165,32 @@ class MainWindow:
         ★ 选"加列"而不是"塞进 tool_name 之类的旁路"的理由见交付报告：
           标记是**数据的属性**，必须跟着消息走（重启、换话题、被检索都不丢），
           借字段会把语义搅浑、且一旦有人用它做别的事就崩。
+
+        ★★ 第 61 轮（用户真机："子代理已经交付了，主 LLM 还说再等"）——
+          **显示不再"立刻"做，改成排进队列等 flush**。真机那次的顺序是：
+            deepseek: 已经把查天气的活派给铃兰了…稍等一下下就好～   ← 交付**之前**发起的
+            〔铃兰〕: （上线）… / 〔动作〕用了一下 weather_query()   ← 子代理说话
+            〔铃兰〕: 铃兰查好啦，明天（10-05）重庆的天气是：…      ← 子代理最后一句
+            〔铃兰〕: 「铃兰」交回来的（sa-1）：…（同一段文字第二遍） ← 交付物
+            deepseek: 好哒！已经把查天气的活派给铃兰了～稍等一下下就好～ ← 又一句"等"
+          最后那句"稍等"**不是**对交付的回应：它是"交付前就已经在飞的那一轮"的正文
+          （真机日志：那一轮 content=119 字符；真正汇报的续轮是 content=216 字符、
+            thinking 写着"交付物回来了。汇报给用户。"）。它只是**晚到**，
+          却排在"铃兰已交付"后面 → 读起来就像主 LLM 无视了交付。
+          ⇒ 让显示跟"补进内存"走同一个队列：**主 LLM 这一轮还没说完，就先别把
+            子代理的话插进去**，等本轮结束（`_settle_subagent_after_turn`）统一放出来。
+            顺序就变成"主 LLM 说稍等 → 铃兰干活的话 → 主 LLM 汇报"，不再自相矛盾。
+          ★ 代价如实说：主 LLM 那一轮跑得久时，子代理的中间过程会晚一点才露脸；
+            但**交付结果**本来也要等本轮结束才续轮（`_request_subagent_followup`
+            在 `_turn_active` 时只排队），所以用户不会因此更晚拿到结果。
+          ★ 落库时机**一个字没动**（就在下面立刻写）—— "重启后还能看到中间过程"
+            跟显示时机无关。
         """
         text = str(text or "").strip()
         agent = str(agent or "").strip()
         if not text:
             return
-        # ① 立刻显示（带它自己的头像）
-        self._show_subagent_text(agent, text)
-        # ② 落库：speaker = 那个形象名；ctx_exclude = 1 → 只给人看
+        # ① 落库：speaker = 那个形象名；ctx_exclude = 1 → 只给人看
         try:
             tid = None
             try:
@@ -2121,8 +2204,8 @@ class MainWindow:
                 self.db.chat.mark_processed([rid], 1)
         except Exception as e:
             _log.warning(f"[子代理] 中间发言落库失败: {e}")
-        # ③ 排队补进 session.messages（带 speaker + ctx_exclude），
-        #    这样**当前话题的重画**也能画出来；本轮忙就等本轮结束统一补。
+        # ② 排队：**显示**和补进 session.messages（带 speaker + ctx_exclude）都等 flush，
+        #    这样"当前话题的重画"能看到它，而本轮忙时它会等本轮说完再露脸。
         try:
             self._pending_subagent_lines.append((agent, text))
         except Exception as e:
@@ -2131,15 +2214,25 @@ class MainWindow:
             self._flush_pending_subagent_lines()
 
     def _flush_pending_subagent_lines(self):
-        """把排队的子代理中间发言补进 `session.messages`（**带 ctx_exclude 标记**）。
+        """把排队的子代理中间发言**显示出来**，并补进 `session.messages`（带 ctx_exclude）。
 
-        补进去以后：窗口重画看得到（`_reload_chat_view` 读的就是它），
-        而 `build_shared_context` 会跳过 —— 两边各取所需。
+        ★ 第 60 轮：补进内存以后 —— 窗口重画看得到（`_reload_chat_view` 读的就是它），
+          而 `build_shared_context` 会跳过：两边各取所需。
+        ★ 第 61 轮：**显示也搬到这个函数里**了（原来在 `_on_subagent_msg` 里立刻 emit），
+          于是"主 LLM 忙 → 子代理的话排队 → 本轮结束统一放"这一条对显示同样成立。
+        ★ 显示放在锁**外面**：`agent_text_in` 在主线程是直连，槽里跑的是 Qt 控件代码，
+          没必要（也不该）抱着 `session._lock` 干这个。
         """
         pend = getattr(self, "_pending_subagent_lines", None)
         if not pend:
             return
         self._pending_subagent_lines = []
+        for item in pend:
+            try:
+                _agent, _text = item[0], item[1]
+                self._show_subagent_text(_agent, _text)
+            except Exception as e:
+                _log.debug(f"[子代理] 中间发言显示失败: {e}")
         try:
             with self.session._lock:
                 for item in pend:
@@ -2147,12 +2240,27 @@ class MainWindow:
                     self.session.messages.append(
                         {"role": "assistant", "content": _text,
                          "speaker": _agent, "ctx_exclude": 1})
-            _log.debug(f"[子代理] 中间发言已补进会话（不进上下文）: {len(pend)} 条")
+            _log.debug(f"[子代理] 中间发言已显示并补进会话（不进上下文）: {len(pend)} 条")
         except Exception as e:
             _log.debug(f"[子代理] 中间发言补进会话失败: {e}")
 
     def _on_subagent_done(self, info: dict):
-        """②③ 子代理跑完：显示 + 落库交付物，排进主上下文，并**主动让主 LLM 汇报**。"""
+        """②③ 子代理跑完：落库交付物 → 排进主上下文 → **主动让主 LLM 汇报**。
+
+        ★★ 第 61 轮（用户真机："同一段内容显示了两遍" + "（sa-1）不该给用户看"）：
+          · 交付物**不再当成一条聊天消息显示** —— 它在子代理那边就是**最后那句发言**
+            （`subagent_jobs._run_one` 里 `_emit(job_id, agent, final)` 发出去的
+            `final` 就是交付物），已经由 `_on_subagent_msg` 显示过一次了；
+            再显示一遍就是同一段文字出现两次。交付物真正该去的地方只有一个：
+            主 LLM 的上下文（以 tool 结果的形态，见下面 ③）。
+          · 给人看的文案里删掉内部 handle（`sa-1`）—— 那是内部术语。
+          · 落库那条**保留**（ctx_exclude=0）：重启后它仍要进主上下文。
+            窗口渲染时它会跟前面那条子代理发言**去重**（见 `_reload_chat_view`），
+            所以"重启后同一段文字又出现两遍"也一并堵掉。
+          · **兜底**：万一子代理一个字都没吐出来（快照里 `lines` 为空 / 半路失败），
+            交付物在窗口里就是独一无二的 —— 这时补显示一条（仍不带 handle），
+            否则用户会看到"活派出去了、然后什么都没有"。
+        """
         if not isinstance(info, dict):
             return
         agent = str(info.get("agent") or "").strip()
@@ -2166,9 +2274,12 @@ class MainWindow:
         if reqs:
             req_line = "\n（它申请过工具：" + "、".join(
                 f"{r.get('tool')}×{r.get('times')}" for r in reqs[-3:] if isinstance(r, dict)) + "）"
-        shown = f"「{agent}」交回来的（{job}）：\n{deliverable}{req_line}"
-        # ② 显示（带它自己的头像，但**不走**中间发言那条落库路径）
-        self._show_subagent_text(agent, shown)
+        # ★★ 第 61 轮：给人看的文案里**不许出现内部 handle**（`sa-1` 是内部术语，
+        #   用户真机看到「铃兰」交回来的（sa-1）： 直接吐槽）。这个 job 号在
+        #   tool_call_id / status 里都还在（模型和排查都够用），只是不给用户看。
+        shown = f"「{agent}」交回来的：\n{deliverable}{req_line}"
+        # ② 落库（ctx_exclude=0 → 重启后它仍要进主 LLM 上下文）。
+        #    ★ 注意：**不在这里显示给用户** —— 见下面 ②b。
         try:
             tid = None
             try:
@@ -2181,6 +2292,20 @@ class MainWindow:
                 self.db.chat.mark_processed([rid], 1)
         except Exception as e:
             _log.warning(f"[子代理] 交付物落库失败: {e}")
+        # ②b ★★ 第 61 轮（用户真机："同一段内容显示了两遍"）：
+        #   **交付物不再当成一条聊天消息显示**。理由：
+        #     · 交付物在子代理那边就是**它最后那句发言**（`subagent_jobs._run_one`
+        #       把它同时 `_emit(job_id, agent, final)` 出去）→ 已经显示过一次了；
+        #     · 交付物本来就该只去一个地方：主 LLM 的上下文（tool 结果那条，见 ③）；
+        #     · 原来那句还带内部 handle（上面刚删掉）。
+        #   ⇒ 只在**兜底**情况才补一条：子代理一个字都没吐出来（半路失败 / 没给正文）
+        #     时，窗口里否则会"派了活却什么都没有"。判据用 job 自己的 `lines`
+        #     （`_finish` 的快照里带着），跟"子代理最后那句"逐字比对。
+        _lines = [str(_x) for _x in (info.get("lines") or []) if str(_x).strip()]
+        if not _subagent_deliverable_already_shown(
+                _lines[-1] if _lines else "", deliverable):
+            _log.info(f"[子代理] 交付物没有作为发言显示过（{job}）→ 兜底补显示一条")
+            self._show_subagent_text(agent, shown)
         # ③ 排进主上下文（**只放交付物**，绝不放它整段会话）
         try:
             self._pending_subagent_results.append((agent, job, deliverable, req_line))
@@ -2195,6 +2320,9 @@ class MainWindow:
         else:
             # 主 LLM 正忙：只排队，等本轮结束由 `_on_session_done_safe` 统一
             # flush + 触发**一次**（复用现成的 flush 机制，不叠轮、不烧 token）。
+            # ★ 第 61 轮：现在**显示**也跟着排队了（`_flush_pending_subagent_lines`）——
+            #   否则子代理的话会抢在"主 LLM 这一轮还没说完的正文"前面露脸，
+            #   读起来就是"子代理已经交付了、主 LLM 还在说稍等"。
             _log.debug(f"[子代理] 主 LLM 正忙 → {job} 的交付物先排队，本轮结束统一上报")
 
     def _settle_subagent_after_turn(self):
@@ -2203,7 +2331,10 @@ class MainWindow:
         顺序（每一步都有理由）：
           ① 让出 `_subagent_followup_active` 占位 —— 刚刚结束的这一轮有可能**就是**
              那次主动汇报；不放掉的话下一批交付物永远触发不了；
-          ② 把排队的**中间发言**补进 `session.messages`（带 ctx_exclude=1）；
+          ② 把排队的**中间发言**（含"最后那句 = 交付物"）**显示出来**并补进
+             `session.messages`（带 ctx_exclude=1）——
+             ★ 第 61 轮：显示也在这里做，所以子代理的话一定排在"主 LLM 这一轮的正文"
+             之后、主 LLM 汇报之前，不会出现"子代理已交付、主 LLM 还说在等"的错乱；
           ③ 把排队的**交付物**补进上下文（`assistant.tool_calls + tool` 一对）；
           ④ 只有**真的补进了东西**才触发一次主动续轮 —— 多条结果在 ③ 里被一次性
              抽干、只触发一轮（各触发一轮会白烧 token，用户明确不要）。
