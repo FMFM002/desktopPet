@@ -110,7 +110,8 @@ python main.py
 5. [长期记忆](#长期记忆)
 6. [数据库设计](#数据库设计)
 7. [配置参考](#配置参考)
-8. [开发与测试](#开发与测试)
+8. [发布与打包](#发布与打包)
+9. [开发与测试](#开发与测试)
 
 ---
 
@@ -556,6 +557,71 @@ python tools/dev_tests/_diag_integrity.py       # config/.env/角色资源/数�
 - **清洗太慢**：调大 `pipeline.bulk_batch_size`（如 1000）或调小 `bulk_threshold`。
 - **一次太猛 / LLM 输出被 JSON 截断**：调小 `bulk_batch_size`（如 300）或调大 `bulk_max_tokens`。
 - **不想让它在启动时啃历史积压**：把 `pipeline.enabled` 设为 `false`。
+
+---
+
+## 发布与打包
+
+> ★ 1.9.4 新增。三种发布形态**都已内置脚本**（用户拍板的顺序：**先 A，再 B，最后 C**）。
+
+### 三种形态怎么选
+
+| 形态 | 体积（实测） | 用户需要什么 | 说明 |
+|---|---|---|---|
+| **A 便携 zip** | **76.9 MB** | 自己有 Python 3.10~3.12 | 最省事；解压双击 `启动.bat`，启动器会自己装依赖 |
+| **B exe** | **403.2 MB** | 什么都不用装 | 双击即用（自带 Python 运行时）。**代价**：体积大 + **杀软误报是常态**（PyInstaller 的固有现象，非代码问题） |
+| **C 安装程序** | — | 双击安装 | 体验最好（开始菜单/卸载/可选组件）。需要 Inno Setup 编译，公开发布通常还要**代码签名**才不被拦 |
+
+**建议**：目标用户是自己或熟人 → **A 就够**。要发给不懂电脑的人 → B 或 C。
+
+### 怎么构建
+
+```powershell
+# A：便携 zip（含启动器与「首次使用必读」，顶层带一层目录名，解压不撒桌面）
+python tools/build_release.py --zip
+#   → dist/PRTS-DesktopPet-1.9.4-portable.zip
+
+# B：PyInstaller exe（onetdir，配置见根目录 PRTS.spec）
+python -m PyInstaller PRTS.spec --noconfirm
+#   → dist/PRTS-DesktopPet-1.9.4/PRTS-DesktopPet-1.9.4.exe
+
+# C：安装程序（需先装 Inno Setup 6）
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\PRTS.iss
+```
+
+> ⚠️ **C 的 `.iss` 在本机没有编译验证过**（开发机没装 Inno Setup），只做了静态校验 ——
+> 这点写在脚本注释与 `_test_installer_194.py` 里，别误以为已经验证。
+
+### ★★ 两条打包铁律
+
+1. **绝不把模型打进包**。模型合计约 **2.4 GB**（TTS 1855MB + STT 465MB + OCR 100MB）；
+   打进去包会从 77 MB 变成 2 GB 级。它们**按需获取**，见下节。
+2. **绝不把用户数据打进包**。`.env`（密钥）、`config.json`、`data/DBs`（聊天记录与长期记忆）、
+   `data/cache`、`logs/`、`data/桌宠私有data` 一律排除 —— **发布出去就收不回来**。
+   这条由 `_test_release_pack_194.py` 盯着（含反向守卫）。
+
+### 模型集中管理
+
+模型**统一放在 `data/models/<名字>/`**（1.9.4 起；由 `src/core/models.py` 的注册表当唯一真理）：
+
+```
+data/models/genie/      TTS（GENIE / GPT-SoVITS）
+data/models/whisper/    STT（whisper.cpp）
+data/models/easyocr/    OCR
+```
+
+```powershell
+python tools/model_manager.py status             # 看每个模型在不在、在哪、多大
+python tools/model_manager.py status --json      # 给安装程序用
+python tools/model_manager.py migrate --dry-run  # 把旧位置的模型搬进 data/models/
+python tools/model_manager.py migrate            # 真搬（先看 --dry-run 更稳）
+python tools/model_manager.py install --help     # 获取缺失的模型
+```
+
+> · **没搬也能跑**：解析器优先规范位置、**找不到就回落旧位置**，所以迁移是渐进的。
+> · **缺失不影响启动**：这些是**可选能力**，没有只是对应功能不可用
+>   （`_test_standalone_194.py` 专门盯这条）。
+> · `data/tools/aria2c.exe` 是**二进制工具**不是模型，由 `tools/fetch_aria2.py` 管，不搬。
 
 ---
 
