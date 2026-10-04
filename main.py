@@ -13,6 +13,16 @@ import multiprocessing
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
+# ★★ 1.9.4：**在任何人 import 内置的 src.genie_tts 之前**先把模型目录告诉它。
+#   为什么必须这么早：`src/genie_tts/Resources.py` 发现 `GENIE_DATA_DIR` 没设时，
+#   会**弹交互式询问**"要不要从 HuggingFace 下载模型？"（打包时实测刷屏几十行，
+#   还会顺手去下 nltk 数据）。tts_engine 里虽然也设置了，但那要等它被 import ——
+#   **导入顺序一变就踩到**。这里在最早的时机兜住。
+os.environ.setdefault(
+    "GENIE_DATA_DIR",
+    os.path.join(BASE_DIR, "src", "genie_tts", "assets", "genie", "GenieData"))
+os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BAR", "0")
+
 
 def _is_main_process() -> bool:
     """判断是否为真正的主进程（非 multiprocessing spawn 子进程）"""
