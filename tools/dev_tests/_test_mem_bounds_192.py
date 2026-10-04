@@ -8,7 +8,11 @@
 防止以后又被改回"只增不减"。
 
 覆盖：
-  A. ToolLogWidget：maximumBlockCount 有上限（原来是 0 = 无限增长）
+  ~~A. ToolLogWidget：maximumBlockCount 有上限（原来是 0 = 无限增长）~~
+     ★ 1.9.3 第 46 轮：那个"工具日志窗口"整套是**遗留死 UI** —— 两个写入接口
+       `add_log` / `clear_logs` 零调用点，`main_window` 里从来没有一处 `show()`。
+       组件（85 行）连同它在 main_window 的 5 处接线已一起删除 → **A 段随之移除**
+       （被测对象不存在了；这条"有界性"的教训仍留在 git 历史里）。
   B. 聊天窗粘贴图：_clip_images 有上限 + 降采样 + key 不再同毫秒撞车
   C. OCR 结果缓存：有上限（原来无上限且 clear() 零调用点）
   D. main_window 直传去重集合：有上限
@@ -54,28 +58,8 @@ from PySide6.QtGui import QImage                                  # noqa: E402
 app = QApplication.instance() or QApplication([])
 
 # ══════════════════════════════════════════════════════════════
-head("A. ToolLogWidget：日志行数有上限")
-from src.ui.tool_log_widget import ToolLogWidget, MAX_LOG_BLOCKS   # noqa: E402
-
-check("★有 MAX_LOG_BLOCKS 常量", isinstance(MAX_LOG_BLOCKS, int)
-      and MAX_LOG_BLOCKS > 0, str(MAX_LOG_BLOCKS))
-_t = ToolLogWidget()
-check("★★document().maximumBlockCount 真的设上了（原来实测是 0）",
-      _t._log_text.document().maximumBlockCount() == MAX_LOG_BLOCKS,
-      str(_t._log_text.document().maximumBlockCount()))
-for i in range(MAX_LOG_BLOCKS + 200):
-    _t._log_text.append(f"日志行 {i}")
-app.processEvents()
-check(f"★★写 {MAX_LOG_BLOCKS + 200} 行后块数被封顶（不无限增长）",
-      _t._log_text.document().blockCount() <= MAX_LOG_BLOCKS + 2,
-      str(_t._log_text.document().blockCount()))
-check("★留下的是**最新**的行", f"日志行 {MAX_LOG_BLOCKS + 199}" in _t._log_text.toPlainText())
-_tl_src = (BASE / "src" / "ui" / "tool_log_widget.py").read_text(encoding="utf-8")
-check("★注释记了这是一次 AttributeError 的教训（QTextEdit 没有该方法）",
-      "QPlainTextEdit" in _tl_src)
-_t.close()
-
-# ══════════════════════════════════════════════════════════════
+# ★ 1.9.3 第 46 轮：A 段（ToolLogWidget 行数上限）已移除 —— 那个组件
+#   整套是遗留死 UI（add_log/clear_logs 零调用点、从没人 show 过），已删除。
 head("B. 聊天窗粘贴图：有界 + 降采样 + key 不撞车")
 from src.ui.chat_widget import (ChatWidget, MAX_CLIP_IMAGES,        # noqa: E402
                                 MAX_CLIP_SIDE)

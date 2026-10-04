@@ -26,7 +26,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from src.ui.pet_proxy import PetProxy
 from src.ui.chat_widget import ChatWidget
-from src.ui.tool_log_widget import ToolLogWidget
 from src.ui.settings_window import SettingsWindow
 from src.ui.tray_icon import TrayManager
 from src.ui.direct_dispatch_window import DirectDispatchWindow
@@ -148,7 +147,6 @@ class MainWindow:
         self.pet_mgr.scan()
         self.pet_mgr.switch_character(self.config.pet.character)
         self.chat = ChatWidget()
-        self.tool_log = ToolLogWidget()
         self._img_relay = _ImageSignalRelay()
         self._img_relay.image_recognized.connect(self._display_recognize_result)
         self._img_relay.image_failed.connect(self._on_image_recognize_failed)
@@ -738,8 +736,6 @@ class MainWindow:
             #   修法：紧紧跟着的那次 pet_clicked 直接忽略（它就是同一下点击）。
             self._last_watchdog_hide = _t.monotonic()
             chat.hide()
-            if getattr(self, "tool_log", None) is not None:
-                self.tool_log.hide()
             _log.debug("[聊天窗口] 点击落在聊天窗外 → 收起")
         except Exception as e:
             _log.debug(f"全局点击看门狗异常: {e}")
@@ -797,7 +793,6 @@ class MainWindow:
             chat_y = max(screen_geo.y(), min(chat_y, screen_geo.bottom() - chat_h))
 
             self.chat.move(chat_x, chat_y)
-            self.tool_log.move(chat_x, chat_y + chat_h + 10)
         except Exception as e:
             _log.error(f"窗口定位失败: {e}")
 
@@ -848,8 +843,6 @@ class MainWindow:
         else:
             # ── 收起 —— 不调任何延时 / 抑制 —— 你说的"关闭时只看是不是聊天窗口"
             self.chat.hide()
-            if getattr(self, "tool_log", None) is not None:
-                self.tool_log.hide()
             _log.debug("[Pet] 再点形象 → 收起聊天窗口")
 
     def _input_field_focus(self):
@@ -2180,8 +2173,6 @@ class MainWindow:
             else:
                 self.pet.hide()
                 self.chat.hide()
-                if getattr(self, "tool_log", None) is not None:
-                    self.tool_log.hide()
                 _log.debug("[形象] 隐藏（用户操作）")
         except Exception as e:
             _log.debug(f"切换形象显隐失败: {e}")
@@ -2854,7 +2845,6 @@ class MainWindow:
         # ★ 立即隐藏形象，让退出看起来瞬间完成
         self.pet.hide()
         self.chat.hide()
-        self.tool_log.hide()
         _log.debug("形象+窗口已隐藏，后台清理中...")
 
         # 先停定时器，防止退出过程中触发回调
@@ -2961,10 +2951,6 @@ class MainWindow:
             pass
         try:
             self.chat.close()
-        except Exception:
-            pass
-        try:
-            self.tool_log.close()
         except Exception:
             pass
 

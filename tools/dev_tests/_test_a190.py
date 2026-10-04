@@ -461,7 +461,7 @@ class _PetClickStub:
 
     def __init__(self):
         self.chat = _FakeChatForClick()
-        self.tool_log = _FakeWinForClick()
+        # ★ 1.9.3 第 46 轮：`tool_log` 已随遗留 UI 一起删除，这里不再需要桩。
         self.calls = []
         self._last_pet_toggle = 0.0
         self._chat_open_by_pet = False
@@ -487,7 +487,11 @@ _pc._last_pet_toggle = 0.0           # 模拟过了防抖窗口
 MainWindow._on_pet_clicked(_pc)
 check("③ 再点一下 → **收起**聊天窗口（这就是你要的效果）",
       _pc.chat.isVisible() is False and _pc.chat.log[-1] == "hide"
-      and _pc.tool_log.calls == ["hide"] and _pc._chat_open_by_pet is False)
+      and _pc._chat_open_by_pet is False)
+# ★ 1.9.3 第 46 轮：原来这条还断言 `_pc.tool_log.calls == ["hide"]` ——
+#   那个"工具日志窗口"整套是**遗留死 UI**（两个写入接口 add_log/clear_logs
+#   零调用点、main_window 里从来没有一处 show()），已连组件一起删除（85 行 + 接线）。
+#   收起的语义已由上面 `chat.log[-1] == "hide"` 覆盖。
 _pc._last_pet_toggle = 0.0
 MainWindow._on_pet_clicked(_pc)
 check("④ 收起后再点 → 又能打开（来回切都正常）",
