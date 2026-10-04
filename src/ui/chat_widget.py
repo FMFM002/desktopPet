@@ -332,7 +332,8 @@ class ChatWidget(QWidget):
     # ★ 1.8.0: 非图片/非纯文本文件（音频/视频/PDF/Office/任意二进制）交给主窗口处理
     #   （音频转写 / 视频分析 / 文档抽取 / 元信息+路径发给 LLM）
     file_upload_request = Signal(str)
-    # ★ 1.9.0: 剪贴板里的**图片数据**（截图/复制图）→ 直接发进聊天（不落盘）
+    # ★ 1.9.0: 剪贴板里的**图片数据**（截图/复制图）→ 直接发进聊天
+    # ★ 1.9.3 第 56 轮更正：**会落盘**（WebP 缓存，见 append_clip_image），原文'不落盘'是过期的
     clip_image_pasted = Signal(object)   # QImage
 
     # 跨线程安全的信号
@@ -404,7 +405,9 @@ class ChatWidget(QWidget):
         #   "当前话题"分割线的上面，顺序就乱了（文档开头那句分割线会被压到中间）。
         #   由 `append_topic_divider` 记录，`clear_chat` / 发言清屏 会复位。
         self._topic_divider_end = -1
-        # ★ 1.9.0: 剪贴板粘贴的图片（key → QImage）。**只在内存里**：
+        # ★ 1.9.0: 剪贴板粘贴的图片（key → QImage）。
+        # ★ 1.9.3 第 56 轮更正：**同时在 data/cache/chat_clips/ 有 WebP 落盘**，
+        #   内存里没有时 `_render_message_html` 会从磁盘恢复；原文'只在内存里'是过期的。
         #   正文里放 [[CLIP:key|名字|尺寸]] 标记指向它，重启后像素没了，
         #   重画会显示占位提示（文字描述仍保留在历史里）。
         self._clip_images: dict = {}
@@ -900,7 +903,8 @@ class ChatWidget(QWidget):
         if md.hasImage():
             img = cb.image()
             if not img.isNull():
-                _log.info(f"[粘贴] 从剪贴板发送图片 {img.width()}x{img.height()}（不落盘）")
+                _log.info(f"[粘贴] 从剪贴板发送图片 {img.width()}x{img.height()}"
+                  f"（同时落盘 WebP 缓存，重启后仍可见）")
                 self.clip_image_pasted.emit(img)
                 return True
         return False
@@ -1135,7 +1139,12 @@ class ChatWidget(QWidget):
         clean = cls._FILE_MARKER_RE.sub(_collect, text)
         return clean, files
 
-    # ★ 1.9.0: 剪贴板图片标记 —— 像素**不落盘**，只在内存里（见 append_clip_image）
+    # ★★ 1.9.3 第 56 轮：这条注释**原来是错的**，已更正 ——
+    #   原文写"像素**不落盘**，只在内存里"，但下面的 `append_clip_image()` 从
+    #   1.9.2 起就会把图**落盘成 WebP**（`data/cache/chat_clips/`），
+    #   而 `_render_message_html` 会在内存里没有时**从磁盘恢复**。
+    #   ★ 就是这条自相矛盾的注释让我错误地对外报了一个"粘贴图没持久化"的待办，
+    #     所以刻意留这段说明：**改代码时记得把注释一起改**。
     _CLIP_MARKER_RE = re.compile(r'\[\[CLIP:([^|\]]+)\|([^|\]]*)\|([^\]]*)\]\]')
 
     @classmethod
@@ -1392,8 +1401,9 @@ class ChatWidget(QWidget):
             parts = [self._render_inline_image_html(u, a) for a, u in images]
             img_html = ('<div style="margin:2px 0;">' + "".join(parts) + '</div>')
 
-        # ★ 1.9.0: 剪贴板图片（[[CLIP:key|名字|尺寸]]）—— 像素只在内存里：
-        #   本次会话内能显示（把资源重新注册一遍），重启后显示占位提示。
+        # ★★ 1.9.3 第 56 轮：标题注释**原来写错了**（"像素只在内存里…重启后显示占位提示"），
+        #   下面 6 行就是打自己脸的代码 —— 内存里没有时**从磁盘缓存恢复**。
+        #   它害我误报了一个"粘贴图没持久化"的待办，故更正并留痕。
         if clips:
             _cparts = []
             for _key, _name, _dims in clips:
@@ -1549,15 +1559,19 @@ class ChatWidget(QWidget):
         return "color:#333; font-size:13px;"
 
     def append_clip_image(self, qimage, name: str = "") -> str:
-        """★ 1.9.0: 把剪贴板里的图片**直接**发进聊天（**不落盘**）。
+        """★ 1.9.0: 把剪贴板里的图片**直接**发进聊天。
 
         做法：`QTextDocument.addResource(ImageResource, "clip://<key>", QImage)`
         把图片注册成**内存资源**，正文里放 `[[CLIP:key|名字|尺寸]]` 标记指向它。
-        所以从"粘贴"到"聊天里看到图"全程没碰磁盘。
 
-        ⚠ 代价（已在开发日志里写明）：像素只在内存里，**重启后预览会变成
-        占位提示**"[粘贴的图片：未落盘]"；但图片的**文字描述**会随消息落库，
-        所以"这张图里有什么"这件事在历史里仍然查得到。
+        ★★ 1.9.3 第 56 轮更正：**这里原来写着"不落盘、重启后只剩占位提示"，那是过期的**
+          （1.9.2 就已修）。现在的真实行为：
+            · 本方法会把缩放后的图**落盘成 WebP** 到 `data/cache/chat_clips/`
+              （见下面 R44/R42 那段注释："这就是'重启后可见'的修复"）；
+            · 重画/重启后内存里没有时，`_render_message_html` 会**从磁盘恢复**；
+            · 磁盘缓存也有上限（`CLIP_CACHE_MAX`，按 mtime 淘汰），
+              缓存被淘汰/删掉才退化成占位提示。
+          ⚠️ 别再照旧注释判断"粘贴图不持久化" —— 第 56 轮我就这么误报过一次待办。
 
         返回标记文本，调用方拼进要发给 LLM 的消息正文里。
         """

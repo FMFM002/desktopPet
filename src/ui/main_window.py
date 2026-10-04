@@ -587,7 +587,9 @@ class MainWindow:
         # ★ 1.9.1: 侧栏/书签相关接线（topic_navigate / topic_delete /
         #   refresh_topic_list_request / sidebar_toggled）已随侧栏一起删除。
 
-        # ★ 1.9.0: 剪贴板里的图片 → 直接发进聊天（不落盘）
+        # ★ 1.9.0: 剪贴板里的图片 → 直接发进聊天
+        #   ★ 1.9.3 第 56 轮更正：会落盘到 data/cache/chat_clips/（见 append_clip_image），
+        #     原文"不落盘"是过期的 —— 就是它让我误报过"粘贴图没持久化"这个假待办。
         try:
             self.chat.clip_image_pasted.connect(self._on_clip_image_pasted)
         except Exception as e:
@@ -2108,7 +2110,7 @@ class MainWindow:
                 desc = f"[视觉描述失败: {e}]"
             self._task_relay.user_msg.emit(
                 f"{marker}\n"
-                f"[用户从剪贴板粘贴了一张图片 {name}（未落盘，仅在本次会话可见）]\n"
+                f"[用户从剪贴板粘贴了一张图片 {name}]\n"
                 f"内容如下:\n{desc}")
 
         threading.Thread(target=_work, daemon=True).start()
