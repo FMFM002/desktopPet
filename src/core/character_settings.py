@@ -419,44 +419,4 @@ _STYLE_RULE = {
 }
 
 
-def output_text(d: dict) -> str:
-    """输出控制块 → 文本（进系统提示词的"怎么说"部分）"""
-    d = normalize(d)
-    o = d["输出控制"]
-    rules = []
-    if o["no_action_description"]:
-        rules.append("禁止动作、神态、旁白描写，只输出对话本身。")
-    if o["no_markdown"]:
-        rules.append("严禁使用 markdown 字符（# * ` - > 之类）。")
-    else:
-        rules.append("可以使用 markdown。")
-    rules.append("允许代码块。" if o["allow_code_block"] else "不要输出代码块。")
-    rules.append("允许输出 JSON。" if o["allow_json"] else "不要输出 JSON。")
-    rules.append(_STYLE_RULE[o["reply_style"]])
-    rules.append(_EMOJI_RULE[o["emoji_level"]])
-    if o.get("lang"):
-        rules.append(f"语言：{o['lang']}。")
-    if o.get("extra"):
-        rules.append(str(o["extra"]).strip())
-    return "\n".join("- " + r for r in rules if r)
 
-
-def behavior_text(d: dict) -> str:
-    """行为控制块 → 文本（进系统提示词的"你会做什么"部分）"""
-    d = normalize(d)
-    b = d["行为控制"]
-    rules = []
-    _meme = {
-        "off": "不要发表情包。",
-        "rare": "偶尔（很少）可以发一张表情包。",
-        "normal": "聊到合适的时机可以发一张表情包。",
-        "often": "情绪合适就多发几张表情包。",
-    }
-    rules.append(_meme[b["meme_tendency"]])
-    if b["meme_tags_prefer"]:
-        rules.append("挑表情包时优先这些情绪：" + "、".join(b["meme_tags_prefer"]) + "。")
-    rules.append("需要表达情绪时可以换形象动作。" if b["gif_reaction"]
-                 else "不要主动换形象动作。")
-    if b["proactive_talk"]:
-        rules.append("没人理你时可以主动搭话（可结合用户当前在用什么程序）。")
-    return "\n".join("- " + r for r in rules if r)

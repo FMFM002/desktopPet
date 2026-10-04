@@ -128,43 +128,6 @@ class IdleTalker(StoppableSleep):
                 if self._nap(60):
                     break
 
-    def _process_context(self) -> str:
-        """★ 1.9.0（你当初的要求）：看用户在干什么 —— 就前 3 个最新进程 + 前 3 个内存最大的。
-
-        特意写得独立、简单（只依赖 psutil），放在主动说话模块里，不影响别处。
-        """
-        try:
-            import psutil
-        except Exception:
-            return ""
-        try:
-            procs = []
-            for p in psutil.process_iter(["pid", "name", "create_time", "memory_info"]):
-                try:
-                    info = p.info
-                    if not info.get("name"):
-                        continue
-                    mem = 0
-                    if info.get("memory_info") is not None:
-                        mem = int(getattr(info["memory_info"], "rss", 0) or 0)
-                    procs.append({
-                        "name": info["name"],
-                        "created": float(info.get("create_time") or 0),
-                        "mem": mem,
-                    })
-                except Exception:
-                    continue
-            newest = sorted(procs, key=lambda x: x["created"], reverse=True)[:3]
-            biggest = sorted(procs, key=lambda x: x["mem"], reverse=True)[:3]
-            fmt = lambda lst: "、".join(          # noqa: E731
-                f"{x['name']}({x['mem'] / 1024 / 1024:.0f}MB)" for x in lst) or "未知"
-            return (f"【用户当前在用什么】\n"
-                    f"- 最近启动的程序: {fmt(newest)}\n"
-                    f"- 占内存最多的程序: {fmt(biggest)}")
-        except Exception as e:
-            _log.debug(f"取进程上下文失败: {e}")
-            return ""
-
     def _process_brief(self) -> str:
         """★ 1.9.0: 进程上下文压成**一行**（你反馈"注入了一大段"）。
 
@@ -192,21 +155,6 @@ class IdleTalker(StoppableSleep):
             return f"他最近打开 {_n}；占用最多 {_b}。别复述这行。"
         except Exception as e:
             _log.debug(f"取进程上下文失败: {e}")
-            return ""
-
-    def _persona_line(self) -> str:
-        """★ 1.9.0: 主动说话也要带**当前角色**的性格（以前硬编码"铃兰"）。"""
-        try:
-            from src.core.pet_manager import CHARACTERS_DIR, CharacterInfo
-            from src.utils.config import get_config
-            name = get_config().pet.character
-            info = CharacterInfo(CHARACTERS_DIR / name)
-            persona = (info.persona_prompt() or "").strip()
-            if persona:
-                return f"你的名字是「{name}」，下面是你的性格设定（照着说话）：\n{persona}"
-            return f"你的名字是「{name}」。"
-        except Exception as e:
-            _log.debug(f"取角色性格失败: {e}")
             return ""
 
     def _generate_and_send(self):

@@ -1798,17 +1798,25 @@ check("★没配待机列表时不排（不空转）", _s2.scheduled == 0)
 check("★待机计时器也走同一个入口（「范围内随机」那条来源）",
       'self.apply_switch(pick, "idle")' in _pm_src_now)
 
-print("\n== ★主动说话（带性格 + 进程上下文 + 注入同一会话）==")
+print("\n== ★主动说话（带简要进程背景 + 注入同一会话）==")
 from src.core.idle_talker import get_idle_talker as _git  # noqa: E402
 
 _it = _git()
-_ctx = _it._process_context()
-check("★进程上下文：最近启动 + 占内存最多 各 3 个（psutil，独立实现在本模块）",
-      "最近启动的程序" in _ctx and "占内存最多的程序" in _ctx, _ctx[:70].replace("\n", " "))
-_persona = _it._persona_line()
-check("★性格取自**当前角色**（不再是硬编码「铃兰」）",
-      "deepseek" in _persona or "铃兰" in _persona, _persona[:50])
+# ★★ 1.9.3 第 43 轮：这里原来测的是 `_process_context()` / `_persona_line()`，
+#   而这两个**已经被取代**（见 idle_talker 里 `_process_brief` 的注释）：
+#     · 进程清单原来是"一大段"，现在压成 `_process_brief()` 的**一行**
+#       （用户反馈"注入了一大段，像用户自己发的"）；
+#     · 性格改为交给**会话的系统提示词**（那里本来就有），不再塞进触发语。
+#   所以断言改成测**当前实现**（比原来更贴近真行为），并守卫旧实现不要回来。
+_brief = _it._process_brief()
+check("★进程背景压成一行（最近打开 + 占用最多，且不含换行）",
+      "最近打开" in _brief and "占用最多" in _brief and "\n" not in _brief,
+      _brief[:70].replace("\n", " "))
 _it_src = (ROOT / "src" / "core" / "idle_talker.py").read_text(encoding="utf-8")
+check("★被取代的旧实现（_process_context / _persona_line）已删除",
+      "def _process_context" not in _it_src and "def _persona_line" not in _it_src)
+check("★进程背景仍走 psutil（独立实现在本模块，不依赖别处）",
+      "psutil" in _it_src)
 check("★主动说话改成注入会话（on_idle_trigger），老的单次调用保留为兜底",
       "on_idle_trigger" in _it_src and "get_active_chat_client" in _it_src)
 _got = {}
@@ -2246,10 +2254,24 @@ check("★非法枚举被纠正回默认（不可能把设置写坏）",
       _bad["输出控制"]["emoji_level"] == "light"
       and _bad["输出控制"]["reply_style"] == "concise"
       and _bad["行为控制"]["meme_tendency"] == "normal")
-check("★三块文本能组装（性格 / 输出 / 行为）",
-      "鲸鱼" in _cs.persona_text(_mig)
-      and "严禁使用 markdown" in _cs.output_text(_mig)
-      and "表情包" in _cs.behavior_text(_mig))
+# ★★ 1.9.3 第 43 轮：原来是"三块文本能组装（性格 / 输出 / 行为）"，都用
+#   `character_settings` 里的函数测。查证后发现：
+#     · `persona_text` **是活的**（`pet_manager.py:76` 在用）→ 继续测；
+#     · `output_text` / `behavior_text` 是**没人调用的重复实现** ——
+#       生产代码里"怎么说 / 你会做什么"这两块是 `llm_client` 自己拼的
+#       （`out_rules` / `beh_rules`，连"严禁使用 markdown 字符（# * ` - > 之类）。"
+#        这句都是一字不差的重复）。
+#   两份实现迟早会漂移，所以**删掉重复的那份**，断言改成：
+#   ① 性格仍能组装（活实现）；② 这两条规则由 llm_client 的**活实现**产出；
+#   ③ 重复实现不许回来（直接查模块属性，不是查字符串）。
+check("★性格文本仍能组装（persona_text，生产在用的那份）",
+      "鲸鱼" in _cs.persona_text(_mig))
+_lc_src = (ROOT / "src" / "core" / "llm_client.py").read_text(encoding="utf-8")
+check("★输出/行为规则由 llm_client 的活实现产出（严禁 markdown / 表情包）",
+      "严禁使用 markdown" in _lc_src and "表情包" in _lc_src)
+check("★character_settings 里的重复实现已删除（不许回来）",
+      not hasattr(_cs, "output_text") and not hasattr(_cs, "behavior_text"),
+      f"output_text={hasattr(_cs, 'output_text')} behavior_text={hasattr(_cs, 'behavior_text')}")
 
 # 真角色文件：已经是 schema 2，且 CharacterInfo 仍暴露旧字段名（别的地方还在用）
 _ds = _PM.__new__(_PM)  # noqa: F841  （占位，避免误用）
