@@ -722,15 +722,28 @@ class ChatSession:
         except Exception as e:
             _log.warning(f"加载话题消息失败: {e}")
 
-    def _build_llm_messages(self) -> list[dict]:
+    def _build_llm_messages(self, snapshot: list = None) -> list[dict]:
         """★ 1.9.3: 装配喂给 LLM 的**共享工作台上下文**。
 
         self.messages 保留的是"聊天窗口要显示的完整历史"；
         真正发给模型的是这里的结果：最近 RECENT_CONTEXT_LIMIT 条原文
         + 更早那段折成的一条 system 摘要（规则见 build_shared_context）。
+
+        ★★ 1.9.3 第 51 轮 —— **修一个真机死锁**：
+          本方法原来无条件 `with self._lock:`，而它的两个调用点
+          （`_run_loop` 里的 1324 / 1809 行）**已经持有同一把锁**，
+          而 `self._lock` 是**不可重入**的 `threading.Lock`（不是 RLock）
+          → 自己等自己 → **永久卡死**。
+          真机表现：发一条消息后窗口变"(未响应)"，35 秒后被用户强杀
+          （`logs/prts_20261004_155636.log` 里"最差 35250ms"的帧间隔就是这段冻结）。
+          回归当时**测不到** —— 没有任何套件真的走完
+          "发消息 → _run_loop → 组上下文"这条路径。
+          → 改法：**已经持锁的调用方把快照传进来**（`snapshot=`），
+            没传才自己加锁。顺带把 DB 读摘要挪到锁外 —— 锁里做 I/O 本来就不该。
         """
-        with self._lock:
-            snapshot = [dict(m) for m in self.messages]
+        if snapshot is None:
+            with self._lock:
+                snapshot = [dict(m) for m in self.messages]
         summary = ""
         if self._topic_id is not None:
             try:
@@ -1322,7 +1335,10 @@ class ChatSession:
 
             try:
                 with self._lock:
-                    messages_snapshot = self._prepare_messages(self._build_llm_messages())
+                    # ★ 第 51 轮：这里**已持 self._lock**，必须把快照传进去，
+                    #   不能再让 _build_llm_messages 自己加锁（不可重入 → 死锁）。
+                    messages_snapshot = self._prepare_messages(
+                        self._build_llm_messages([dict(m) for m in self.messages]))
                 _log.debug(f"第{round_count}轮: 发起流式请求 ({len(messages_snapshot)}条消息)...")
                 stream = self.client.chat_stream(messages_snapshot)
                 content_buffer = ""
@@ -1807,7 +1823,10 @@ class ChatSession:
             _log.info(f"边界轮 #{boundary_rounds}: 追加处理...")
             try:
                 with self._lock:
-                    messages_snapshot = self._prepare_messages(self._build_llm_messages())
+                    # ★ 第 51 轮：这里**已持 self._lock**，必须把快照传进去，
+                    #   不能再让 _build_llm_messages 自己加锁（不可重入 → 死锁）。
+                    messages_snapshot = self._prepare_messages(
+                        self._build_llm_messages([dict(m) for m in self.messages]))
                 response = self.client.chat(messages_snapshot)
                 if not response or not response.choices:
                     _log.debug(f"边界轮 #{boundary_rounds}: LLM 无有效响应")
