@@ -13,7 +13,6 @@ STT (语音转文字) 引擎 — 基于 Whisper 的实时/离线语音识别
 - 支持中文/英文/多语言
 """
 import os
-import io
 import time
 import threading
 import logging

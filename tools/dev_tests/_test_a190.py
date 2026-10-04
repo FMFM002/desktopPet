@@ -137,8 +137,7 @@ def has_x(img, pred):
 # ══════════════════════════════════════════════════════════════
 print("\n== A3 气泡几何（贴头像 + 文字齐左 + 自绘圆角）==")
 
-from src.ui.chat_widget import (ChatWidget, _RoundedBubbleBrowser,  # noqa: E402
-                                BUBBLE_PAD_X, BUBBLE_PAD_Y, BUBBLE_RADIUS)
+from src.ui.chat_widget import ChatWidget, BUBBLE_PAD_X, BUBBLE_PAD_Y, BUBBLE_RADIUS
 
 w = ChatWidget()
 w.resize(420, 640)
@@ -1029,8 +1028,6 @@ check("★W4 待机不受选定动作影响（对话结束要回待机轮播）"
 # ★ Y1 修复：选定的动作要「留住」一段时间，不能同一秒被待机顶掉
 #   （实测日志：16:48:31「思考结束 → GIF「启动」」与「对话结束」在同一秒，
 #    形象线程先切启动、紧接着被待机顶成 idle_gifs[0]=吃爆米花）
-import queue as _queuemod  # noqa: E402
-import src.core.pet_manager as _pm_mod  # noqa: E402
 
 
 class _PMStub3(_PMStub2):
@@ -1183,8 +1180,7 @@ check("config 可序列化新字段（multimodal_mode 与 stt 全部字段）",
 # ══════════════════════════════════════════════════════════════
 print("\n== 统一文件查看工具 ==")
 
-from tools.file_view import (view_file, view_file_json, parse_pages, sample_pages,  # noqa: E402
-                             detect_kind, STRICT_PROMPT, SMALL_BYTES)
+from tools.file_view import view_file, parse_pages, sample_pages, STRICT_PROMPT
 from tools import file_ops as _fops  # noqa: E402
 
 check("pages 解析：单页 / 区间 / 列表 / 空(全部)",

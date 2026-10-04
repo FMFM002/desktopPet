@@ -15,11 +15,7 @@
   F. 各种边界：空 param / 不存在的应用 / 卸载程序不被误选
 ==============================================================================
 """
-import json
-import os
-import re
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]

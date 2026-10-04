@@ -12,7 +12,6 @@ import time
 import logging
 from pathlib import Path
 from typing import Optional, Callable
-from dataclasses import dataclass
 
 from src.core.reply_filter import (ProtocolTailFilter, ToolMarkerTailFilter,
                                    split_protocol)

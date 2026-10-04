@@ -245,7 +245,6 @@ check("jmcomic 通知处读登记表", "_get_file_ready_callback()" in jc)
 # 真跑：注册到 tools.endfield_tool，另一份"私有模块"也要能读到
 import importlib.util  # noqa: E402
 
-import tools as _tools_pkg  # noqa: E402
 import tools.endfield_tool as _ef_pub  # noqa: E402
 
 _sent = []

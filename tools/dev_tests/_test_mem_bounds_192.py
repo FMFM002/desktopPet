@@ -18,7 +18,6 @@
   H. data/downloads 清理策略：超上限才删最旧、且保护 BT 引擎与续传现场
 ==============================================================================
 """
-import inspect
 import os
 import sys
 import threading

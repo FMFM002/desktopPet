@@ -20,8 +20,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QObject, Signal
-from PySide6.QtGui import QScreen, QGuiApplication
+from PySide6.QtCore import Qt, QTimer, QPoint, QObject, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QWidget
 
 from src.ui.pet_proxy import PetProxy
@@ -32,7 +32,7 @@ from src.ui.tray_icon import TrayManager
 from src.ui.direct_dispatch_window import DirectDispatchWindow
 
 from src.utils.config import get_config
-from src.core.session import get_session, reset_session
+from src.core.session import get_session
 from src.core.monitor import get_monitor, UnifiedMonitor
 from src.core.llm_client import VisionClient, SummarizerClient, switch_provider
 from src.core.database import get_db

@@ -17,7 +17,7 @@
   python tools/reset_failed_ltm.py --dry-run  # 只统计、不修改
   python tools/reset_failed_ltm.py --chat 50  # 只重置最近 50 条聊天
 """
-import argparse, sqlite3, sys
+import argparse, sqlite3
 
 DB_DIR = "data/DBs"
 

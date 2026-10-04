@@ -2,7 +2,6 @@
 import os
 import sys
 import json
-import time
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[2]

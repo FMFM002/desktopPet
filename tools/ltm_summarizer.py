@@ -21,7 +21,6 @@
   - 聚类合并：cluster size ≥2 才触发 LLM，单条跳过
 ================================================================================
 """
-import json
 import logging
 import threading
 import time

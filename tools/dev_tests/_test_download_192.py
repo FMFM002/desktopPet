@@ -22,14 +22,12 @@ Motrix 是 Electron + aria2 的完整下载器，整体搬没意义。本套件�
 """
 import hashlib
 import json
-import os
 import socket
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote
 
 BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE))

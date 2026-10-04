@@ -16,17 +16,9 @@ import re
 import subprocess
 import io
 from pathlib import Path
-from PySide6.QtCore import (Qt, Signal, QTimer, QEvent, QUrl, QRect, QPoint, QRectF,
-                            QPropertyAnimation, QEasingCurve, QParallelAnimationGroup)
-from PySide6.QtGui import (QFont, QFontMetrics, QTextCursor, QDragEnterEvent, QDropEvent,
-                           QDesktopServices, QPixmap, QPainter, QIcon, QColor, QPen,
-                           QPainterPath, QTextTable, QTextLength, QTextDocument,
-                           QTextBlock)
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser,
-    QPushButton, QLineEdit, QLabel, QFileDialog, QApplication,
-    QFrame, QSizePolicy, QScrollArea, QListWidget, QListWidgetItem, QMenu,
-)
+from PySide6.QtCore import Qt, Signal, QTimer, QEvent, QUrl, QRect, QPoint, QRectF
+from PySide6.QtGui import QFont, QFontMetrics, QTextCursor, QDragEnterEvent, QDropEvent, QDesktopServices, QPainter, QColor, QPen, QTextTable, QTextLength, QTextDocument
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser, QPushButton, QLineEdit, QLabel, QFileDialog, QApplication, QFrame, QMenu
 _log = logging.getLogger("ChatWidget")
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -1552,7 +1544,6 @@ class ChatWidget(QWidget):
 
         返回标记文本，调用方拼进要发给 LLM 的消息正文里。
         """
-        import itertools as _it
         import time as _time
         # ★ 1.9.2（内存调研结论）：三个问题一起修 ——
         #   ① 原来 key 是 `int(time.time()*1000)`，实测 10 次粘贴只产生 8 个 key

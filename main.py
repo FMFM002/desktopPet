@@ -6,8 +6,6 @@ PRTS Desktop Pet
 """
 import sys
 import os
-import time
-import logging
 import traceback
 import multiprocessing
 
@@ -22,8 +20,7 @@ def _is_main_process() -> bool:
 
 
 # ====== 最早加载日志（轻量，主进程和子进程都可用） ======
-from src.utils.logger import (setup_logging, get_logger, install_crash_hooks,
-                              install_qt_message_handler, redirect_stderr_to_file)
+from src.utils.logger import setup_logging, install_crash_hooks, install_qt_message_handler, redirect_stderr_to_file
 
 # ★★ 1.9.1 顺序很重要（真机踩坑，务必保持）：
 #   必须**先**把 C 层 fd 2 重定向到文件，**再**调 setup_logging()。

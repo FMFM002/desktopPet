@@ -7,7 +7,7 @@ sys.path.insert(0, str(BASE))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("DEEPSEEK_API_KEY", "test")
 
-from PySide6.QtWidgets import QApplication, QComboBox, QCheckBox, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton
 app = QApplication(sys.argv)
 
 ok = True

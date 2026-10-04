@@ -11,7 +11,6 @@ import threading
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 TOOL_NAME = "knowledge_graph"
 TOOL_DESCRIPTION = (

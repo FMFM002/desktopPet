@@ -11,7 +11,6 @@
 用法: python tools/dev_tests/_test_pipeline_clean_188.py
 """
 import sys
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent

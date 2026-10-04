@@ -21,12 +21,10 @@
 ================================================================================
 """
 import difflib
-import json
 import logging
 import re
 import time
 import threading
-import queue as queue_module
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, Future
 

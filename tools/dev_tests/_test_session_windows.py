@@ -1,8 +1,6 @@
 ﻿"""1.6.0 回归自测：DB 角色窗口 + 会话窗口切换 + 话题总结链路（不启动 Qt/LLM）"""
 import os
 import sys
-import tempfile
-import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

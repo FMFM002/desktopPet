@@ -10,7 +10,6 @@ import sys
 import time
 import hashlib
 from pathlib import Path
-from typing import Optional
 from PIL import Image
 
 _log = logging.getLogger("OCR")

@@ -5,14 +5,12 @@
 - 保留：画像提取器 ProfileExtractor（LLM 逻辑不变，存储改 SQLite）
 - TODO: 长期记忆 tool 待下一轮讨论完成后接入（当前暂用现有 set_trait 逻辑）
 """
-import time
 import queue
 import threading
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Callable
-from collections import OrderedDict
+from typing import Optional
 
 _log = logging.getLogger("UserProfile")
 

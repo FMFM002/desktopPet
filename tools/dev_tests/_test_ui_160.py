@@ -24,7 +24,6 @@ def check(name, cond, extra=""):
 
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
 app = QApplication(sys.argv)
 
 BASE = Path(__file__).resolve().parents[2]
@@ -163,7 +162,7 @@ if img:
 
 # ── 5. 形象状态机：启动 GIF 只播一遍 → 待机，且待机 tick 能推进 ──
 print("== 5. 形象状态机 ==")
-from src.core.pet_manager import PetManager, CHARACTERS_DIR
+from src.core.pet_manager import PetManager
 
 
 class FakePet:

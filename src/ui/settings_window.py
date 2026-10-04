@@ -14,15 +14,8 @@ import threading
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
-from PySide6.QtCore import Qt, Signal, QTimer, QPoint, QRectF, QEvent, QObject
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QLabel, QLineEdit, QPushButton, QCheckBox,
-    QSpinBox, QComboBox, QGroupBox, QScrollArea,
-    QListWidget, QListWidgetItem, QSlider, QFormLayout,
-    QTextEdit, QFrame, QColorDialog, QFileDialog, QGridLayout,
-    QApplication, QAbstractScrollArea, QAbstractSpinBox,
-)
+from PySide6.QtCore import Qt, Signal, QTimer, QRectF, QEvent, QObject
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QCheckBox, QSpinBox, QComboBox, QGroupBox, QScrollArea, QSlider, QFormLayout, QTextEdit, QFrame, QColorDialog, QFileDialog, QGridLayout, QApplication, QAbstractScrollArea, QAbstractSpinBox
 from PySide6.QtGui import QMouseEvent, QColor, QPixmap, QImage, QPainter, QPen
 
 from src.core.pet_manager import scan_character_cards

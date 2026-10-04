@@ -16,9 +16,7 @@
     from _fixtures_193 import make_pptx, make_wav, fixture_dir
     p = make_pptx(fixture_dir("xxx") / "sample.pptx")
 """
-import os
 import struct
-import sys
 import wave
 from pathlib import Path
 

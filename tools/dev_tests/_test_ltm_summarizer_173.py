@@ -127,7 +127,7 @@ def test_build_clusters():
 
 def test_check_thresholds():
     """_check_thresholds: 文件大小/条目数阈值判断"""
-    from tools.ltm_summarizer import LTMSummarizer, LTM_DB_PATH
+    from tools.ltm_summarizer import LTMSummarizer
 
     # 不实际改文件 → patch 成 DB 不存在的情景
     sumzr = LTMSummarizer.__new__(LTMSummarizer)

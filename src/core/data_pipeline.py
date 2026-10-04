@@ -14,7 +14,6 @@
   - 定量：raw_events 写入计数器达到 N 条（config.monitor.summarize_trigger_count）
 ================================================================================
 """
-import json
 import logging
 import re
 import threading
