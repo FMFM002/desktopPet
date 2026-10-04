@@ -1,0 +1,335 @@
+# -*- coding: utf-8 -*-
+"""★★ 1.9.4：**首次配置引导的检测核心**（只探测、不写用户的设置）。
+
+## 探路结论（1.9.3 第 59 轮实测，探针在 临时文件/_scratch_dev/first_run_probe_59.py）
+新用户**只需要手填 1 项**：LLM API Key。其余都能自动发现、或有默认值、或"想用才问"：
+
+    LLM API Key      必须手填（没有它整个桌宠不能用）
+    能自动发现(7)     whisper 模型 / easyocr 模型 / 形象目录 / 私有数据目录 /
+                      Python 依赖 / Python 版本 / base_url+model 默认值
+    想用才问(8)       ComfyUI(端口+路径) / Ollama / 代理端口 / 天气 /
+                      Tavily / 终末地 / Pixiv
+
+## ★★ 一个必须记住的坑（探路当场踩到）
+`.env` **文件里明明有** `DEEPSEEK_API_KEY`，但 `os.getenv()` **读不到** ——
+因为 `.env` 要先被 `load_dotenv()` 加载才会进环境，而加载时机不确定
+（`net_proxy.py` 里为此专门写了一次"自己兜底读"）。
+⇒ 所以 `has_llm_key()` **同时**查三处：环境变量、`.env` 文件、配置对象。
+   只查 `os.getenv` 会把**已经配好的用户**又拦一遍要 key。
+
+## 本模块**只做检测与报告**，不改用户的任何设置
+  · `detect()` → 一份报告（哪些发现了、怎么发现的、哪些必须问、哪些可选）
+  · `save_llm_key()` → 走**设置窗口同一条路**（`cfg.llm.api_key = ...; cfg.save()`），
+    不另造一套写法 —— 否则又会出现"两处真理"。
+"""
+from __future__ import annotations
+
+import os
+import socket
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parents[2]
+
+# ── 状态 ──
+AUTO = "auto"                 # 已自动发现
+MUST_FILL = "must_fill"       # 必须手填
+OPTIONAL = "optional"         # 可选能力（想用才问）
+OK = "ok"                     # 已有配置，无需动作
+
+
+@dataclass
+class Finding:
+    """一条检测结果。`how` = **我是怎么知道的**（取证口径，便于用户核对）。"""
+    key: str
+    label: str
+    status: str
+    how: str
+    detail: str = ""
+    group: str = ""
+    # 可选能力的"要不要"开关（UI 用它渲染勾选框）
+    askable: bool = False
+    hint: str = ""            # 怎么装/怎么开（可选能力给一句指引）
+
+    @property
+    def ok(self) -> bool:
+        return self.status in (AUTO, OK)
+
+
+@dataclass
+class FirstRunReport:
+    findings: list[Finding] = field(default_factory=list)
+
+    def by(self, status: str) -> list[Finding]:
+        return [f for f in self.findings if f.status == status]
+
+    @property
+    def auto_found(self) -> list[Finding]:
+        return self.by(AUTO)
+
+    @property
+    def must_fill(self) -> list[Finding]:
+        return self.by(MUST_FILL)
+
+    @property
+    def optional(self) -> list[Finding]:
+        return [f for f in self.findings if f.status in (OPTIONAL, OK)
+                and f.askable]
+
+    @property
+    def needs_setup(self) -> bool:
+        return bool(self.must_fill)
+
+    def summary(self) -> str:
+        return (f"能自动发现 {len(self.auto_found)} 项 ｜ "
+                f"必须手填 {len(self.must_fill)} 项 ｜ "
+                f"可选 {len(self.optional)} 项")
+
+
+# ══════════════════════════════════════════════════════════════
+# .env 读取（★ 不依赖 load_dotenv 的时机）
+# ══════════════════════════════════════════════════════════════
+def read_env_file(path: Path | None = None) -> dict:
+    """**直接读** `.env` 文件，返回 {键: 值}。
+
+    ★ 为什么不用 `os.getenv`：见模块 docstring 里那个坑 ——
+      `.env` 没被 `load_dotenv` 加载时 `os.getenv` 是空的，
+      会把已经配好 key 的用户又拦一遍。
+    """
+    p = path or (BASE / ".env")
+    out: dict[str, str] = {}
+    if not p.exists():
+        return out
+    try:
+        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            k, _, v = s.partition("=")
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return out
+
+
+# 仅测试用：把 `.env` 的读取整体指向另一个文件，用来模拟"一台什么都没配的新机器"。
+# 不设它时行为与生产完全一致。
+_ENV_OVERRIDE: Path | None = None
+
+
+def use_env_file_for_tests(path: Path | None):
+    """★ **仅供测试**：把 `.env` 读取指向 `path`（传 None 恢复真实行为）。
+
+    为什么需要：`_OPTIONAL_SPECS` 里那些探测也读 `.env`，
+    如果只能改一个函数，测试就模拟不出"新机器"的完整样子。
+    """
+    global _ENV_OVERRIDE
+    _ENV_OVERRIDE = path
+
+
+def _env_val(name: str, env_path: Path | None = None) -> str:
+    """从"环境变量"和"`.env` 文件"两处取，**谁有算谁**。"""
+    p = env_path if env_path is not None else _ENV_OVERRIDE
+    if p is not None:
+        return read_env_file(p).get(name, "").strip()
+    return (os.getenv(name) or "").strip() or read_env_file().get(name, "").strip()
+
+
+def has_llm_key(env_path: Path | None = None) -> bool:
+    """是否已经配好 LLM Key（**三处都查**：环境变量 / .env 文件 / 配置对象）。
+
+    ★ 模拟模式（传了 env_path 或设了 override）下**不回落**去读真实环境 ——
+      否则测试永远测不出"没有 key"那条路。
+    """
+    if _env_val("DEEPSEEK_API_KEY", env_path):
+        return True
+    if env_path is not None or _ENV_OVERRIDE is not None:
+        return False
+    try:
+        from src.utils.config import get_config
+        return bool((getattr(get_config().llm, "api_key", "") or "").strip())
+    except Exception:
+        return False
+
+
+# ══════════════════════════════════════════════════════════════
+# 各项探测（每项都写清"我是怎么知道的"）
+# ══════════════════════════════════════════════════════════════
+def _port_open(host: str, port: int, t: float = 0.35) -> bool:
+    try:
+        with socket.create_connection((host, int(port)), timeout=t):
+            return True
+    except Exception:
+        return False
+
+
+def _probe_python_deps() -> tuple[bool, str]:
+    """核心依赖能不能 import（缺了直接就是"跑不起来"）。"""
+    need = ["PySide6", "openai", "requests", "numpy"]
+    miss = []
+    for m in need:
+        try:
+            __import__(m)
+        except Exception:
+            miss.append(m)
+    return (not miss), ("齐了" if not miss else "缺: " + ", ".join(miss))
+
+
+# ── 可选能力的登记表：(key, 标签, 怎么判断有没有配, 指引) ──
+#   顺序按"常见程度"排；UI 按这个顺序渲染勾选框。
+_OPTIONAL_SPECS = [
+    ("comfyui", "ComfyUI（本地画图）",
+     lambda: bool(_env_val("COMFYUI_PATH")) and Path(_env_val("COMFYUI_PATH")).exists(),
+     "装好后在 .env 里填 COMFYUI_PATH，或直接启动 ComfyUI 服务"),
+    ("weather", "天气查询（和风天气）",
+     lambda: bool(_env_val("WEATHER_API_KEY")), "去和风天气控制台申请 KEY"),
+    ("tavily", "联网搜索（Tavily）",
+     lambda: bool(_env_val("TAVILY_API_KEY")), "去 tavily.com 申请 KEY"),
+    ("proxy", "代理（P站 / JM 需要）",
+     lambda: any(_port_open("127.0.0.1", p) for p in (7890, 7897, 1080)),
+     "开着代理客户端即可；程序会自动探测端口"),
+    ("endfield", "终末地（森空岛）",
+     lambda: bool(_env_val("ENDFIELD_API_KEY")), "需要 ENFIELD_API_KEY"),
+    ("pixiv", "Pixiv",
+     lambda: bool(_env_val("PIXIV_REFRESH_TOKEN")), "需要 PIXIV_REFRESH_TOKEN（会过期）"),
+    ("ollama", "本地视觉（Ollama）",
+     lambda: _port_open("127.0.0.1", 11434), "装 Ollama 后它会开在 11434"),
+]
+
+
+def detect(base: Path | None = None) -> FirstRunReport:
+    """跑一遍全部探测，返回报告。**不修改任何东西。**"""
+    root = base or BASE
+    r = FirstRunReport()
+
+    # ── 1. LLM（唯一必填）──
+    if has_llm_key():
+        r.findings.append(Finding(
+            "llm_key", "LLM API Key", OK,
+            "环境变量或 .env 文件里已有 DEEPSEEK_API_KEY", "已配置", "llm"))
+    else:
+        r.findings.append(Finding(
+            "llm_key", "LLM API Key", MUST_FILL,
+            "环境变量与 .env 文件里都没有 DEEPSEEK_API_KEY", "", "llm",
+            hint="去 platform.deepseek.com 申请；填好后会写进 .env（不进版本库）"))
+
+    # ── 2. 可自动发现的 ──
+    _ok, _how = _probe_python_deps()
+    r.findings.append(Finding(
+        "python_deps", "Python 依赖", AUTO if _ok else MUST_FILL,
+        "逐个 import 试一遍（PySide6/openai/requests/numpy）", _how, "env"))
+    r.findings.append(Finding(
+        "python_version", "Python 版本", AUTO, "sys.version",
+        sys.version.split()[0], "env"))
+
+    # 模型类：找到就自动用，没有就"可选下载"（不属于"必须手填"）
+    for _k, _label, _rel, _size_hint in (
+        ("whisper", "语音识别模型（whisper）", "data/whisper/ggml-small.bin", "约 465MB"),
+        ("easyocr", "OCR 模型（easyocr）", "data/models/easyocr", "约 100MB"),
+    ):
+        _p = root / _rel
+        _found = _p.exists() and (any(_p.iterdir()) if _p.is_dir() else _p.stat().st_size > 0)
+        r.findings.append(Finding(
+            _k, _label, AUTO if _found else OPTIONAL,
+            f"看 {_rel} 在不在", "已就位" if _found else "没有（要用再下载）",
+            "models", askable=not _found,
+            hint=f"要用这个能力的话需要下载（{_size_hint}）"))
+
+    # ── 3. 运行时目录（首次要能自建）──
+    _dirs = ["data/桌宠形象", "data/桌宠私有data", "data/cache",
+             "data/DBs", "data/downloads", "logs"]
+    _miss = [d for d in _dirs if not (root / d).is_dir()]
+    r.findings.append(Finding(
+        "runtime_dirs", "运行时目录", AUTO if not _miss else AUTO,
+        "逐个看目录在不在", "齐了" if not _miss else f"会自动建: {', '.join(_miss[:3])}"
+        + (" 等" if len(_miss) > 3 else ""), "env"))
+
+    # ── 4. 可选能力（想用才问）──
+    for _k, _label, _probe, _hint in _OPTIONAL_SPECS:
+        try:
+            _has = bool(_probe())
+        except Exception:
+            _has = False
+        r.findings.append(Finding(
+            _k, _label, OK if _has else OPTIONAL,
+            "已配置 / 端口在监听" if _has else "环境变量或端口都没有",
+            "已就绪" if _has else "未配置", "optional",
+            askable=True, hint=_hint))
+
+    return r
+
+
+def is_first_run() -> bool:
+    """是否算"首次运行"（给 main 判断要不要弹引导）。
+
+    ★ 判据刻意保守：**只差 LLM Key 才算首次**。已经配好 key 的老用户
+      不该被引导再拦一次（他们已经配好了，弹窗只会烦人）。
+    """
+    return not has_llm_key()
+
+
+# ══════════════════════════════════════════════════════════════
+# 写入（走设置窗口同一条路）
+# ══════════════════════════════════════════════════════════════
+def save_llm_key(key: str, host: str = "") -> tuple[bool, str]:
+    """把 LLM Key 存起来。**复用设置窗口的写法**：`cfg.llm.api_key` + `cfg.save()`，
+    最终写进 `.env`（`DEEPSEEK_API_KEY`），不进版本库。
+
+    返回 (成功?, 说明)。
+    """
+    key = (key or "").strip()
+    if not key:
+        return False, "Key 是空的"
+    try:
+        from src.utils.config import get_config
+        cfg = get_config()
+        cfg.llm.api_key = key
+        if host.strip():
+            cfg.llm.host = host.strip()
+        cfg.save()
+        return True, "已保存到 .env（不会进入版本库）"
+    except Exception as e:
+        return False, f"保存失败: {type(e).__name__}: {e}"
+
+
+def verify_llm_key(key: str, host: str = "", timeout: float = 8.0) -> tuple[bool, str]:
+    """用这个 key 发一次**最小请求**验证能不能通（只列模型，不烧对话 token）。
+
+    ★ 直接建 `OpenAI` 客户端 —— **不要用 `ChatClient.chat()`**：
+      后者会强制拼上本应用的系统提示词（历史踩坑）。
+    """
+    host = (host or "").strip() or _env_val("DEEPSEEK_BASE_URL") \
+        or "https://api.deepseek.com/v1"
+    key = (key or "").strip() or _env_val("DEEPSEEK_API_KEY")
+    if not key:
+        return False, "没有 Key"
+    try:
+        from openai import OpenAI
+        cli = OpenAI(api_key=key, base_url=host, timeout=timeout)
+        ms = cli.models.list()
+        n = len(getattr(ms, "data", []) or [])
+        return True, f"连接成功，可用模型 {n} 个"
+    except Exception as e:
+        msg = str(e)
+        if "401" in msg or "Unauthorized" in msg:
+            return False, "Key 无效（服务端返回 401）"
+        if "timed out" in msg.lower() or "timeout" in msg.lower():
+            return False, "连不上（超时）—— 检查网络或 Host"
+        return False, f"{type(e).__name__}: {msg[:80]}"
+
+
+def ensure_runtime_dirs(base: Path | None = None) -> list[str]:
+    """把运行时目录建起来（首次运行用）。返回实际新建了哪些。"""
+    root = base or BASE
+    made = []
+    for d in ("data/桌宠形象", "data/桌宠私有data", "data/cache",
+              "data/DBs", "data/downloads", "logs"):
+        p = root / d
+        if not p.exists():
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+                made.append(d)
+            except Exception:
+                pass
+    return made
