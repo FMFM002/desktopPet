@@ -113,8 +113,12 @@ check("回调内容与发送内容一致",
 print("\n== 3. 源码静态检查 ==")
 src = (ROOT / "src" / "ui" / "main_window.py").read_text(encoding="utf-8")
 
-FUNCS = ["_transcribe_audio_file", "_analyze_video_file", "_read_document_file",
-         "_on_stt_transcription", "_on_stt_speech_start", "_on_stt_speech_end"]
+FUNCS = ["_transcribe_audio_file", "_analyze_video_file", "_read_document_file"]
+# ★ 1.9.3 第 49 轮：原来这里还有 `_on_stt_transcription` / `_on_stt_speech_start` /
+#   `_on_stt_speech_end` 三个 STT 回调。用户把 STT 改成"**音频监控的一部分**"
+#   （音量过阈值 → VAD 分段 → 本地 STT → `speech` 监控事件进 raw_events，
+#   **不再当用户消息发出去**）之后，这三个回调连同旧的"实时循环"通路一起删除了，
+#   它们的线程安全断言随之失去被测对象。
 
 # ★ 1.9.0: 音频/视频/文档这三个已经**统一成委托给 _view_attachment**
 #   （文件查看统一走 tools/file_view.py），所以它们的函数体里不再直接出现

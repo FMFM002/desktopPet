@@ -43,13 +43,8 @@ FRAMEWORK_HOOKS = {
 
 # ── 显式放行：每条都必须写清"为什么留着" ──
 ALLOWED = {
-    # ★ 注意：`MicrophoneCapture` / `EnergyVAD` / `_realtime_loop` 原来也在名单里
-    #   （"实时语音被弄丢"）。第 49 轮按用户设计把 STT **接进监控**后，
-    #   前两个已被 `AudioMonitor` 直接使用 → **已从名单移出**（本套件的
-    #   "过期项检查"会强制你做这件事）。`_realtime_loop` 仍是旧的一次性实时循环，
-    #   与新的监控式触发重叠，暂留待用户定夺。
-    "_realtime_loop": "旧的实时转写主循环；第 49 轮改成'音频监控 + VAD 自动触发'后"
-                      "与它职责重叠，暂留待用户确认是否删除",
+    # ★ 第 49 轮：`MicrophoneCapture` / `EnergyVAD` **已移出名单**（被 AudioMonitor 用上了）；
+    #   `_realtime_loop` 也已**删除**（旧实时通路被"音频监控 + VAD 自动触发"取代）。
     # ↓ 测试支撑 API：删了会削弱验证能力
     "uninstall_foreground_hook": "真做 UnhookWinEvent 的资源释放；只有测试在调，"
                                  "用于验证'装/卸对称'（生产 install 幂等，进程只活一次）",

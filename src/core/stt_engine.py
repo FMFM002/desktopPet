@@ -13,7 +13,6 @@ STT (语音转文字) 引擎 — 基于 Whisper 的实时/离线语音识别
 - 支持中文/英文/多语言
 """
 import os
-import time
 import threading
 import logging
 import tempfile
@@ -165,10 +164,7 @@ class STTEngine:
         self._whisper_cli = None
 
         # 回调
-        self.on_transcription: Optional[Callable[[str], None]] = None
         self.on_partial: Optional[Callable[[str], None]] = None
-        self.on_speech_start: Optional[Callable[[], None]] = None
-        self.on_speech_end: Optional[Callable[[], None]] = None
 
     def configure(self, mode: str = None, model_name: str = None, language: str = None):
         # ★ 1.9.0: mode 一律忽略（写死 whisper_local）；只允许改语言。
@@ -338,58 +334,6 @@ class STTEngine:
         return None
 
     # ---- 实时语音识别流 ----
-
-    def _realtime_loop(self):
-        while getattr(self, '_realtime_running', False):
-            try:
-                chunk = self._mic.read_chunk(0.3)
-                if chunk is None:
-                    # ★ 1.8.10: 必须 sleep —— read_chunk() 自己吞掉异常并返回 None，
-                    #   所以外层那个带 sleep 的 except 永远不会被触发。
-                    #   设备被拔掉/驱动报错时会变成 100% CPU 空转。
-                    time.sleep(0.1)
-                    continue
-
-                # VAD 检测
-                vad_event = self._vad.process(chunk)
-
-                if self._vad.is_speaking:
-                    self._speech_buffer.append(chunk)
-
-                # 语音结束 → 转写
-                if vad_event and not self._vad.is_speaking and self._speech_buffer:
-                    if self.on_speech_end:
-                        self.on_speech_end()
-                    audio = np.concatenate(self._speech_buffer)
-                    self._speech_buffer.clear()
-                    text = self.transcribe(audio)
-                    if text and self.on_transcription:
-                        self.on_transcription(text)
-
-                # 语音开始
-                if vad_event and self._vad.is_speaking:
-                    if self.on_speech_start:
-                        self.on_speech_start()
-
-                # 超长语音自动分段
-                if self._speech_buffer:
-                    total_dur = sum(len(c) for c in self._speech_buffer) / 16000
-                    if total_dur > 15:
-                        audio = np.concatenate(self._speech_buffer)
-                        self._speech_buffer.clear()
-                        text = self.transcribe(audio)
-                        if text and self.on_partial:
-                            self.on_partial(text)
-
-            except Exception as e:
-                _log.error(f"实时 STT 循环异常: {e}")
-                time.sleep(1)
-
-    def stop_realtime(self):
-        self._realtime_running = False
-        if hasattr(self, '_mic'):
-            self._mic.stop()
-        _log.info("实时 STT 已停止")
 
 
 # ============================================================================

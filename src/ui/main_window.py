@@ -114,7 +114,6 @@ class MainWindow:
         self._visible = True
         self._processing_image = False
         self._last_assistant_text = ""
-        self._stt_active = False
         self._shutting_down = False   # ★ 1.8.5: 退出中 → 监控回调不再落库
         # ★ 1.9.0: 工具推给聊天窗口的附件（图片/文件卡片）待补进会话的正文。
         #   工具回调发生在工具调用链中间，不能当场插 assistant 消息
@@ -277,9 +276,6 @@ class MainWindow:
 
                 _log.debug("加载STT...")
                 self.stt = get_stt()
-                self.stt.on_transcription = self._on_stt_transcription
-                self.stt.on_speech_start = self._on_stt_speech_start
-                self.stt.on_speech_end = self._on_stt_speech_end
 
                 _log.debug("加载用户画像...")
                 self.user_profile = get_profile()
@@ -2613,24 +2609,6 @@ class MainWindow:
         except Exception as e:
             _log.error(f"[主动说话] 工具条目注入失败: {e}", exc_info=True)
 
-    def _on_stt_transcription(self, text: str):
-        """STT 转写完成 → 作为用户消息发送"""
-        if not text or not text.strip():
-            return
-        _log.info(f"STT 识别: {text[:80]}...")
-        # 显示在聊天中
-        self._task_relay.system_msg.emit(f"[语音识别] {text}")
-        self._task_relay.user_msg.emit(text)
-
-    def _on_stt_speech_start(self):
-        """用户开始说话"""
-        self.pet_mgr.set_behavior("思考")
-        self._task_relay.system_msg.emit("[正在聆听...]")
-
-    def _on_stt_speech_end(self):
-        """用户停止说话"""
-        self._task_relay.system_msg.emit("[语音识别中...]")
-
     # ============ 文件上传（视频/音频/文档） ============
 
     def handle_file_upload(self, file_path: str):
@@ -2872,8 +2850,6 @@ class MainWindow:
             except Exception:
                 pass
             try:
-                if self._stt_active:
-                    self.stt.stop_realtime()
                     _log.debug("STT 已停止")
             except Exception:
                 pass
