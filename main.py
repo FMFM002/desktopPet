@@ -76,7 +76,11 @@ if _is_main_process():
 
 if _is_main_process():
     log.info("=" * 50)
-    log.info("铃兰桌宠 v1.5.0 启动中...")
+    # ★★ 1.9.4：版本号从**唯一来源** `src/version.py` 取，不再写字面量。
+    #   这里原来硬编码 "铃兰桌宠 v1.5.0 启动中..."，而 README 标题写的是 v1.8.9
+    #   —— 两个数字互相矛盾、且都落后于实际版本。
+    from src.version import STARTUP_LINE
+    log.info(STARTUP_LINE)
     log.info(f"项目目录: {BASE_DIR}")
     log.info(f"Python: {sys.version}")
     log.info("=" * 50)

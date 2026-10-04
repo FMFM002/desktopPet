@@ -1,4 +1,8 @@
-# 铃兰桌宠（PRTS Desktop Pet）v1.8.9
+# 铃兰桌宠（PRTS Desktop Pet）v1.9.4
+
+> **版本号唯一来源是 [`src/version.py`](src/version.py)** —— 本文标题里的数字必须与它一致，
+> `tools/dev_tests/_test_version_193.py` 会**自动核对**（不一致就报红），避免再出现
+> "README 写 1.8.9、启动日志写 1.5.0"那种互相矛盾的情况。
 
 基于 PySide6 + SQLite + LLM API 的桌面宠物，具备多源数据监控、数据清洗流水线、K-V 长期记忆与用户画像系统。
 
