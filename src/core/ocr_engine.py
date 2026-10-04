@@ -281,29 +281,3 @@ class OCREngine:
         _log.info(f"[OCR] easyocr Reader 已空闲 {idle:.0f}s（>{timeout:.0f}s）"
                   f"→ 已释放（下次 OCR 会重新加载）")
         return True
-
-    def extract_text_with_positions(self, image: Image.Image) -> list[dict]:
-        """带位置信息的 OCR 提取，坐标归一化到 [0, 1]"""
-        if not self._available or self.engine != "tesseract":
-            return []
-        try:
-            import pytesseract
-            data = pytesseract.image_to_data(image, lang=self.lang, output_type=pytesseract.Output.DICT)
-            w, h = image.size
-            results = []
-            for i in range(len(data["text"])):
-                if data["text"][i].strip():
-                    results.append({
-                        "text": data["text"][i],
-                        "x": data["left"][i] / w,
-                        "y": data["top"][i] / h,
-                        "w": data["width"][i] / w,
-                        "h": data["height"][i] / h,
-                        "conf": data["conf"][i],
-                    })
-            return results
-        except ImportError:
-            return []
-        except Exception as e:
-            _log.error(f"OCR 位置提取失败: {e}")
-            return []

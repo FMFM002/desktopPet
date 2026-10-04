@@ -707,6 +707,59 @@
 ==================================================================
 
 ==================================================================
+四十八、1.9.3 第 41 轮 —— 物理删除"思考子窗口"残留 + 7 个零引用死方法（共 314 行）
+==================================================================
+  （承第 40 轮用户要求："删除冗余代码，修改回归代码"）
+
+  ★★ 一、思考子窗口：从"停用"到**物理删除**（234 行 → 314 行里的 224 行）
+     · 用户第 3 轮的原话是「聊天窗口不再显示思考内容和工具调用，系统信息。**删除相关代码**」，
+       当时只做到"入口变空操作"，面板子系统的**方法、信号、连接点、调用点全留着**。
+     · 这轮把它们一起清掉（`src/ui/chat_widget.py` **-224 行**）：
+       信号 `think_in` / `think_delta_in` / `think_flush_in` 及三处 `connect`；
+       状态 `_think_panels` / `_think_current`；eventFilter 里"重排面板"的分支；
+       `_append_message` / `append_streaming_text` 里的 `_seal_think_panel()`；
+       prepend 后的 `_sync_think_anchor()`；清屏时的面板销毁循环；
+       以及 **19 个空壳方法**：`_prune_think_panels` `_find_think_block` `_find_think_pos`
+       `_dispose_think_panel` `_new_think_panel` `_drop_think_panel` `_ensure_think_panel`
+       `_seal_think_panel` `_on_think_rendered` `_sync_think_anchor`
+       `_reposition_think_panels` `_reposition_think_panel` `_think_flush_main`
+       `_handle_think_in` `_handle_think_delta_in` `_panel_width` `_alive`
+       `think_clear` `think_flush` `append_tool_trace`
+       （它们引用的 `src/ui/think_panel.py` 第 3 轮就已删除）。
+     · `src/ui/main_window.py` 同步删两处**死管线**：
+       `_on_thinking_safe` 里的 `chat.think_delta_in.emit(...)`、
+       `_on_thinking_done_safe` 里的 `chat.think_flush()`
+       （**形象那边的 `pet_mgr.on_thinking_*` 原样保留** —— GIF 表情不能被误删，有断言守着）。
+     · **只留三条惰性入口**：`think_write` / `think_delta` / `think_panel_count` ——
+       它们仍被主窗口与守卫套件调用，保留是为了守住"**调用不崩、且什么都不显示**"这条契约。
+
+  ★★ 二、顺手清掉 7 个"全仓零引用"的死方法（**90 行**）
+     | 文件 | 方法 | 行数 |
+     |---|---|---|
+     | `src/core/database.py` | `delete_below_confidence` | 29 |
+     | `src/core/database.py` | `cleanup_old_memories` | 15 |
+     | `src/core/database.py` | `get_recent_memories` | 5 |
+     | `src/core/database.py` | `get_chat_history` | 4 |
+     | `src/core/ocr_engine.py` | `extract_text_with_positions` | 26 |
+     | `src/core/stt_engine.py` | `get_buffer_duration` | 5 |
+     | `src/core/user_profile.py` | `get_category` | 6 |
+     · 判定口径：**全仓**（含字符串 / `getattr` 形式）除定义行外 **0 处引用**；
+       按 AST 行号精确删除（连紧邻注释块），从后往前删所以行号不会错位。
+     · git 里随时可找回 —— 即使将来又要用，也不慌。
+
+  ★★ 三、守不住的地方：**守卫测试改用 AST，不再用字符串搜索**
+     · 我把 `_test_think_disabled_193.py` 从"停用守卫"升级成"**物理删除守卫**"：
+       三条惰性入口仍要可调用且不显示、面板计数恒 0、聊天仍能渲染，
+       并新增"**这 20 个残留一个都不许回来**"。
+     · ★ 写这条断言时**踩了自己的坑**：先用字符串搜索，结果被**我自己写的注释/docstring**
+       命中（我在 main_window 里写了"原来这里 emit 过 `chat.think_delta_in.emit(...)`"），
+       断言假红。**改成 AST 口径**（只看真正的函数名/属性名/变量名，注释与字符串不算）才对。
+       —— "用字符串判断代码"这件事，第 39 轮栽过一次，这次又栽一次，**记牢**。
+
+  ★ 四、回归：**52 套件 FAIL=0**（留档 `run_all_193_round41.txt`、`run_all_193_round41b.txt`）。
+==================================================================
+
+==================================================================
 四十七、1.9.3 第 40 轮 —— 【A】回归不再依赖用户文件（已验证）；【B】开始清冗余代码
 ==================================================================
   [用户] 只做 A。另外，项目里面有许多冗余代码没有删也是为了回归不红。
@@ -1881,14 +1934,16 @@
         · **A 已完成**：测试不再依赖用户文件（`_fixtures_193.py`，6 个套件已改，
           把 `data/桌宠私有data` 整个移走仍然全绿 —— 已验证）。
         · **B 进行中**：第 40 轮清掉第 1 处（`pptx_tool._crop_to` → `_fit_image_bytes`，
-          不再往用户目录写中间产物）。
-          **清单**：`临时文件/_scratch_dev/死代码候选_第40轮.txt`（101 个候选）。
-          **下一轮先删这一簇**：`chat_widget.py` 里 **思考子窗口的 7 个孤儿方法**
-          （`_find_think_pos` / `_prune_think_panels` / `_new_think_panel` /
-          `_drop_think_panel` / `_ensure_think_panel` / `_reposition_think_panel` /
-          `append_tool_trace`，约 2023、2113~2161 行）——
-          它们引用的 `src/ui/think_panel.py` 第 3 轮就已删除，**删掉零风险**。
-          ⚠️ 注意：候选清单里 `dropEvent` 这类是 **Qt 覆写**（框架调用），**不要删**；
+          不再往用户目录写中间产物）；
+          **第 41 轮清掉两批共 314 行**：① 思考子窗口残留**物理删除**
+          （chat_widget -224 行：信号/状态/19 个空壳方法/所有调用点；
+          main_window 两处死管线；只留 think_write/think_delta/think_panel_count 三条惰性入口）；
+          ② 7 个"全仓零引用"死方法 -90 行（database 4 个、ocr 1 个、stt 1 个、user_profile 1 个）。
+          守卫套件 `_test_think_disabled_193` 升级为"物理删除守卫"，并**改用 AST 口径**
+          （字符串搜索会被自己的注释/docstring 骗到 —— 第 39、41 轮各栽一次）。
+          **清单**：`临时文件/_scratch_dev/死代码候选_第40轮.txt`（101 个候选，已消化 27 个）；
+          下一轮继续从里面挑（`stt_engine` / `pet_manager` / `idle_talker` / `main_window` 几簇）。
+          ⚠️ 候选清单里 `dropEvent` 这类是 **Qt 覆写**（框架调用），**不要删**；
           每一条都要人工确认"真的是死的"。
      · ~~a) `MALFORMED_RESPONSE` 自动重试~~ → **不做：无证据**
        （全日志 0 次；底层"参数非法 JSON"第 18 轮已用 `_repair_json_args` 兜住）；

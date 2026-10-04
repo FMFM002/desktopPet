@@ -1470,26 +1470,19 @@ class MainWindow:
     def _on_thinking_safe(self, text: str):
         """★ 1.5.0: LLM 思考流增量 → 形象线程（思考 GIF）
 
-        ★ 1.9.2（用户任务 4）：同时喂给聊天窗口里那个「思考 / 系统信息」子窗口。
-        走 Signal（跨线程安全），面板高度自适应、5 排字封顶。
+        ★ 1.9.3 第 41 轮：原来这里还会 `chat.think_delta_in.emit(...)` 喂给聊天窗口里
+        那个「思考 / 系统信息」子窗口 —— 用户要求"聊天窗口不再显示思考"，
+        子系统已**物理删除**，这条 emit 随之删掉（信号本身也没了）。
         """
         self.pet_mgr.on_thinking_delta(text)
-        try:
-            self.chat.think_delta_in.emit(text)
-        except Exception as e:
-            _log.debug(f"[思考面板] 写入增量失败: {e}")
 
     def _on_thinking_done_safe(self):
         """★ 1.5.0: 思考结束 → 形象线程立刻按思考内容切换 GIF
 
-        ★ 1.9.2：顺便把思考面板**强制渲染一次**收尾 —— 流式期间是节拍器
-        合并渲染的（每 ~80ms 一次），最后可能有不到一拍的碎片还没上屏。
+        ★ 1.9.3 第 41 轮：原来还会调 `chat.think_flush()` 给面板做收尾渲染；
+        面板已删除，这条调用一并删掉。
         """
         self.pet_mgr.on_thinking_done()
-        try:
-            self.chat.think_flush()
-        except Exception as e:
-            _log.debug(f"[思考面板] 收尾渲染失败: {e}")
 
     def _on_protocol_safe(self, data: dict):
         """★ 1.9.0: 正文里的协议 JSON（`session.on_protocol`）→ 交给形象线程。
@@ -1515,8 +1508,8 @@ class MainWindow:
         arg_str = str(args)
         arg_short = arg_str[:120] + ("..." if len(arg_str) > 120 else "")
         # ★ 跨线程 Signal 发射 → 主线程执行 append_system_msg （不可用 QTimer，非 Qt 线程无事件循环）
-        # ★ 1.9.2：append_system_msg 现在**改投思考面板**（用户要求删掉灰底白字气泡），
-        #   所以这里不再额外 emit 一次 think_in —— 那样面板里会出现两条。
+        # ★ 1.9.3 第 41 轮：思考面板已物理删除，这条 `system_msg_in` 现在由聊天窗口
+        #   按"用户已要求不再显示系统信息"的既定行为处理（`append_system_msg` 已惰性化）。
         self.chat.system_msg_in.emit(f"[调用: {tool_name}({arg_short})]")
 
     def _on_tool_display(self, tool_name: str, arg_short: str):

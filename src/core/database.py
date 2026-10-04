@@ -870,35 +870,6 @@ class LongTermMemoriesDB:
                     "WHERE variable_name=?",
                     (float(new_confidence), variable_name))
             self._conn.commit()
-
-    def delete_below_confidence(self, threshold: float) -> int:
-        """★ 1.7.3: 删除 confidence 低于阈值的条目，返回删除数量。
-        FTS 同步放在 delete()，本方法直接 SQL 批删。
-        """
-        with self._lock:
-            # 先查出 ids（用于 FTS）
-            rows = self._conn.execute(
-                "SELECT id, variable_name FROM long_term_memories WHERE confidence < ?",
-                (float(threshold),)).fetchall()
-            if not rows:
-                return 0
-            ids = [r["id"] for r in rows]
-            names = [r["variable_name"] for r in rows]
-            # 删 FTS
-            try:
-                ph = ",".join("?" * len(ids))
-                self._conn.execute(
-                    f"DELETE FROM fts_long_term_memories WHERE rowid IN ({ph})", ids)
-            except sqlite3.OperationalError:
-                pass
-            # 删主表
-            self._conn.execute("DELETE FROM long_term_memories WHERE confidence < ?",
-                               (float(threshold),))
-            self._conn.commit()
-            _log.info(f"[LTM] 衰减清理: 删除 {len(names)} 条 (confidence<{threshold}) "
-                      f"前 3 条: {names[:3]}")
-            return len(names)
-
     def get_all_for_decay(self) -> list[dict]:
         """★ 1.7.3: 拉所有条目供衰减计算用（全量列）。"""
         with self._lock:
@@ -951,11 +922,6 @@ class Database:
                 category=m.get("category", "general"),
                 source=m.get("source", "screen"),
                 importance=m.get("importance", 1))
-
-    def get_recent_memories(self, limit: int = 20) -> list[dict]:
-        """兼容旧接口"""
-        return self.raw.get_uncleaned(limit)
-
     def search_memories(self, keyword: str, limit: int = 10) -> list[dict]:
         return self.raw.search_raw(keyword, limit)
 
@@ -967,10 +933,6 @@ class Database:
     def add_chat_history(self, role: str, content: str, tool_name: str = None,
                          tool_call_id: str = None, topic_id: int = None):
         self.chat.add(role, content, tool_name, tool_call_id, topic_id)
-
-    def get_chat_history(self, limit: int = 50, topic_id: int = None) -> list[dict]:
-        return self.chat.get_recent(limit, topic_id)
-
     def search_chat_fts(self, keyword: str, limit: int = 20) -> list[dict]:
         return self.chat.search(keyword, limit)
 
@@ -1027,21 +989,6 @@ class Database:
 
     def get_topic_messages(self, topic_id: int) -> list[dict]:
         return self.chat.get_topic_messages(topic_id)
-
-    # ---- 清理 ----
-
-    def cleanup_old_memories(self, days: int = 30):
-        """清理 raw_events 中超过 N 天的已清洗记录"""
-        # SQLite 日期过滤
-        from datetime import datetime as dt
-        cutoff = dt.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        from datetime import timedelta
-        cutoff -= timedelta(days=days)
-        cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
-        self.raw._conn.execute(
-            "DELETE FROM raw_events WHERE cleaned=1 AND created_at < ?",
-            (cutoff_str,))
-        self.raw._conn.commit()
 
     def close(self):
         self.raw.close()

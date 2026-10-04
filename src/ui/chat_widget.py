@@ -366,12 +366,6 @@ class ChatWidget(QWidget):
     #     （**只显示、不落库、不进 session.messages、不喂 LTM**，用户原话）。
     direct_dispatch_request = Signal()
     bot_text_in = Signal(str)
-    # ★ 1.9.2（用户任务 4）：思考 / 系统信息 子窗口的跨线程入口
-    think_in = Signal(str, str)        # (一行文本, kind: think|system)
-    think_delta_in = Signal(str)       # 流式思考增量
-    # ★ 1.9.2：跨线程安全的"收尾渲染"入口 —— `_on_thinking_done_safe` 是在
-    #   session 的后台线程里调的，直接碰 Qt 控件会访问违例（真机崩过）。
-    think_flush_in = Signal()
 
     # 话题相关（★ 1.6.0: 一个角色一个窗口，只有「开启新话题 / 总结旧话题」两个动作）
     new_topic_request = Signal()
@@ -585,15 +579,10 @@ class ChatWidget(QWidget):
         self._chat_display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         chat_layout.addWidget(self._chat_display, stretch=1)
 
-        # ★ 1.9.2（用户任务 4）：嵌在消息流里的"思考 / 系统信息"子窗口。
-        #   它是 _chat_display.viewport() 的**真子控件**（不是画在富文本里），
-        #   位置由文档里的一张占位图决定 → 跟着消息流一起滚；
-        #   内部有自己的 QScrollArea → 内层能独立滚（富文本做不到这个）。
-        #   ★ 用户 22:05 修订：**每轮一个**（不是全程共用一个）。
-        self._think_panels: list = []      # [{"key","panel","fmt"}]
-        self._think_current = None         # 本轮正在写的那一个
-        self._chat_display.verticalScrollBar().valueChanged.connect(
-            self._reposition_think_panels)
+        # ★ 1.9.3 第 41 轮：思考/系统信息子窗口的残留**物理删除**。
+        #   用户「聊天窗口不再显示思考内容和工具调用、系统信息」这条早已落地，
+        #   第 3 轮只是把入口变空操作，面板子系统与一堆空壳方法一直留着 ——
+        #   现在连方法、信号、连接点、调用点一起清掉。
         self._chat_display.installEventFilter(self)
 
         # 输入区
@@ -685,11 +674,7 @@ class ChatWidget(QWidget):
         self.bot_text_in.connect(lambda t: self._append_message("assistant", t))
         # ★ 1.9.1: 原来这里把 topic_list_refresh_in 转发成"刷新侧栏书签"的请求。
         #   书签删了 → 删掉这条转发；总结完成后由主窗口直接接 summary_done_in。
-        # ★ 1.9.2（用户任务 4）：思考 / 系统信息 子窗口
-        self.think_in.connect(self._handle_think_in)
-        self.think_delta_in.connect(self._handle_think_delta_in)
-        # ★ 1.9.2：收尾渲染也走信号（后台线程调 think_flush 时会被转到这里）
-        self.think_flush_in.connect(self._think_flush_main)
+        # ★ 1.9.3 第 41 轮：思考/系统信息子窗口的三个信号连接已随子系统一起删除。
 
     def _style_sheet(self, ui_bg: str, chat_bg: str) -> str:
         """生成主样式表（无边框圆角窗口）"""
@@ -878,17 +863,8 @@ class ChatWidget(QWidget):
                         return True     # 我们处理了 → 别再让 QLineEdit 粘一次
             except Exception as e:
                 _log.debug(f"粘贴处理失败: {e}")
-        # ★ 1.9.2（用户任务 4）：聊天区尺寸变了 → 思考面板的宽度/位置也跟着算一遍
-        elif obj is getattr(self, "_chat_display", None) and event.type() == QEvent.Resize:
-            try:
-                if self._think_panels:
-                    w = self._panel_width()
-                    for _e in list(self._think_panels):
-                        _e["panel"].setFixedWidth(w)
-                        _e["panel"]._relayout_height()
-                    self._on_think_rendered()
-            except Exception as e:
-                _log.debug(f"思考面板随聊天区重排失败: {e}")
+        # ★ 1.9.3 第 41 轮：这里原来还有一条"聊天区尺寸变了 → 重排思考面板"的分支，
+        #   已随面板子系统一起删除。
         return super().eventFilter(obj, event)
 
     def _try_paste_attachment(self) -> bool:
@@ -1701,10 +1677,6 @@ class ChatWidget(QWidget):
 
     def _append_message(self, role: str, text: str):
         """插入一条消息（★ 1.9.0: 同时登记气泡区间）"""
-        # ★ 1.9.2: 桌宠正文出现 = 本轮结束 → 把本轮的思考面板封口，
-        #   下一轮第一次思考写入时会自动开一个新面板（"每轮都出现"的关键）
-        if role == "assistant":
-            self._seal_think_panel()
         self._chat_display.moveCursor(QTextCursor.End)
         _start = self._chat_display.textCursor().position()
         if role == "user":
@@ -1839,11 +1811,6 @@ class ChatWidget(QWidget):
                     sb2.setValue(max(0, old_val + add))
                 except Exception:
                     pass
-                try:
-                    self._sync_think_anchor()
-                    self._reposition_think_panels()
-                except Exception:
-                    pass
 
             QTimer.singleShot(0, _after_prepend)
             _log.info(f"[聊天历史] prepend {len(items)} 条（+{delta} 字符，"
@@ -1966,8 +1933,6 @@ class ChatWidget(QWidget):
         self._stream_buffer += text
         if self._last_role != "assistant":
             self._last_role = "assistant"
-            # ★ 1.9.2: 正文开始流式输出 = 本轮思考结束 → 封口，下一轮另开一个面板
-            self._seal_think_panel()
             self._chat_display.moveCursor(QTextCursor.End)
             self._stream_start = self._chat_display.textCursor().position()
             # ★ 1.9.0: 流式这条只登记一次区间，之后每帧更新 end
@@ -2020,189 +1985,39 @@ class ChatWidget(QWidget):
     # 工具追踪
     # ══════════════════════════════════════════
 
-    def append_tool_trace(self, icon: str, label: str, detail: str = ""):
-        detail_html = ""
-        if detail:
-            detail_html = f'<br><span style="color:#888;font-size:10px;">{detail}</span>'
-        self._chat_display.moveCursor(QTextCursor.End)
-        escaped_icon = icon.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        escaped_label = label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        self._chat_display.insertHtml(
-            f'<div style="margin:4px 0; padding:6px 10px; background:#f0f0f5; '
-            f'border-left:3px solid #007aff; border-radius:4px;">'
-            f'<span style="color:#007aff;font-size:11px;font-weight:bold;">{escaped_icon} {escaped_label}</span>'
-            f'{detail_html}</div><br>')
-        self._chat_display.moveCursor(QTextCursor.End)
-        sb = self._chat_display.verticalScrollBar()
-        sb.setValue(sb.maximum())
-
     # ══════════════════════════════════════════
-    # ★ 1.9.2（用户任务 4）：消息流里的「思考 / 系统信息」子窗口
+    # 思考 / 系统信息：**不显示**（面板子系统已物理删除）
     # ══════════════════════════════════════════
     #
-    # 做法：在文档末尾插一张**占位图**（1×1 透明），真面板是
-    # `_chat_display.viewport()` 的子控件，按占位图所在的 blockRect 定位。
-    # 于是它天然"嵌在消息流里、跟着一起滚"，同时因为是真控件，
-    # 内部能挂自己的 QScrollArea（内层独立滚动）。
+    # ★ 1.9.3 第 3 轮（用户原话）：「聊天窗口不再显示思考内容和工具调用，系统信息。
+    #   删除相关代码。」当时只做到"入口变空操作"；**第 41 轮把子系统整体物理删除**：
+    #     · 信号 `think_in` / `think_delta_in` / `think_flush_in` 与它们的 connect；
+    #     · `_think_panels` / `_think_current` 状态；
+    #     · eventFilter 里"重排面板"的分支、`_append_message` / `append_streaming_text`
+    #       里的 `_seal_think_panel()`、prepend 后的 `_sync_think_anchor()`、
+    #       清屏时的面板销毁循环；
+    #     · 十几个空壳方法：`_prune_think_panels` `_find_think_block` `_find_think_pos`
+    #       `_dispose_think_panel` `_new_think_panel` `_drop_think_panel`
+    #       `_ensure_think_panel` `_seal_think_panel` `_on_think_rendered`
+    #       `_sync_think_anchor` `_reposition_think_panels` `_reposition_think_panel`
+    #       `_think_flush_main` `_handle_think_in` `_handle_think_delta_in`
+    #       `_panel_width` `_alive` `think_clear` `think_flush` `append_tool_trace`
+    #       （它们引用的 `src/ui/think_panel.py` 第 3 轮就已删除）。
     #
-    # 高度变化时改占位图的 height（QTextImageFormat），文档会自动重排，
-    # 不需要重画整段 HTML。
-    #
-    # ★★ 1.9.2 修订（用户 22:05 的批注）：「我要的不是只有一个，是每次
-    #    "用户信息" + "思考/系统信息子窗口" + "LLM回复（包括文件，表情包）"，
-    #    如果没做完，那么后面继续 + "思考/系统信息子窗口" + "LLM回复"」
-    #    —— 原实现在整个会话里**只建了一个面板**并一直复用（永远停在文档末尾），
-    #    所以用户"只看到一眼，后面就再也每出现过了"。
-    #    现在改成**每轮一个**：
-    #        用户消息 → [本轮面板 A] → LLM 回复
-    #                  → [下一轮面板 B] → LLM 回复 …
-    #    · 新面板在"本轮第一次思考/系统写入"时按需创建，插在当前文档末尾；
-    #    · LLM 的**正文**开始流式输出 = 本轮结束 → 封口（seal）；下一次思考
-    #      写入会自动开一个新面板；
-    #    · 于是"没做完就继续"天然成立（工具轮之间会再开一个面板）；
-    #    · 只保留最近 MAX_THINK_PANELS 个（旧的连占位图一起摘掉），
-    #      不让它随会话无限增长。
-    #
-    # ★ 命名而不是存"位置"：每个占位图用**唯一资源名** prts-think-<seq>，
-    #   找 anchor 时按名字扫文档。因为一旦摘掉旧占位图，后面所有字符位置都会
-    #   平移，存下标必然错位（这是踩过的坑）。
-
-    # ★ 1.9.2: 思考面板占位图的宽度固定 1px —— 它只需要占高度。
-    #   设宽了会把 QTextDocument 的理想宽度撑过可视区，启动时聊天记录
-    #   会被横向挤出屏幕（真机报的"UI 左右错位，开启对话后恢复"）。
-
-    # ── ★★ 1.9.2 崩溃修复：面板生命周期安全 ─────────────────────
-    #
-    # 真机事故（用户 23:06）："开启新话题 → 发送你好 → 聊天窗口消失、形象还在
-    # 但点不开、小托盘退出、终端高频报错"。日志证据：
-    #     [ChatWidget] DEBUG: 思考面板定位失败: 'NoneType' object has no attribute 'isValid'
-    # 主进程日志在那一刻**戛然而止**，既没有"退出完成"也没有 Python 崩溃记录
-    # → 静默硬崩溃（Qt 里访问**已被 deleteLater 销毁的 C++ 对象**就是这个症状）。
-    #
-    # 我这块代码原来有两个致命疏忽：
-    #   ① `_find_think_block()` 找不到时会**返回 None**，而调用处一律直接
-    #      `blk.isValid()` → AttributeError（上面那条日志就是它）；
-    #   ② "开启新话题"会 `deleteLater()` 掉旧面板，但 deleteLater 是**延迟销毁**，
-    #      而面板内部还有一个 80ms 的 `_flush_timer` 可能稍后触发、
-    #      `_on_think_rendered` / `think_flush` 也可能去碰那块已释放的内存。
-    #      —— 碰死对象在 PySide6 里往往是**直接访问违例**，不给你 Python 堆栈。
-    #
-    # 现在三条硬规矩：
-    #   A. 找 block 失败返回**无效 block**（不是 None），调用处只需查 isValid()；
-    #   B. 每次用面板之前先 `_panel_alive()` 校验（shiboken6.isValid），
-    #      发现已销毁就把条目摘掉，绝不再碰；
-    #   C. 拆面板时**先停它的节拍器、断开钩子、隐藏、脱离父控件**，再 deleteLater，
-    #      顺序错了就可能留下"定时器还在、对象已死"的窗口。
-
-    @staticmethod
-    def _alive(obj) -> bool:
-        """Qt 对象还活着吗（deleteLater 之后 C++ 侧可能已经没了）。"""
-        if obj is None:
-            return False
-        try:
-            import shiboken6
-            return bool(shiboken6.isValid(obj))
-        except Exception:
-            # 拿不到 shiboken 就退回"属性可访问即算活"（比不判强）
-            try:
-                obj.objectName()
-                return True
-            except Exception:
-                return False
-
-    def _prune_think_panels(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return []
-
-    def _find_think_block(self, key: str):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _find_think_pos(self, key: str) -> int:
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return -1
-
-    def _dispose_think_panel(self, panel):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _new_think_panel(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _drop_think_panel(self, entry):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _ensure_think_panel(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _seal_think_panel(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _panel_width(self) -> int:
-        vp = self._chat_display.viewport().width()
-        return max(120, vp - 8)
-
-    def _on_think_rendered(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _sync_think_anchor(self, entry=None):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _reposition_think_panels(self, *_):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _reposition_think_panel(self, *a):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
+    # 只留下三条**仍被调用**的惰性入口 —— 保留是为了守住"调用不崩、且什么都不显示"
+    # 这条契约（`_test_think_disabled_193.py` 钉着它）。
 
     def think_write(self, text: str, kind: str = "think"):
-        """★ 1.9.3（第 3 轮批注 1）：**聊天窗口不再显示思考 / 工具调用 / 系统信息**。
-
-        用户原话：「聊天窗口不再显示思考内容和工具调用，系统信息。删除相关代码。」
-        → 这三条入口先**停用显示**（只留一条 debug 日志便于排查）。
-          面板子系统的物理删除放下一轮（它被一整套测试钉着，要一起改）。
-        """
-        _log.debug(f"[已隐藏] think_write: {str(locals().get('text', ''))[:60]}")
+        """**已停用**：思考/系统信息不再显示（面板子系统已删除）。"""
+        _log.debug(f"[已隐藏] think_write: {str(text)[:60]}")
 
     def think_delta(self, delta: str):
-        """★ 1.9.3（第 3 轮批注 1）：**聊天窗口不再显示思考 / 工具调用 / 系统信息**。
-
-        用户原话：「聊天窗口不再显示思考内容和工具调用，系统信息。删除相关代码。」
-        → 这三条入口先**停用显示**（只留一条 debug 日志便于排查）。
-          面板子系统的物理删除放下一轮（它被一整套测试钉着，要一起改）。
-        """
-        _log.debug(f"[已隐藏] think_delta: {str(locals().get('text', ''))[:60]}")
-
-    def think_flush(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _think_flush_main(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def think_clear(self):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
+        """**已停用**：思考/系统信息不再显示（面板子系统已删除）。"""
+        _log.debug(f"[已隐藏] think_delta: {str(delta)[:60]}")
 
     def think_panel_count(self) -> int:
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
+        """恒为 0：面板子系统已物理删除（保留这个查询接口给守卫套件）。"""
         return 0
-
-    def _handle_think_in(self, text: str, kind: str):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
-
-    def _handle_think_delta_in(self, delta: str):
-        """★ 1.9.3 批注 1：思考/系统信息**已停用**，这里是空壳（面板子系统已删除）。"""
-        return None
 
     def _get_image_size(file_path: str) -> str:
         try:
@@ -2563,16 +2378,6 @@ class ChatWidget(QWidget):
         self._stream_span = None
         # ★ 1.9.3：文档清空 → 分割线位置也失效（prepend 会回落到"插在开头"）
         self._topic_divider_end = -1
-        # ★ 1.9.2（用户任务 4）：清空聊天时，思考面板的占位图也跟着没了
-        #   （_chat_display.clear() 会把文档清掉）→ 全部安全销毁并复位，
-        #   下次 think_write 会重新插占位图（每轮一个）。
-        #   ★ 崩溃修复：**先**把列表清空再销毁 —— 否则销毁过程中若有
-        #     `_on_think_rendered` 回调进来，会拿到"正在被销毁"的条目。
-        _old = list(self._think_panels)
-        self._think_panels = []
-        self._think_current = None
-        for _e in _old:
-            self._dispose_think_panel(_e.get("panel"))
 
     def reset_stream(self):
         self._last_role = ""

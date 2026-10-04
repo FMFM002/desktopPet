@@ -114,11 +114,6 @@ class MicrophoneCapture:
         except Exception as e:
             _log.debug(f"读取音频块失败: {e}")
             return None
-
-    def get_buffer_duration(self) -> float:
-        total = sum(len(c) for c in self._buffer)
-        return total / self.sample_rate
-
     def pop_audio(self, duration_sec: float) -> Optional[np.ndarray]:
         target = int(duration_sec * self.sample_rate)
         chunks = []

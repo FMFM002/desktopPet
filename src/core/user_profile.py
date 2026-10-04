@@ -58,12 +58,6 @@ class UserProfile:
     def get_trait(self, key: str) -> Optional[dict]:
         with self._lock:
             return self._db.get(key)
-
-    def get_category(self, category: str) -> dict:
-        """获取某个类别下所有特征"""
-        items = self._db.get_by_category(category)
-        return {item["variable_name"]: item for item in items}
-
     def get_all(self) -> dict:
         items = self._db.get_all()
         return {item["variable_name"]: item for item in items}
