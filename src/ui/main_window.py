@@ -34,7 +34,7 @@ from src.utils.config import get_config
 from src.core.session import get_session
 from src.core.monitor import get_monitor, UnifiedMonitor
 from src.core.llm_client import VisionClient, SummarizerClient, switch_provider
-from src.core.database import get_db
+from src.core.database import get_db, SHARED_CHARACTER
 from src.core.tts_engine import get_tts
 from src.core.idle_talker import get_idle_talker
 from src.core.input_monitor import get_input_monitor
@@ -1261,7 +1261,8 @@ class MainWindow:
                 except Exception as _e:
                     _log.debug(f"[聊天分段加载] 连接滚动信号失败: {_e}")
             self.chat.clear_chat()
-            char = getattr(self.session, "character", "") or self.config.pet.character
+            # ★ 1.9.3: 共享工作台 —— 归档段按**共享标记**取（所有形象共用一段历史），
+            #   所以这里不再需要"当前形象名"。
             topic_id = self.session.topic_id
             # ★ 1.9.2（R52）：用户改了设计 —— 不再靠"往上翻触发加载"，
             #   所以这里**不再连接滚动信号**（用户反馈"往上翻没有触发加载"；
@@ -1309,7 +1310,7 @@ class MainWindow:
                 #   而且只回放那么多条。之前写成"N>2 就整段回放归档（最多120条）"，
                 #   所以按一次按钮就把整个上下文摊开了 —— 这是那条反馈的根因。
                 archived = ([] if _slots <= 0 else
-                            [t for t in self.db.list_character_topics(char, limit=50)
+                            [t for t in self.db.list_character_topics(SHARED_CHARACTER, limit=50)
                              if t.get("status") == "archived"])
                 archived = list(reversed(archived))[-2:]   # 最近 2 段，避免界面过长
                 total = 0
@@ -1635,7 +1636,11 @@ class MainWindow:
             except Exception:
                 pass
             try:
-                rid = self.db.chat.add("assistant", text, topic_id=tid)
+                # ★ 1.9.3 第 50 轮补：这两条也是"当前形象说的"，必须带 speaker。
+                #   不带 → 落 NULL → 切到别的形象后会被当成"谁都算自己"，
+                #   正好踩中共享工作台要防的身份误认。
+                rid = self.db.chat.add("assistant", text, topic_id=tid,
+                                       speaker=getattr(self.session, "character", ""))
                 if rid:
                     # 提示语对长期记忆没有语义，别进 LTM 提取队列
                     self.db.chat.mark_processed([rid], 1)
@@ -1721,7 +1726,11 @@ class MainWindow:
         except Exception:
             tid = None
         try:
-            rid = self.db.chat.add("assistant", text, topic_id=tid)
+            # ★ 1.9.3 第 50 轮补：这两条也是"当前形象说的"，必须带 speaker。
+            #   不带 → 落 NULL → 切到别的形象后会被当成"谁都算自己"，
+            #   正好踩中共享工作台要防的身份误认。
+            rid = self.db.chat.add("assistant", text, topic_id=tid,
+                                   speaker=getattr(self.session, "character", ""))
         except Exception as e:
             _log.warning(f"附件落库失败: {e}")
         else:

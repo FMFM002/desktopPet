@@ -832,8 +832,12 @@ class _FakeChatStore:
     def __init__(self):
         self.rows, self.marked = [], []
 
-    def add(self, role, content, tool_name=None, tool_call_id=None, topic_id=None):
-        self.rows.append((role, content, topic_id))
+    def add(self, role, content, tool_name=None, tool_call_id=None, topic_id=None,
+            speaker=None):
+        # ★ 1.9.3 第 50 轮：生产代码的 `db.chat.add("assistant", ...)` 现在会带
+        #   `speaker=`（共享工作台要记录"这句话是哪个形象说的"，否则切换形象后
+        #   附件消息会被误认成当前形象说的）。桩必须跟上，否则 TypeError。
+        self.rows.append((role, content, topic_id, speaker))
         return 42
 
     def mark_processed(self, ids, flag):

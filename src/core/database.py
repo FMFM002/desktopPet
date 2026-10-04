@@ -257,10 +257,17 @@ class RawMonitorDB:
 # 聊天记录 DB（chat_records.db）
 # ====================================================================
 
+# ★ 1.9.3（用户 2026-10-04 拍板）：**共享工作台**。
+#   所有形象共用**同一个**话题/上下文，切换形象只是换 persona 与"谁在回复"；
+#   聊天窗口像群聊一样保留全部历史。
+#   话题表里的 `character` 列从此固定写这个标识（不再写形象名），
+#   消息表用 `speaker` 列记录"这句话是谁说的"，供拼上下文时加 [名字]： 前缀。
+SHARED_CHARACTER = "__shared__"
+
 _CHAT_DDL = """
 CREATE TABLE IF NOT EXISTS topics (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    character       TEXT    DEFAULT '',       -- ★ 1.6.0: 所属角色（一个角色一个窗口/连续上下文）
+    character       TEXT    DEFAULT '',       -- ★ 1.6.0: 所属角色；★ 1.9.3: 共享工作台固定为 SHARED_CHARACTER
     title           TEXT    DEFAULT '',       -- 话题标题（由第一轮对话自动生成）
     title_set       INTEGER DEFAULT 0,       -- 0=标题未设置, 1=已设置
     message_count   INTEGER DEFAULT 0,       -- 消息数量
@@ -281,6 +288,7 @@ CREATE TABLE IF NOT EXISTS chat_records (
     tool_name       TEXT    DEFAULT NULL,
     tool_call_id    TEXT    DEFAULT NULL,     -- OpenAI tool_call_id（用于重建 tool_calls 链路）
     memory_processed INTEGER DEFAULT 0,      -- 0=未判断, 1=已处理, -1=失败
+    speaker         TEXT    DEFAULT NULL,     -- ★ 1.9.3: 谁说的（assistant 存形象名；user/tool 留空）
     created_at      TEXT    DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -325,6 +333,20 @@ class ChatRecordsDB:
                     self._conn.execute(f"ALTER TABLE chat_records ADD COLUMN {col} {col_type}")
                 except sqlite3.OperationalError:
                     pass  # 列已存在
+            # ★ 1.9.3: 共享工作台 —— chat_records 增加 speaker 列（这句话是谁说的）。
+            #   这里**先 PRAGMA table_info 判定再 ALTER**：本函数每次启动都会跑，
+            #   必须幂等 —— 列已存在就跳过，重复执行绝不报错。
+            try:
+                _cols = {r["name"] for r in
+                         self._conn.execute("PRAGMA table_info(chat_records)").fetchall()}
+            except sqlite3.OperationalError:
+                _cols = set()   # 表还不存在（全新库）：交给下面的 DDL 建带 speaker 的表
+            if "speaker" not in _cols:
+                try:
+                    self._conn.execute(
+                        "ALTER TABLE chat_records ADD COLUMN speaker TEXT DEFAULT NULL")
+                except sqlite3.OperationalError:
+                    pass  # 并发/重复迁移：列已存在
             # ★ 1.6.0: topics 表迁移（角色 / 状态 / 总结）
             for col, col_type in [("character", "TEXT DEFAULT ''"),
                                   ("status", "TEXT DEFAULT 'active'"),
@@ -498,13 +520,19 @@ class ChatRecordsDB:
     # ── 聊天记录（扩展支持 topic_id）──
 
     def add(self, role: str, content: str, tool_name: str = None,
-            tool_call_id: str = None, topic_id: int = None) -> int:
-        """添加聊天记录，返回 id。自动估算 token 数。"""
+            tool_call_id: str = None, topic_id: int = None,
+            speaker: str = None) -> int:
+        """添加聊天记录，返回 id。自动估算 token 数。
+
+        ★ 1.9.3: speaker = 这句话是谁说的。assistant 消息存当前形象名；
+        user / tool 消息留空（None）。拼上下文时据此决定要不要加 [名字]： 前缀。
+        """
         token_count = ChatRecordsDB._estimate_tokens(content)
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO chat_records (topic_id, role, content, token_count, tool_name, tool_call_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (topic_id, role, content, token_count, tool_name, tool_call_id))
+                "INSERT INTO chat_records (topic_id, role, content, token_count, tool_name, tool_call_id, speaker) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (topic_id, role, content, token_count, tool_name, tool_call_id,
+                 (speaker or None)))
             # 更新话题计数
             if topic_id:
                 self._conn.execute(
@@ -901,8 +929,10 @@ class Database:
     # ---- 聊天记录（兼容旧接口）----
 
     def add_chat_history(self, role: str, content: str, tool_name: str = None,
-                         tool_call_id: str = None, topic_id: int = None):
-        self.chat.add(role, content, tool_name, tool_call_id, topic_id)
+                         tool_call_id: str = None, topic_id: int = None,
+                         speaker: str = None):
+        """★ 1.9.3: speaker = 说话者（assistant 消息传当前形象名，其余留空）"""
+        self.chat.add(role, content, tool_name, tool_call_id, topic_id, speaker)
     # ---- 话题管理 ----
 
     def create_topic(self, title: str = "", character: str = "") -> int:

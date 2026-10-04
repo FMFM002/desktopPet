@@ -15,8 +15,77 @@ from typing import Optional, Callable
 
 from src.core.reply_filter import (ProtocolTailFilter, ToolMarkerTailFilter,
                                    split_protocol)
+# ★ 1.9.3: 共享工作台标识（所有形象共用同一个话题/上下文）
+from src.core.database import SHARED_CHARACTER
 
 _log = logging.getLogger("Session")
+
+# ★ 1.9.3（用户 2026-10-04 拍板）：喂给 LLM 的上下文 = 最近 N 条原始消息 + 更早的摘要。
+RECENT_CONTEXT_LIMIT = 20
+
+
+def build_shared_context(messages: list, current_character: str = "",
+                         summary: str = "",
+                         limit: int = RECENT_CONTEXT_LIMIT) -> list:
+    """★ 1.9.3: 把共享工作台的原始消息装配成**喂给 LLM 的上下文**。
+
+    规则（用户定稿，真机 6 轮验证过）：
+      · `role='user'`            → 原样 user；
+      · `role='assistant'` 且 speaker == 当前形象（或 speaker 为空/NULL）→ 原样 assistant（无前缀）；
+      · `role='assistant'` 且 speaker 是**别的**形象 → 变成 `user` 角色，内容 `[<speaker>]：<content>`；
+      · `role='tool'` 且**当前列表里有配对的 assistant.tool_calls** → 原样保留
+        （本轮对话循环里工具结果必须回传给模型，否则工具调用整条断掉）；
+        配不上对的就是历史遗留/孤儿工具结果 → 跳过（放进请求会 400）。
+
+    最后只把**最近 `limit` 条**非 system 消息放进去（system 消息始终保留），
+    更早的那段折成一条 system 摘要；`summary` 为空时只注明"更早的消息已省略" ——
+    不为此新造一个会调 LLM 的同步轮子。
+
+    `messages` 里的每条消息用可选的 `speaker` 键标明说话者。
+    """
+    # 先收集"这份列表里真实存在的工具调用 id"——只有它们对应的 tool 结果才跟着走。
+    # （库里加载出来的 tool 消息旧行为就是跳过的，这里保持一致；本轮循环里的必须留。）
+    _paired_tc_ids = set()
+    for m in messages:
+        if m.get("role") == "assistant":
+            for tc in (m.get("tool_calls") or []):
+                if isinstance(tc, dict) and tc.get("id"):
+                    _paired_tc_ids.add(tc["id"])
+
+    kept: list = []
+    for m in messages:
+        role = m.get("role")
+        if role == "tool":
+            if m.get("tool_call_id") in _paired_tc_ids:
+                kept.append(m)            # 本轮工具调用链的一部分，必须回传
+            continue                      # 孤儿工具结果不进上下文（否则 400）
+        if role == "assistant" and m.get("tool_calls"):
+            kept.append(m)                # 工具调用链必须保持 assistant
+            continue
+        if role != "assistant":
+            kept.append(m)
+            continue
+        speaker = (m.get("speaker") or "").strip()
+        name = (current_character or "").strip()
+        if speaker and name and speaker != name:
+            kept.append({"role": "user",
+                         "content": f"[{speaker}]：{m.get('content') or ''}"})
+        else:
+            # speaker 为空（历史遗留）或就是当前形象 → 当作"我自己说的"
+            kept.append(m)
+
+    system_msgs = [m for m in kept if m.get("role") == "system"]
+    convo = [m for m in kept if m.get("role") != "system"]
+    if limit and len(convo) > limit:
+        dropped = len(convo) - limit
+        convo = convo[-limit:]
+        note = (summary or "").strip() or f"（更早的 {dropped} 条消息已省略）"
+        system_msgs = system_msgs + [{
+            "role": "system",
+            "content": f"[更早的对话摘要，供你了解来龙去脉，不用复述]\n{note}",
+        }]
+        _log.debug(f"共享上下文装配：折叠更早的 {dropped} 条，保留最近 {limit} 条")
+    return system_msgs + convo
 
 # 项目根目录（多模态直传时把相对图片路径转成绝对路径）
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -363,9 +432,10 @@ class ChatSession:
             return ""
 
     def set_character(self, name: str, load: bool = True):
-        """切换到某角色的对话窗口（每个角色独立的连续上下文）
+        """切换到某个形象（★ 1.9.3: 不再切换上下文窗口，只换 persona 与"谁在回复"）
 
-        切换时先保存当前窗口状态，再为该角色恢复/创建活跃话题并载入消息。
+        所有形象共用**同一个**共享话题，所以这里只更新 `self._character`；
+        上下文/聊天窗口保持不变（原话："切换形象时聊天窗口显示全部历史"）。
         """
         name = (name or "").strip()
         if not name:
@@ -374,7 +444,7 @@ class ChatSession:
             if load:
                 self.load_character_window(name)
             return
-        # ★ 若正在流式输出，先中止，避免回复写进新角色的窗口
+        # ★ 若正在流式输出，先中止，避免回复写进新形象的身份
         if self._streaming:
             _log.info("切换角色前中止进行中的对话")
             self._abort_chat = True
@@ -383,7 +453,7 @@ class ChatSession:
                     break
                 time.sleep(0.1)
         self._character = name
-        _log.info(f"切换角色窗口: {name}")
+        _log.info(f"切换角色: {name}（共享工作台，不换话题）")
         if load:
             self.load_character_window(name)
         if self.on_character_changed:
@@ -393,18 +463,24 @@ class ChatSession:
                 pass
 
     def load_character_window(self, name: str = ""):
-        """载入（或首次创建）某角色的活跃话题及其消息"""
+        """载入（或首次创建）**共享工作台**话题及其消息。
+
+        ★ 1.9.3（用户定稿）：所有形象共用同一个话题 ——
+        永远用 `SHARED_CHARACTER` 去取/建活跃话题，不再按形象名建话题。
+        `name` 只决定"谁在回复/用哪套 persona"。
+        如果话题**已经是当前这个**，就直接返回（不重载），
+        免得把正在进行的对话从内存里冲掉。
+        """
         name = (name or self._character or self._config_character()).strip()
-        if not name:
-            return
-        self._character = name
-        topic = self.db.get_active_topic(name)
+        if name:
+            self._character = name
+        topic = self.db.get_active_topic(SHARED_CHARACTER)
         if topic is None:
-            # 首次进入该角色的窗口：若无任何历史则直接建新话题；
-            # 若有历史（旧版本遗留话题）则继承最近话题的总结作为上下文续接
-            self._topic_id = self.db.create_topic("", name)
+            # 首次进入共享工作台：若无任何历史则直接建新话题；
+            # 若有历史（旧版本遗留的已归档话题）则继承最近话题的总结作为上下文续接
+            self._topic_id = self.db.create_topic("", SHARED_CHARACTER)
             self._first_user_message = None
-            summary = self.db.get_last_archived_summary(name)
+            summary = self.db.get_last_archived_summary(SHARED_CHARACTER)
             with self._lock:
                 self.messages.clear()
                 if summary:
@@ -412,13 +488,17 @@ class ChatSession:
                         "role": "system",
                         "content": f"[上一段对话的总结，用于延续上下文]\n{summary}"
                     })
-            _log.info(f"为角色「{name}」创建新窗口话题 #{self._topic_id}")
+            _log.info(f"为共享工作台创建新话题 #{self._topic_id}（当前形象「{name}」）")
+        elif self._topic_id == topic["id"]:
+            # ★ 已经是同一个共享话题 → 不清空、不重载
+            _log.debug(f"共享话题 #{self._topic_id} 已在内存中，跳过重载"
+                       f"（当前形象「{name}」）")
         else:
             self._topic_id = topic["id"]
             self._first_user_message = None
             self._load_topic_messages(self._topic_id)
-            _log.info(f"恢复角色「{name}」窗口 话题 #{self._topic_id} "
-                      f"({len(self.messages)} 条)")
+            _log.info(f"恢复共享话题 #{self._topic_id} "
+                      f"({len(self.messages)} 条，当前形象「{name}」)")
         self._input_blocked = False
         if self.on_topic_changed and self._topic_id:
             try:
@@ -436,9 +516,9 @@ class ChatSession:
         """总结当前话题（后台线程），并把总结归入新话题的上下文。
 
         日志#443: 开启新话题 / 总结旧话题 / 上下文满自动总结 三者共用此入口。
+        ★ 1.9.3: 共享工作台 —— 归档的是**共享话题**，换出来的新话题仍是共享话题。
         """
         topic_id = self._topic_id
-        character = self._character
         snapshot = []
         with self._lock:
             snapshot = [dict(m) for m in self.messages]
@@ -468,8 +548,8 @@ class ChatSession:
             except Exception as e:
                 _log.warning(f"写入话题总结失败: {e}")
             self._summarizing = False
-            # 回到主流程：创建新话题并把总结作为起始上下文
-            self._start_new_topic_internal(character, summary, reason)
+            # 回到主流程：创建新的**共享**话题并把总结作为起始上下文
+            self._start_new_topic_internal(summary, reason)
 
         threading.Thread(target=_work, daemon=True, name="topic-summarize").start()
 
@@ -495,14 +575,13 @@ class ChatSession:
             text = text[-limit_chars:]
         return text
 
-    def _start_new_topic_internal(self, character: str, summary: str, reason: str):
-        """内部：归档后创建新话题，把总结写入新话题上下文"""
-        # 若总结期间角色已切换，则写回该角色自己的窗口
-        current = self._character
-        topic_id = self.db.create_topic("", character or current)
-        if character != current:
-            _log.info(f"总结期间角色已切换({character}→{current})，总结仅入库不注入")
-            return
+    def _start_new_topic_internal(self, summary: str, reason: str):
+        """内部：归档后创建新的**共享**话题，把总结写入新话题上下文。
+
+        ★ 1.9.3: 话题是共享的，所以不再有"总结期间角色切了就丢弃注入"那一步 ——
+        总结属于共享上下文，换形象也照样续接。
+        """
+        topic_id = self.db.create_topic("", SHARED_CHARACTER)
         self._topic_id = topic_id
         self._first_user_message = None
         self._input_blocked = False
@@ -513,7 +592,7 @@ class ChatSession:
                     "role": "system",
                     "content": f"[上一段对话的总结，用于延续上下文]\n{summary}"
                 })
-        _log.info(f"新话题 #{topic_id} 已创建（角色={character}, 原因={reason}）")
+        _log.info(f"新共享话题 #{topic_id} 已创建（当前形象={self._character}, 原因={reason}）")
         # ★ 用总结内容作为新话题标题，侧栏一眼可见上下文来源
         if summary:
             try:
@@ -556,13 +635,13 @@ class ChatSession:
         if summarize:
             self.summarize_current_topic(then_new_topic=True, reason="旧")
         else:
-            topic_id = self.db.create_topic("", self._character)
+            topic_id = self.db.create_topic("", SHARED_CHARACTER)
             self._topic_id = topic_id
             self._first_user_message = None
             self._input_blocked = False
             with self._lock:
                 self.messages.clear()
-            _log.info(f"用户开启新话题 #{topic_id}（角色={self._character}, 不总结）")
+            _log.info(f"用户开启新共享话题 #{topic_id}（当前形象={self._character}, 不总结）")
             if self.on_system_msg:
                 self.on_system_msg("[已开启新话题]")
             if self.on_input_blocked:
@@ -585,15 +664,15 @@ class ChatSession:
         return self._topic_id
 
     def new_topic(self) -> int:
-        """创建新话题，返回 topic_id（★ 1.6.0: 归属当前角色）"""
+        """创建新的**共享**话题，返回 topic_id（★ 1.9.3: 所有形象共用）"""
         self._save_current_state()
-        topic_id = self.db.create_topic("", self._character)
+        topic_id = self.db.create_topic("", SHARED_CHARACTER)
         self._topic_id = topic_id
         self._first_user_message = None
         self._input_blocked = False
         with self._lock:
             self.messages.clear()
-        _log.info(f"新话题创建: id={topic_id} (角色={self._character})")
+        _log.info(f"新共享话题创建: id={topic_id} (当前形象={self._character})")
         if self.on_topic_changed:
             self.on_topic_changed(topic_id)
         if self.on_input_blocked:
@@ -623,7 +702,7 @@ class ChatSession:
         pass
 
     def _load_topic_messages(self, topic_id: int):
-        """从数据库加载话题消息到内存"""
+        """从数据库加载话题消息到内存（★ 1.9.3: 带上 speaker，供拼上下文时标注身份）"""
         try:
             db_messages = self.db.get_topic_messages(topic_id)
             with self._lock:
@@ -636,10 +715,32 @@ class ChatSession:
                     msg = {"role": role, "content": m["content"]}
                     if m.get("tool_name"):
                         msg["tool_name"] = m["tool_name"]
+                    if m.get("speaker"):
+                        msg["speaker"] = m["speaker"]
                     self.messages.append(msg)
             _log.debug(f"加载话题 #{topic_id} 消息: {len(self.messages)} 条")
         except Exception as e:
             _log.warning(f"加载话题消息失败: {e}")
+
+    def _build_llm_messages(self) -> list[dict]:
+        """★ 1.9.3: 装配喂给 LLM 的**共享工作台上下文**。
+
+        self.messages 保留的是"聊天窗口要显示的完整历史"；
+        真正发给模型的是这里的结果：最近 RECENT_CONTEXT_LIMIT 条原文
+        + 更早那段折成的一条 system 摘要（规则见 build_shared_context）。
+        """
+        with self._lock:
+            snapshot = [dict(m) for m in self.messages]
+        summary = ""
+        if self._topic_id is not None:
+            try:
+                summary = self.db.get_topic_summary(self._topic_id) or ""
+                if not summary:
+                    summary = self.db.get_last_archived_summary(
+                        SHARED_CHARACTER, self._topic_id) or ""
+            except Exception as e:
+                _log.debug(f"取共享话题摘要失败（按无摘要处理）: {e}")
+        return build_shared_context(snapshot, self._character, summary)
 
     def _check_token_limit(self):
         """★ 1.6.0: 上下文接近上限时自动总结旧话题并开启新话题（不再阻断输入）"""
@@ -705,22 +806,11 @@ class ChatSession:
     # ══════════════════════════════════════════════════
 
     def load_history(self):
-        """★ 1.6.0: 载入当前角色的对话窗口（一个角色一个连续窗口）"""
+        """★ 1.9.3: 载入**共享工作台**的对话窗口（所有形象共用一段连续上下文）"""
         try:
-            name = self._config_character()
-            if not name:
-                # 兜底：无可识别角色时退回最近话题
-                topics = self.db.list_topics()
-                if topics:
-                    self._topic_id = topics[0]["id"]
-                    self._character = topics[0].get("character", "") or ""
-                    self._load_topic_messages(self._topic_id)
-                    if self.on_topic_changed:
-                        self.on_topic_changed(self._topic_id)
-                else:
-                    self.new_topic()
-                return
-            self.load_character_window(name)
+            # ★ 1.9.3: 共享工作台 —— 不再按形象名找回自己的窗口；
+            #   配置里读不到形象名也能照常载入共享话题（load_character_window 允许空名）。
+            self.load_character_window(self._config_character() or self._character)
         except Exception as e:
             _log.warning(f"加载历史失败: {e}")
 
@@ -1232,7 +1322,7 @@ class ChatSession:
 
             try:
                 with self._lock:
-                    messages_snapshot = self._prepare_messages(list(self.messages))
+                    messages_snapshot = self._prepare_messages(self._build_llm_messages())
                 _log.debug(f"第{round_count}轮: 发起流式请求 ({len(messages_snapshot)}条消息)...")
                 stream = self.client.chat_stream(messages_snapshot)
                 content_buffer = ""
@@ -1568,13 +1658,16 @@ class ChatSession:
                                   f"{thinking_buffer}")
                     _log.debug(f"LLM回复: {content_buffer}")
                     with self._lock:
-                        msg_dict = {"role": "assistant", "content": content_buffer}
+                        msg_dict = {"role": "assistant", "content": content_buffer,
+                                    "speaker": self._character}
                         # ★ 1.5.0: 思考模型需要把 reasoning_content 回传给 API
                         if thinking_buffer:
                             msg_dict["reasoning_content"] = thinking_buffer
                         self.messages.append(msg_dict)
                     try:
-                        self.db.add_chat_history("assistant", content_buffer, topic_id=self._topic_id)
+                        self.db.add_chat_history("assistant", content_buffer,
+                                                 topic_id=self._topic_id,
+                                                 speaker=self._character)
                     except Exception:
                         pass
 
@@ -1714,7 +1807,7 @@ class ChatSession:
             _log.info(f"边界轮 #{boundary_rounds}: 追加处理...")
             try:
                 with self._lock:
-                    messages_snapshot = self._prepare_messages(list(self.messages))
+                    messages_snapshot = self._prepare_messages(self._build_llm_messages())
                 response = self.client.chat(messages_snapshot)
                 if not response or not response.choices:
                     _log.debug(f"边界轮 #{boundary_rounds}: LLM 无有效响应")
@@ -1780,14 +1873,17 @@ class ChatSession:
                     tool_just_executed = True  # 继续下一轮
                 elif content.strip():
                     with self._lock:
-                        _bt_msg = {"role": "assistant", "content": content}
+                        _bt_msg = {"role": "assistant", "content": content,
+                                   "speaker": self._character}
                         # ★ 1.6.0: 同样回传 reasoning_content（thinking 模式必需）
                         _bt_think = getattr(msg, "reasoning_content", None)
                         if _bt_think:
                             _bt_msg["reasoning_content"] = _bt_think
                         self.messages.append(_bt_msg)
                     try:
-                        self.db.add_chat_history("assistant", content, topic_id=self._topic_id)
+                        self.db.add_chat_history("assistant", content,
+                                                 topic_id=self._topic_id,
+                                                 speaker=self._character)
                     except Exception:
                         pass
                     # ★ 修复"回复重复"：流式阶段已通过 on_text(delta.content) 增量推送，

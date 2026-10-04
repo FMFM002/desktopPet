@@ -56,23 +56,31 @@ for tid in (t_a, t_b, t_a2):
     db_chat.delete_topic(tid)
 check("清理完成", db_chat.count_character_messages("甲") == 0)
 
-# ── 2. 会话层：角色窗口切换 ──
-print("== 2. 会话角色窗口 ==")
+# ── 2. 会话层：★ 1.9.3 共享工作台（所有形象共用同一个话题）──
+print("== 2. 会话共享工作台 ==")
 from src.core.session import ChatSession
+from src.core.database import SHARED_CHARACTER
 s = ChatSession()
 s._config_character = lambda: "甲"      # 绕开真实 config
 s.set_character("甲")
-check("set_character 建立窗口", s.character == "甲" and s.topic_id is not None)
+check("set_character 建立共享话题", s.character == "甲" and s.topic_id is not None)
 tid_a = s.topic_id
 s.messages.append({"role": "user", "content": "甲的消息"})
 s.set_character("乙")
-check("切到乙：窗口独立", s.character == "乙" and s.topic_id != tid_a
-      and all("甲的消息" not in (m.get("content") or "") for m in s.messages))
+# ★ 1.9.3 新设计：切形象**不换话题、不清空上下文**（原断言是"窗口独立"，
+#   那是"一形象一话题"时代的规则，已被用户 2026-10-04 的定稿取代）
+check("★切到乙：共用同一个话题且上下文不被冲掉",
+      s.character == "乙" and s.topic_id == tid_a
+      and any("甲的消息" in (m.get("content") or "") for m in s.messages))
+check("★话题挂在共享标记下（不再按形象名建话题）",
+      s.db.get_active_topic(SHARED_CHARACTER)["id"] == tid_a
+      and s.db.list_character_topics("甲") == [] and s.db.list_character_topics("乙") == [])
 s.set_character("甲")
-check("切回甲：恢复原话题", s.topic_id == tid_a)
+check("切回甲：还是同一个话题", s.topic_id == tid_a)
 s.set_character("乙")
 s.start_new_topic(summarize=False)
-check("开启新话题清空上下文", len(s.messages) == 0 and s.topic_id is not None)
+check("开启新话题清空上下文", len(s.messages) == 0 and s.topic_id is not None
+      and s.topic_id != tid_a)
 
 # 总结链路（打桩 SummarizerClient，避免真实 API）
 print("== 3. 总结 → 新话题 链路 ==")
@@ -104,7 +112,8 @@ check("新话题继承总结", any("上一段对话的总结" in (m.get("content
 check("旧话题已归档",
       db_chat.get_topic_summary(old_topic) != "" or
       s2.db.get_topic_summary(old_topic) != "")
-check("旧话题状态=archived", s2.db.get_active_topic("丙")["id"] != old_topic)
+check("旧话题状态=archived",
+      s2.db.get_active_topic(SHARED_CHARACTER)["id"] != old_topic)
 
 # 清理
 for tid in (tid_a, s.topic_id, old_topic, s2.topic_id):

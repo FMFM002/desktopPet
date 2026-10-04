@@ -357,6 +357,19 @@ class SummarizerClient:
 class ChatClient:
     """LLM2 - 对话客户端：多轮对话 + 工具调用"""
 
+    # ★ 1.9.3（用户 2026-10-04 定稿，真机 6 轮实测身份混乱 0 处）：
+    #   **共享工作台的身份标注说明** —— 所有形象共用同一段对话历史，
+    #   历史里别人的发言会被拼成 `[名字]：内容` 的 user 消息，
+    #   这一段是实测唯一不可省的一句，必须进系统提示词。
+    _SHARED_CONTEXT_NOTE = (
+        "★ 这是一个多人共享的工作台：主人会在不同角色之间切换。\n"
+        "对话历史里，以 `[某个名字]：` 开头的发言是那个角色说的，不是你。\n"
+        "你自己的历史发言没有前缀。绝对不要把别人说的话当成自己说的，"
+        "也不要给自己加 [名字]： 前缀。"
+    )
+    #   进缓存键用的版本标记：这一段变了就必须重建提示词缓存。
+    _SHARED_CONTEXT_TAG = "shared_identity_v1"
+
     # 默认模板（支持变量替换）
     _DEFAULT_PROMPT = """你是一个可爱的桌面宠物助手，名叫"{character}"。
 你生活在用户的桌面上，可以观察用户的活动并提供帮助。
@@ -663,11 +676,12 @@ class ChatClient:
         # 构建工具列表文本
         tools_text = self._build_tools_text()
 
-        # 生成缓存键（包含工具列表 + 新版规则开关）
+        # 生成缓存键（包含工具列表 + 新版规则开关 + 共享工作台标注版本）
         cache_key = (f"{cfg.character}|{cfg.reply_style}|{cfg.emoji_level}|"
                      f"{cfg.personality_prompt}|{len(self.tools)}|"
                      f"{getattr(cfg, 'no_markdown', None)}|{getattr(cfg, 'no_action_description', None)}|"
-                     f"{getattr(cfg, 'meme_tendency', None)}|{getattr(cfg, 'gif_reaction', None)}")
+                     f"{getattr(cfg, 'meme_tendency', None)}|{getattr(cfg, 'gif_reaction', None)}|"
+                     f"{self._SHARED_CONTEXT_TAG}")
         if cache_key == self._cached_prompt_hash and self._cached_prompt:
             return self._cached_prompt
 
@@ -680,6 +694,8 @@ class ChatClient:
             prompt = prompt.replace("{style}", cfg.reply_style)
             prompt = prompt.replace("{emoji}", cfg.emoji_level)
             prompt = prompt.replace("{tools}", tools_text)
+            # ★ 1.9.3: persona 之后、rules 之前 → 共享工作台身份标注
+            prompt += "\n\n══════════════════════════════════════\n" + self._SHARED_CONTEXT_NOTE + "\n"
             prompt += rules
             prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
             self._cached_prompt = prompt
@@ -706,6 +722,8 @@ class ChatClient:
             tools_list=tools_text,
         )
         prompt += rules          # ★ 1.9.0: 默认模板分支也要带上输出/行为控制
+        # ★ 1.9.3: 共享工作台身份标注（所有分支都要带；已进 cache_key）
+        prompt += "\n\n══════════════════════════════════════\n" + self._SHARED_CONTEXT_NOTE + "\n"
         prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
         self._cached_prompt = prompt
         self._cached_prompt_hash = cache_key

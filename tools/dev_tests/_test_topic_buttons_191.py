@@ -49,7 +49,7 @@ CHAR = "测试角色_话题191"
 
 # ── 1. DB：历史消息（排除当前话题）──
 print("== 1. 角色历史消息 ==")
-from src.core.database import get_db  # noqa: E402
+from src.core.database import get_db, SHARED_CHARACTER  # noqa: E402
 
 db = get_db()
 
@@ -74,6 +74,19 @@ hist = db.get_character_history_messages(CHAR, exclude_topic=t2, limit=50)
 check("历史含旧话题消息", len(hist) == 2, f"{len(hist)}")
 check("历史不含当前话题消息", all("再见" not in (m["content"] or "") for m in hist))
 check("历史按时间正序", hist[0]["content"] == "第一段：你好")
+
+# ★ 1.9.3（共享工作台）：聊天窗口重画时"归档段"是按**共享标记**取的
+#   （所有形象共用一段历史），所以这里额外造一段**共享**归档话题。
+#   原来那段归档挂在 CHAR 名下 —— 那是"一形象一话题"的旧设计，已按新设计改。
+for _old_shared in db.list_character_topics(SHARED_CHARACTER, limit=500):
+    try:
+        db.delete_topic(_old_shared["id"])
+    except Exception:
+        pass
+t_shared_old = db.create_topic("", SHARED_CHARACTER)
+db.add_chat_history("user", "第一段：你好", topic_id=t_shared_old)
+db.add_chat_history("assistant", "第一段：你好呀", topic_id=t_shared_old)
+db.archive_topic(t_shared_old, "共享：用户打了招呼")
 
 # ── 2. 左上角：形象名 + tokens ──
 print("\n== 2. 左上角「形象名 · tokens」==")
@@ -259,6 +272,7 @@ check("★按过'加载历史'后归档话题会回来",
 # 清理
 db.delete_topic(t1)
 db.delete_topic(t2)
+db.delete_topic(t_shared_old)
 
 print("\n结果:", "ALL PASS" if ok else "FAILED")
 sys.exit(0 if ok else 1)
