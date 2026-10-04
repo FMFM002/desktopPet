@@ -290,13 +290,6 @@ def _repair_json(raw: str) -> str:
     return s
 
 
-@dataclass
-class SessionMessage:
-    role: str
-    content: str
-    tool_name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-
 
 class ChatSession:
     """聊天会话 - 多轮循环 + 话题管理"""

@@ -444,6 +444,3 @@ def on_tool_unloaded():
         _explicit_start_ts = 0.0        # 关掉了就清账
 
 
-def idle_free_disabled_by_hook() -> bool:
-    """这个函数只是给回归断言留个锚点，说明"空闲自动释放已改由卸载钩子统一负责"。"""
-    return True

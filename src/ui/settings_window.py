@@ -175,10 +175,6 @@ class _WheelGuard(QObject):
         self._win = win
 
     @staticmethod
-    def _is_value_widget(obj) -> bool:
-        return isinstance(obj, (QComboBox, QAbstractSpinBox, QSlider))
-
-    @staticmethod
     def _value_ancestor(obj):
         """往上找：obj 本身或它的某个祖先是"取值控件"吗？返回那个控件或 None。
 

@@ -707,6 +707,66 @@
 ==================================================================
 
 ==================================================================
+四十九、1.9.3 第 42 轮 —— **"全仓 0 引用"≠死代码**（我差点删掉一个功能）+ 保守版清 127 行
+==================================================================
+  （承用户要求："删除冗余代码，修改回归代码"）
+
+  ★★ 一、先说**我这一轮差点闯的祸**（这是本轮最重要的产出）
+     · 我把死代码扫描升级成"区分**真死** / **只被测试引用**"，扫出
+       **74 个真死 + 11 个被测试养着**，然后按"全仓 0 引用"一口气删了 **438 行**。
+     · 结果 `_test_a190` **立刻红 3 条**，而且**红得有道理**：
+       | 被删的 | 它其实是什么 |
+       |---|---|
+       | `toggle_stt` | **功能入口**："切换 STT 实时监听"，还带着 1.9.0 修的"别硬编码覆盖用户 STT 配置" |
+       | `_init_faster_whisper` / `_init_whisper_cpp` / `_auto_detect` | **STT 后端初始化器**（按配置选后端） |
+       | `transcribe_simple` | whisper 的对外 API |
+       | `install_ocr_package` / `get_tesseract_install_hint` | **给用户的安装引导** |
+       | `on_shortcut` | 剪贴板 copy/cut/paste 钩子 |
+     · **教训**：**"全仓 0 引用"只说明"当下没接线"，不说明"没人要"。**
+       区分二者要看**意图**：
+         · **内部遗留**（被新实现取代的旧类/旧包装/旧查询）→ 可删；
+         · **对外能力**（功能入口、后端、安装引导、公开 API）→ **不删**。
+     · 于是**整批回退**，改成保守版：只删明确是**内部遗留**的。
+
+  ★★ 二、另一个差点踩的雷：**动态派发**
+     · `src/core/pet_manager.py:358` 有
+       `getattr(self, f"_do_{cmd}", lambda a: None)(arg)` ——
+       `_do_set_scale` / `_do_switch_character` / `_do_startup_gif_finished`
+       全是**动态调用**的，静态扫描一个引用都看不见。
+     · **如果不查这一条，就会把形象的命令分发全删掉。**
+     · 做法：全仓搜 `getattr/hasattr/setattr/eval` → 确认**唯一**的名字拼接派发
+       就是这一处 → **所有 `_do_*` 一律列入禁删**。
+     · 也已经把 `_vendor/`（vendored 第三方 pixivpy3）和 `dev_tests/_diag_*` 排除。
+
+  ★ 三、保守版实际删了什么（**127 行**，全部是"被取代的内部遗留"）
+     | 文件 | 删除 |
+     |---|---|
+     | `src/core/llm_client.py` | `LLMClient`（旧客户端类，现用 ChatClient/SummarizerClient/VisionClient）、`recognize_image` |
+     | `src/core/session.py` | `SessionMessage`（旧 dataclass，现直接用 dict） |
+     | `src/core/user_profile.py` | `get_trait`（旧查询包装） |
+     | `src/core/database.py` | `search_memories` / `search_memories_fts` / `search_chat_fts` |
+     | `tools/long_term_memory_tool.py` | `get_description` / `get_function_def` |
+     | `src/core/comfyui_jobs.py` | `idle_free_disabled_by_hook` |
+     | `src/ui/settings_window.py` | `_is_value_widget` |
+     | `src/ui/chat_widget.py` | `_hex_to_rgba` / `show_at` / `_on_chat_menu` |
+
+  ★ 四、**踩到的第二个技术坑**：删函数要**连装饰器一起删**
+     · 上一版把 `@staticmethod` 留下了（span 从 `def` 开始算），
+       删完 `chat_widget.py` **直接 IndentationError**。
+     · 已改：先往上吃 `@装饰器`，再吃紧邻注释。
+
+  ★ 五、**待你拍板**（我没删，列成清单了）
+     · `临时文件/_scratch_dev/待拍板_疑似能力而非死代码_第42轮.md`
+       —— 约 25 个"0 引用但看着像对外能力"的东西（`toggle_stt`、STT 后端、
+       OCR 安装引导、`on_shortcut`、若干公开 getter，以及 6 个"只被测试钉着"的），
+       逐条写了"它是什么 / 我为什么没删"。
+     · 你说"这些也不要了"，我就照删并同步改断言。
+
+  ★ 六、回归：**52 套件 FAIL=0**（留档 `run_all_193_round42b.txt`；
+       被推翻的激进版见 `run_all_193_round42.txt` —— 留着当"为什么不能这么删"的证据）。
+==================================================================
+
+==================================================================
 四十八、1.9.3 第 41 轮 —— 物理删除"思考子窗口"残留 + 7 个零引用死方法（共 314 行）
 ==================================================================
   （承第 40 轮用户要求："删除冗余代码，修改回归代码"）
@@ -1945,6 +2005,14 @@
           下一轮继续从里面挑（`stt_engine` / `pet_manager` / `idle_talker` / `main_window` 几簇）。
           ⚠️ 候选清单里 `dropEvent` 这类是 **Qt 覆写**（框架调用），**不要删**；
           每一条都要人工确认"真的是死的"。
+        · **第 42 轮**：先把判定口径修对（**"全仓 0 引用"≠死代码**，见四十九节），
+          再保守清 **127 行**内部遗留；**另外排除了动态派发**（`getattr(self, f"_do_{cmd}")`
+          —— `_do_*` 全部禁删）和 `_vendor/` 第三方。
+          ★ **待你拍板**：`临时文件/_scratch_dev/待拍板_疑似能力而非死代码_第42轮.md`
+            —— 约 25 个"0 引用但看着像对外能力"的（`toggle_stt` / STT 后端 /
+            OCR 安装引导 / `on_shortcut` / 公开 getter / 6 个只被测试钉着的）。
+          ★ **下一轮继续删的判据**：只删"**被新实现取代的内部遗留**"，
+            对外能力一律先问。
      · ~~a) `MALFORMED_RESPONSE` 自动重试~~ → **不做：无证据**
        （全日志 0 次；底层"参数非法 JSON"第 18 轮已用 `_repair_json_args` 兜住）；
      ★★ **（第 36 轮已做完，不再是待办）monitor.stop() 的 2~3 秒干等** ——

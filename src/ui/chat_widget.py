@@ -962,22 +962,6 @@ class ChatWidget(QWidget):
             except Exception as e:
                 _log.debug(f"外部打开回调失败: {e}")
 
-    def _on_chat_menu(self):
-        """★ 1.5.0: ≡ 菜单 — 显示/隐藏、设置、退出（托盘不可用时也能访问）"""
-        from PySide6.QtWidgets import QMenu
-        menu = QMenu(self)
-        a_toggle = menu.addAction("显示 / 隐藏桌面宠物")
-        a_set = menu.addAction("设置")
-        a_quit = menu.addAction("退出")
-        action = menu.exec_(self._menu_btn.mapToGlobal(
-            self._menu_btn.rect().bottomLeft()))
-        if action == a_toggle and callable(self.on_toggle):
-            self.on_toggle()
-        elif action == a_set and callable(self.on_settings):
-            self.on_settings()
-        elif action == a_quit and callable(self.on_quit):
-            self.on_quit()
-
     # ══════════════════════════════════════════
     # 文件处理
     # ══════════════════════════════════════════
@@ -2385,12 +2369,6 @@ class ChatWidget(QWidget):
         self._stream_start = 0
         self._stream_span = None
 
-    def show_at(self, x: int, y: int):
-        self.move(x, y)
-        self.show()
-        self.raise_()
-        self.activateWindow()
-
     def set_topic_title(self, title: str):
         """★ 1.9.1: 话题标题不再单独占标题栏 —— 并进左上角那行/tooltip。
 
@@ -2594,11 +2572,3 @@ class ChatWidget(QWidget):
         except Exception:
             pass
 
-    @staticmethod
-    def _hex_to_rgba(hex_color: str, alpha: int) -> str:
-        """#rrggbb → r, g, b, a 格式"""
-        hex_color = hex_color.lstrip("#")
-        if len(hex_color) == 6:
-            r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-            return f"{r}, {g}, {b}, {alpha}"
-        return "20, 20, 30, 245"

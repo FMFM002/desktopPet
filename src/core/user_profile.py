@@ -55,9 +55,6 @@ class UserProfile:
                 source=source,
             )
 
-    def get_trait(self, key: str) -> Optional[dict]:
-        with self._lock:
-            return self._db.get(key)
     def get_all(self) -> dict:
         items = self._db.get_all()
         return {item["variable_name"]: item for item in items}

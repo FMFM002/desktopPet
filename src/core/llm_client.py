@@ -31,41 +31,6 @@ def _get_llm_config(provider_override: str = None):
     }
 
 
-class LLMClient:
-    """统一的 LLM 客户端"""
-
-    def __init__(self, config=None, provider: str = None):
-        self._provider = provider
-        if config:
-            self.client = OpenAI(api_key=config.api_key, base_url=config.host,
-                                 timeout=30.0, max_retries=2)
-            self.model = config.model
-            self.temperature = config.temperature
-            self.max_tokens = config.max_tokens
-        else:
-            kc = _get_llm_config(provider)
-            self.client = OpenAI(api_key=kc["api_key"], base_url=kc["host"],
-                                 timeout=30.0, max_retries=2)
-            self.model = kc["model"]
-            self.temperature = kc["temperature"]
-            self.max_tokens = kc["max_tokens"]
-        _log.info(f"LLM客户端就绪: {self.client.base_url} / {self.model}")
-
-    def chat(self, messages: list, stream: bool = False, tools: list = None):
-        kwargs = dict(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-        if stream:
-            return self.client.chat.completions.create(stream=True, **kwargs)
-        else:
-            return self.client.chat.completions.create(**kwargs)
-
 
 class VisionClient:
     """视觉模型客户端 - 处理截图，支持 API / Ollama / 本地 OCR 三种模式"""
@@ -274,19 +239,6 @@ class VisionClient:
         except Exception as e:
             _log.error(f"OCR 识别失败: {e}")
             return f"[OCR识别失败: {e}]"
-
-    def recognize_image(self, image: Image.Image, custom_prompt: str = None) -> str:
-        """
-        通用图片识别接口（供聊天上传图片使用）
-        - 使用当前配置的模式识别图片内容
-        - custom_prompt: 自定义识别提示
-        """
-        default_prompt = (
-            "请详细识别这张图片的内容。如果是截图，描述界面、文字、图标；"
-            "如果是照片，描述场景、物体、人物；如果有文字，提取所有文字内容。"
-        )
-        prompt = custom_prompt or default_prompt
-        return self.analyze(image, prompt)
 
 
 class SummarizerClient:

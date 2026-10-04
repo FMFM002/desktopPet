@@ -922,20 +922,11 @@ class Database:
                 category=m.get("category", "general"),
                 source=m.get("source", "screen"),
                 importance=m.get("importance", 1))
-    def search_memories(self, keyword: str, limit: int = 10) -> list[dict]:
-        return self.raw.search_raw(keyword, limit)
-
-    def search_memories_fts(self, keyword: str, limit: int = 20) -> list[dict]:
-        return self.raw.search_raw(keyword, limit)
-
     # ---- 聊天记录（兼容旧接口）----
 
     def add_chat_history(self, role: str, content: str, tool_name: str = None,
                          tool_call_id: str = None, topic_id: int = None):
         self.chat.add(role, content, tool_name, tool_call_id, topic_id)
-    def search_chat_fts(self, keyword: str, limit: int = 20) -> list[dict]:
-        return self.chat.search(keyword, limit)
-
     # ---- 话题管理 ----
 
     def create_topic(self, title: str = "", character: str = "") -> int:

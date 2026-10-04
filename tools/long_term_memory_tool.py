@@ -119,9 +119,6 @@ class LongTermMemoryTool:
     def get_name(self) -> str:
         return self.TOOL_NAME
 
-    def get_description(self) -> str:
-        return self.TOOL_DESCRIPTION
-
     def set_disabled(self, disabled: bool):
         """设置禁用状态（由 ToolManager 策略变更触发）"""
         was = self._disabled
@@ -134,26 +131,6 @@ class LongTermMemoryTool:
 
     def is_disabled(self) -> bool:
         return self._disabled
-
-    def get_function_def(self) -> dict:
-        """OpenAI function calling 定义"""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.TOOL_NAME,
-                "description": self.TOOL_DESCRIPTION,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "text": {
-                            "type": "string",
-                            "description": "需要分析并提取长期记忆的文本内容",
-                        },
-                    },
-                    "required": ["text"],
-                },
-            }
-        }
 
     def execute(self, text: str = "", **kwargs) -> str:
         """
