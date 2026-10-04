@@ -81,6 +81,17 @@ data/tools/*.exe
 Thumbs.db
 desktop.ini
 
+# ★★ 1.9.4：**用户的运行配置，绝不入库**。
+#   它含个人信息（用户自己写的性格提示词、个人头像路径、界面配色、窗口位置）。
+#   发布/分发的是**出厂版** `config.default.json`（由 tools/make_default_config.py
+#   从代码默认值生成），程序**首次运行**没有 config.json 时会自动复制出一份。
+#
+#   ⚠ 注意：这条规则在 1.9.4 之前**并不存在**（.gitignore 里只有一句提到 config.json
+#     的注释），所以它被跟踪了 29 次提交。是 1.9.4 用 `git rm --cached` 出库、
+#     并补上这条规则的 —— 否则它会一直以 "未跟踪" 状态挂在 git status 上，
+#     说不定哪天又被 add 回去。
+config.json
+
 # 回归的配置保镖快照（跑完自动删；内含用户真实 config.json/.env，绝不入库）
 tools/dev_tests/_cfg_guard/
 # ★ 1.9.3 第 26 轮补：单个测试进程的自兜底快照（跑完自己删；万一半路被 kill 才留残渣）

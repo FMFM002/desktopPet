@@ -315,8 +315,39 @@ class AppConfig:
         self.vision.host = os.getenv("DEEPSEEK_BASE_URL", self.vision.host)
         _log.debug(f"LLM API: {self.llm.host} / {self.llm.model}")
 
+    def _seed_from_default(self):
+        """★★ 1.9.4：**首次运行**时，从随包的 `config.default.json` 生成 `config.json`。
+
+        为什么需要：
+          · 发布包里 `config.json` **不再随包**（它含个人信息：用户自己的人设、
+            头像路径、界面配色），只有出厂版 `config.default.json`。
+          · 但用户第一次跑起来总得有个配置文件 —— 不然他一改设置，程序要能存下来。
+
+        设计要点：
+          · **找不到 `config.default.json` 就什么都不做** —— 程序继续用内存里的
+            代码默认值跑（`_load_from_file` 本来就不要求文件存在），**绝不阻断启动**。
+          · 默认文件跟着 **`config_path` 所在目录**找，不跟着模块常量走 ——
+            与 `.env` 的处理保持一致（见 `_sync_env` 上方那条注释的教训：
+            写死路径会让"把 config_path 指到临时目录"的隔离变成假的）。
+          · 只在**真的写不进去**时告警，不抛异常。
+        """
+        default_path = self.config_path.parent / "config.default.json"
+        if not default_path.exists():
+            _log.debug("没有 config.default.json，跳过出厂配置生成（用代码默认值）")
+            return
+        try:
+            import shutil
+            shutil.copyfile(default_path, self.config_path)
+            _log.info(f"首次运行：已从 {default_path.name} 生成 "
+                      f"{self.config_path.name}（出厂配置）")
+        except Exception as e:
+            _log.warning(f"生成出厂配置失败（不阻断启动）: {e}")
+
     def _load_from_file(self):
         """从 config.json 加载"""
+        # ★★ 1.9.4：没有 config.json 就先从出厂配置生成一份（首次运行/全新安装）
+        if not self.config_path.exists():
+            self._seed_from_default()
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
