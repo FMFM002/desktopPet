@@ -94,6 +94,17 @@ check("★有节流（8 秒最多报一次，别刷屏）", ">= 8.0" in ANIM and
 check("★日志里带**次数 + 最差值**（一眼看出有多严重）",
       "self._probe_dropped" in ANIM and "self._probe_worst" in ANIM)
 
+print("\n== A3. ★第 39 轮：探针必须同时覆盖 GIF/QMovie 那条路 ==")
+# 真机：用户报"用着看见明显抽帧"，但日志里**一条探针都没有**。
+# 查证：他的形象 data/桌宠形象/deepseek 是 20 个 .gif，走 QMovie(frameChanged)，
+# 而探针当初只挂在 _next_frame()（PNG 序列那条路）→ GIF 形象根本没人测。
+_gif_handler = ANIM[ANIM.index("def _on_gif_frame"):ANIM.index("def _show_current_frame")]
+check("★GIF 帧回调（_on_gif_frame）里也调了探针", "_probe_tick()" in _gif_handler)
+check("★探针预算优先取 QMovie 的真实帧间隔（否则 24fps 的 GIF 会被漏掉）",
+      "nextFrameDelay()" in ANIM and "budget_ms = max(20, min(500" in ANIM)
+check("★告警里标明是 GIF 还是 PNG 序列（便于定位）",
+      "'GIF/QMovie' if self._movie else 'PNG序列'" in ANIM)
+
 print("\n== B. Q3(b)：粘贴图片走多模态直传，描述不再拼进消息 ==")
 _m = MW[MW.index("def _on_clip_image_pasted"):]
 _body = _m[:_m.index("\n    def ", 10)]

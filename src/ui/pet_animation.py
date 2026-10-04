@@ -308,6 +308,13 @@ class PetAnimationWidget(QWidget):
                         self.width(), self.height(),
                         Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 self._label.setPixmap(scaled)
+                # ★★ 1.9.3 第 39 轮：**GIF 这条路也要探针**！
+                #   用户报"用着看见明显抽帧"，但日志里**一条 `[抽帧探针]` 都没有** ——
+                #   查证：他的形象 `data/桌宠形象/deepseek` 是 **20 个 .gif**，
+                #   走的是 `QMovie`（`frameChanged` → 本函数），
+                #   而探针当初只挂在 `_next_frame()`（**PNG 序列**那条路）上，
+                #   ⇒ **GIF 形象根本没人测**。现在两条路都测。
+                self._probe_tick()
 
     def _show_current_frame(self):
         char_data = self._characters.get(self._current_character, {})
@@ -347,17 +354,29 @@ class PetAnimationWidget(QWidget):
             self._probe_last_report = now
             return
         gap_ms = (now - last) * 1000.0
+        # ★ 第 39 轮：**预算要按"这个形象本来的帧间隔"算**。
+        #   GIF 走 QMovie，帧间隔由 GIF 自己定（常见 40~100ms）；
+        #   统一按 100ms 算会把 24fps 的 GIF 漏掉。所以优先问 QMovie。
         budget_ms = getattr(self, "_frame_interval", 100)
+        try:
+            if self._movie is not None and self._movie.isValid():
+                _d = self._movie.nextFrameDelay()
+                if _d and _d > 0:
+                    budget_ms = max(20, min(500, int(_d)))
+        except Exception:
+            pass
         if gap_ms > budget_ms * 1.8:
             self._probe_dropped = getattr(self, "_probe_dropped", 0) + 1
             self._probe_worst = max(getattr(self, "_probe_worst", 0.0), gap_ms)
             if now - getattr(self, "_probe_last_report", 0.0) >= 8.0:
                 _log.warning(f"[抽帧探针] 本段时间隔超过 {budget_ms * 1.8:.0f}ms 的帧 "
                              f"{self._probe_dropped} 次，最差 {self._probe_worst:.0f}ms"
-                             f"（预算 {budget_ms}ms）")
+                             f"（预算 {budget_ms}ms，"
+                             f"{'GIF/QMovie' if self._movie else 'PNG序列'}）")
                 self._probe_dropped = 0
                 self._probe_worst = 0.0
                 self._probe_last_report = now
+
     def _win32_setup(self):
         """★ 1.9.1: 形象窗口的 Win32 加固（见 src/ui/win_window.py 的完整说明）。
 
