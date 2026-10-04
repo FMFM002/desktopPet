@@ -14,6 +14,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # ★ 第 40 轮：import _fixtures_193
 
 from PySide6.QtCore import Qt, QSizeF  # noqa: E402
 from PySide6.QtGui import (QFont, QImage, QPainter, QTextDocument,  # noqa: E402
@@ -57,8 +58,11 @@ def painted_bbox(html: str, width: int):
     return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
 
 
-target = ROOT / "data" / "桌宠私有data" / "office" / "pptx" / "deepseek_intro.pptx"
-assert target.exists(), target
+# ★ 1.9.3 第 40 轮：**自造 fixture**（原来依赖用户地盘里的 deepseek_intro.pptx，
+#   2026-10-04 被清理后这里直接 assert 失败）。本套件只需要"某个真 pptx"。
+from _fixtures_193 import fixture_dir, make_pptx          # noqa: E402
+target = make_pptx(fixture_dir("file_card_182") / "sample.pptx",
+                   pages=1, title="文件卡片测试")
 
 w = ChatWidget()
 w.resize(340, 640)
@@ -130,7 +134,8 @@ check("卡片 HTML 里有 file:// 锚点",
 plain = doc.toPlainText()
 check("卡片显示了图标", "📊" in plain, plain[:60].replace("\n", "|"))
 check("卡片显示了扩展名", ".pptx" in plain, plain[:60].replace("\n", "|"))
-check("锚点指向真实文件路径", "deepseek_intro.pptx" in (anchors[0] if anchors else ""))
+check("锚点指向真实文件路径", target.name in (anchors[0] if anchors else ""),
+      f"期望含 {target.name}")
 
 print("\n== 3. 长文件名按像素省略且尽量保住扩展名 ==")
 from PySide6.QtGui import QFontMetrics  # noqa: E402

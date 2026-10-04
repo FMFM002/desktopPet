@@ -20,6 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # ★ 第 40 轮：import _fixtures_193
 
 from PySide6.QtCore import QObject, QTimer, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -181,8 +182,12 @@ class _StubWindow:
             lambda t: self.user_msgs.append((t, threading.get_ident())))
 
 
-pptx = ROOT / "data" / "桌宠私有data" / "office" / "pptx" / "deepseek_intro.pptx"
-check("测试用 pptx 存在", pptx.exists(), str(pptx))
+# ★ 1.9.3 第 40 轮：**自造 fixture**（原来依赖用户地盘里的 deepseek_intro.pptx，
+#   2026-10-04 被清理后这条断言直接红）。本套件只需要"某个真文档"来走过读取链路。
+from _fixtures_193 import fixture_dir, make_pptx          # noqa: E402
+pptx = make_pptx(fixture_dir("bg_thread_ui_182") / "sample.pptx",
+                 pages=2, title="后台线程读取测试")
+check("测试用 pptx 存在（自己造的，不依赖用户文件）", pptx.exists(), str(pptx))
 
 if pptx.exists():
     win = _StubWindow()

@@ -21,6 +21,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # ★ 第 40 轮：import _fixtures_193
+from _fixtures_193 import fixture_dir as _fd, make_pptx as _make_pptx   # noqa: E402
 
 import tools.pptx_tool as P  # noqa: E402
 from PIL import Image        # noqa: E402
@@ -63,7 +65,10 @@ print("\n== B2. ★1.9.3 第 31 轮：路径参数容错（真机把 path 写成
 #   `pptx({'action':'render','file':'…\\迷迭香介绍.pptx'})` —— 参数名是 file。
 # 那时 path 为空 → `Path("")` 是 `.` → **exists() 为真** → 把**项目目录**喂给 PowerPoint
 # → 报 `(-2147352567,'发生意外。',…,0x80070005)` → 它看不懂 → **放弃了渲染核对**。
-_probe_pptx = ROOT / "data" / "桌宠私有data" / "迷迭香介绍.pptx"
+# ★ 1.9.3 第 40 轮：**自造 fixture** —— 原来拿用户地盘里的 `迷迭香介绍.pptx` 当探针
+#   （2026-10-04 被模型清理后，"path= 正常"这条直接红）。
+_probe_pptx = _make_pptx(_fd("pptx_render_193") / "probe_arg.pptx",
+                         pages=2, title="参数容错探针")
 _have_probe = _probe_pptx.exists()
 for _label, _kw, _want_ok in (
         ("file= 等价于 path=", dict(action="info", file=str(_probe_pptx)), True),
@@ -130,10 +135,30 @@ _r4 = json.loads(P.execute(action="create", outline="# 透明图测试\n- 看四
                            out_dir=str(_out), filename="alpha_probe.pptx"))
 check("透明素材建片成功（没被当坏图跳过）",
       _r4.get("success") is True and not _r4.get("skipped_images"), str(_r4.get("skipped_images")))
-_crop = P.DEFAULT_OUT / "_tmp" / "alpha_probe_crop.jpg"
-check("裁剪产物落盘", _crop.exists(), str(_crop))
-if _crop.exists():
-    _im2 = Image.open(_crop).convert("RGB")
+def _embedded_images(pptx_path):
+    """把 pptx 里**真正嵌进去的图片**取出来（PIL 对象列表）。
+
+    ★ 1.9.3 第 40 轮：断言要看**结果**（图在片子里、压平后的颜色对），
+      而不是看"某个中间文件有没有落到用户目录" —— 那个中间文件是冗余产物，已删。
+    """
+    from pptx import Presentation as _P2
+    out = []
+    for sl in _P2(str(pptx_path)).slides:
+        for sh in sl.shapes:
+            if sh.shape_type == 13 or getattr(sh, "image", None) is not None:  # PICTURE
+                try:
+                    from io import BytesIO
+                    out.append(Image.open(BytesIO(sh.image.blob)).convert("RGB"))
+                except Exception:
+                    pass
+    return out
+
+
+_imgs4 = _embedded_images(_out / "alpha_probe.pptx")
+check("★透明图**真的嵌进了 pptx**（而不是靠中间文件落盘）", len(_imgs4) == 1,
+      f"嵌入 {len(_imgs4)} 张")
+if _imgs4:
+    _im2 = _imgs4[0]
     _w, _h = _im2.size
     _corners = [_im2.getpixel(p) for p in ((0, 0), (_w - 1, 0), (0, _h - 1), (_w - 1, _h - 1))]
     _allwhite = all(all(c >= 240 for c in px) for px in _corners)
@@ -141,6 +166,8 @@ if _crop.exists():
     _mid = _im2.getpixel((_w // 2, _h // 2))
     check("★中间那块不透明的内容还在（没被底色盖掉）",
           _mid[0] > 150 and _mid[1] < 90 and _mid[2] < 90, str(_mid))
+check("★中间产物不再往用户目录里丢（pptx/_tmp 不再被创建）",
+      not (P.DEFAULT_OUT / "_tmp" / "alpha_probe_crop.jpg").exists())
 
 print("\n== D3. ★1.9.3 第 23 轮：图片不再被硬裁成正方形 + 开头的 @图片 不再开空页 ==")
 # 真机证据：模型给的素材 `news_whale.png` 是 690×1215（竖图，比例 0.57），
@@ -167,13 +194,13 @@ _r5 = json.loads(P.execute(action="create",
                            outline="# 封面\n# 竖图页\n- 看它还切不切头\n@" + str(_pv),
                            out_dir=str(_out), filename="portrait_probe.pptx"))
 check("竖图页拍完（共 2 页）", _r5.get("slides") == 2, str(_r5.get("slides")))
-_crop2 = P.DEFAULT_OUT / "_tmp" / "portrait_probe_p0.jpg"
-check("竖图裁剪产物落盘", _crop2.exists(), str(_crop2))
-if _crop2.exists():
-    with Image.open(_crop2) as _im4:
-        check("★★裁剪产物仍是竖构图（旧代码这里会变成 1:1 正方形）",
-              _im4.height > _im4.width and abs((_im4.width / _im4.height) - 0.6) < 0.02,
-              f"{_im4.size} 比例={_im4.width/_im4.height:.3f}")
+_imgs5 = _embedded_images(_out / "portrait_probe.pptx")
+check("★竖图真的嵌进了 pptx", len(_imgs5) == 1, f"嵌入 {len(_imgs5)} 张")
+if _imgs5:
+    _im4 = _imgs5[0]
+    check("★★嵌入的竖图仍是竖构图（旧代码这里会变成 1:1 正方形）",
+          _im4.height > _im4.width and abs((_im4.width / _im4.height) - 0.6) < 0.02,
+          f"{_im4.size} 比例={_im4.width/_im4.height:.3f}")
 
 print("\n== D4. ★字号自适应（防文本框溢出）+ 主题底色 ==")
 # 6 条、每条 96 个字：旧代码只看"条数≤6 → 18pt"，必然溢出文本框；

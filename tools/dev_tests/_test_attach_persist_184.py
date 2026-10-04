@@ -17,6 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # ★ 第 40 轮：为了 import _fixtures_193
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
@@ -47,8 +48,12 @@ check("CARD_HEIGHT_CM == 1.5", ChatWidget.CARD_HEIGHT_CM == 1.5, str(ChatWidget.
 check("像素宽 ≈ 170", abs(want_w - 170) <= 3, str(want_w))
 check("像素高 ≈ 57", abs(want_h - 57) <= 3, str(want_h))
 
-target = ROOT / "data" / "桌宠私有data" / "office" / "pptx" / "deepseek_intro.pptx"
-assert target.exists(), target
+# ★ 1.9.3 第 40 轮：**自造 fixture**。原来依赖 `data/桌宠私有data/office/pptx/deepseek_intro.pptx`
+#   —— 那是用户的地盘，2026-10-04 被模型清理后这里直接 assert 失败。
+#   本套件只需要"某个真 pptx"，内容无所谓。
+from _fixtures_193 import fixture_dir, make_pptx          # noqa: E402
+target = make_pptx(fixture_dir("attach_persist_184") / "sample.pptx",
+                   pages=2, title="附件持久化测试")
 
 # ── B/C. 标记 → 渲染 ──
 print("\n== B. 文件卡片与消息同排、共用一个头像 ==")

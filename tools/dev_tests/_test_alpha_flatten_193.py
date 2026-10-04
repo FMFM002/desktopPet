@@ -59,19 +59,27 @@ _probe.save(SRC)
 check("样本已生成（全透明底 + 中间红块）",
       SRC.exists() and Image.open(SRC).mode == "RGBA")
 
-print("\n== 1. tools/pptx_tool.py：_load_image + _crop_to（做 PPT 用）==")
+print("\n== 1. tools/pptx_tool.py：_load_image + _fit_image_bytes（做 PPT 用）==")
+# ★ 1.9.3 第 40 轮：`_crop_to(…)->文件路径` 已删（它是**冗余产物**：中间图写进用户目录，
+#   生产代码从不读、只有测试断言"落盘"）。现在改成 `_fit_image_bytes(…)->JPEG 字节`，
+#   **全程不落盘**（顺带绕开"沙箱只允许写工作区"的限制）。
+#   所以这里也改成断言**字节结果**：能解码、四角白底、中间红块还在。
 import tools.pptx_tool as PT                                     # noqa: E402
 _img = PT._load_image(SRC)
 check("★_load_image 保留 alpha（不再在这里拍平成 RGB）",
       _img is not None and "A" in _img.getbands(), str(getattr(_img, "mode", None)))
-_crop = TMP / "crop.jpg"
-_cropped = PT._crop_to(SRC, _crop, 1.0, _img)
-check("裁剪产物落盘", _cropped is not None and _crop.exists())
-if _crop.exists():
-    with Image.open(_crop) as _im:
+_buf = PT._fit_image_bytes(_img, 1.0)
+check("★_fit_image_bytes 返回 JPEG 字节（不再落盘）",
+      isinstance(_buf, (bytes, bytearray)) and len(_buf) > 100,
+      f"{type(_buf).__name__} {len(_buf) if _buf else 0} 字节")
+if _buf:
+    from io import BytesIO
+    with Image.open(BytesIO(_buf)) as _im:
         _c = corners(_im)
         check("★四角是白底（不是黑）", all_white(_c), str(_c))
         check("★中间红块还在", is_red(_im.convert("RGB").getpixel((200, 200))))
+check("★确认中间产物不再写到用户目录（pptx/_tmp 没被创建）",
+      not (PT.DEFAULT_OUT / "_tmp").exists())
 
 print("\n== 2. tools/file_view.py：_open_image（喂给视觉模型看的图）==")
 import tools.file_view as FV                                     # noqa: E402

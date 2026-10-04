@@ -188,14 +188,22 @@ def _fit_box(img_w: int, img_h: int, max_w: float, max_h: float):
     return img_w * s, img_h * s
 
 
-def _crop_to(path: Path, out: Path, ratio: float, img, bg=(255, 255, 255),
-             max_edge: int = IMG_MAX_EDGE):
-    """按目标框比例**中心裁剪**（等比，不拉伸），压透明到 `bg`，缩放后存 JPEG。
+def _fit_image_bytes(img, ratio: float, bg=(255, 255, 255),
+                     max_edge: int = IMG_MAX_EDGE):
+    """按目标框比例裁剪（等比不拉伸）+ 压透明到 `bg` + 缩放，**返回 JPEG 字节**。
 
-    ★ 调用方现在用 `_fit_box` 把 ratio 算成**原图比例**，所以裁剪是空操作（不切图）；
-      这里保留裁剪能力，是为了 `_do_edit` 之类"想填满一个框"的场合还能用。
+    ★★ 1.9.3 第 40 轮：把原来的 `_crop_to(...)->文件路径` 改成**返回字节**。
+      为什么（两件事一起解决）：
+        ① **冗余**：老代码把中间产物写进 `DEFAULT_OUT/_tmp/`，生产代码**从不读它**
+           （紧接着就 `add_picture` 了），只有测试断言它"落盘" ——
+           于是用户目录里堆了一辈子没人清、也没人看的图。
+        ② **沙箱**：改写成系统临时目录也不行 —— 真机上 DSH 沙箱**只允许写工作区**，
+           `tempfile` 写盘会被拒（实测 `mkdtemp` 成功、`write_bytes` 被拒），
+           结果是"裁剪失败"、图片被跳过。
+      现在全程在内存里（`BytesIO` 交给 `add_picture`）——**不落盘、不可见、不会堆垃圾**。
     """
     try:
+        import io
         from PIL import Image
         w, h = img.size
         if w <= 0 or h <= 0:
@@ -207,7 +215,6 @@ def _crop_to(path: Path, out: Path, ratio: float, img, bg=(255, 255, 255),
         else:                                # 太高 → 裁上下
             nh = int(w / ratio)
             box = (0, (h - nh) // 2, w, (h - nh) // 2 + nh)
-        out.parent.mkdir(parents=True, exist_ok=True)
         cut = img.crop(box)
         # ★★ 1.9.3 第 22 轮：JPEG 没有 alpha 通道 —— 直接 convert("RGB") 会把透明区
         #   压成**黑色**（还要带上原图透明区里的垃圾像素）。必须先压到目标底色。
@@ -224,8 +231,9 @@ def _crop_to(path: Path, out: Path, ratio: float, img, bg=(255, 255, 255),
             sc = max_edge / max(cut.size)
             cut = cut.resize((max(1, int(cut.width * sc)), max(1, int(cut.height * sc))),
                              Image.LANCZOS)
-        cut.save(out, "JPEG", quality=88)
-        return out
+        buf = io.BytesIO()
+        cut.save(buf, "JPEG", quality=88)
+        return buf.getvalue()
     except Exception:
         return None
 
@@ -364,12 +372,17 @@ def _place_image(slide, p: Path, max_box, theme, skipped, tag: str = "",
     bw, bh = _fit_box(img.width, img.height, mw, mh)
     bx = mx + (mw - bw) / 2.0                 # 在可用区域里居中
     by = my + (mh - bh) / 2.0
-    tmp = DEFAULT_OUT / "_tmp" / f"{p.stem}{tag}.jpg"
-    cropped = _crop_to(p, tmp, bw / bh, img, bg=theme.get("bg") or (255, 255, 255))
-    if cropped is None:
+    # ★★ 1.9.3 第 40 轮：**中间产物不再落盘**（清掉一处冗余 + 绕开沙箱）。
+    #   见 `_fit_image_bytes` 的说明：老代码写 `DEFAULT_OUT/_tmp/<stem>.jpg`，
+    #   生产代码从不读它、只有测试断言"落盘"，用户目录里因此堆垃圾；
+    #   而改写到系统 temp 会被 DSH 沙箱拒绝（只能写工作区）。
+    #   现在全程在内存里交给 `add_picture`。
+    from io import BytesIO as _BytesIO
+    _buf = _fit_image_bytes(img, bw / bh, bg=theme.get("bg") or (255, 255, 255))
+    if _buf is None:
         skipped.append(f"{p.name}(裁剪失败)")
         return False
-    slide.shapes.add_picture(str(cropped), Inches(bx), Inches(by),
+    slide.shapes.add_picture(_BytesIO(_buf), Inches(bx), Inches(by),
                              width=Inches(bw), height=Inches(bh))
     return True
 

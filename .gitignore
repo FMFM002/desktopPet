@@ -109,3 +109,4 @@ data/ui_state.json
 # 临时文件（用户要求：不进版本库，攒着待清理）
 临时文件/
 tools/dev_tests/_animsrc_193/
+tools/dev_tests/_fixtures_193/
