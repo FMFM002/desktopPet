@@ -52,7 +52,7 @@ print("== A. 排除表确实命中每一项个人数据 ==")
 #   `.env`/`logs` 由下面 C 段的"产物里没有它"来钉（那才是真性质）。
 _dry = _run("--dry-run")
 _MUST_EXCLUDE = {
-    "你的个人头像": "你的个人头像",
+    # ★ 头像**不再**在这里 —— 用户 2026-10-04 拍板"作为出厂预设"，它应当随包（见 D 段）
     "聊天记录与长期记忆": "聊天记录与长期记忆",
     "运行时缓存": "运行时缓存",
     "私有文件夹": "私有文件夹",
@@ -83,8 +83,10 @@ check("★装配成功（跑完没报错）", _OUT.is_dir(), _build_log.strip().
       if _build_log.strip() else "")
 if _OUT.is_dir():
     _forbidden = [".env", "data/DBs", "data/cache", "logs", "data/桌宠私有data",
-                  "data/avatars/user_avatar.jpg", "tools/dev_tests", "config.json",
+                  "tools/dev_tests", "config.json",
                   "临时文件", ".git"]
+    # ★ 1.9.4（用户 2026-10-04 拍板）：头像与角色人设**作为出厂预设随包**，
+    #   所以不再断言它们"被排除"——它们**应当**在产物里（见下面 D 段的反向断言）。
     _leaked = [p for p in _forbidden if (_OUT / p).exists()]
     check("★★产物里**没有任何**个人/开发文件", not _leaked, str(_leaked))
     check("★产物里有该有的东西（main.py / config.default.json / src）",
@@ -97,43 +99,45 @@ if _OUT.is_dir():
     check("★但 TTS 的**代码**在（src/genie_tts/Internal.py）",
           (_OUT / "src" / "genie_tts" / "Internal.py").is_file())
 
-    print("\n== D. 人设默认被清空（发布红线）==")
-    _cleared_any = False
-    _still_has = []
-    for _c in (_OUT / "data" / "桌宠形象").iterdir() if (_OUT / "data" / "桌宠形象").is_dir() else []:
+    print("\n== D. 头像与角色人设**作为出厂预设随包**（用户 2026-10-04 拍板）==")
+    _av = _OUT / "data" / "avatars" / "user_avatar.jpg"
+    check("★★出厂头像**在**产物里（它是预设，不是要清掉的个人信息）", _av.exists(),
+          str(_av.relative_to(_OUT)) if _av.exists() else "缺失")
+    _cleared_any, _kept_any = False, False
+    for _c in ((_OUT / "data" / "桌宠形象").iterdir()
+               if (_OUT / "data" / "桌宠形象").is_dir() else []):
         _sp = _c / "settings.json"
         if not _sp.is_file():
             continue
-        _d = json.loads(_sp.read_text(encoding="utf-8"))
+        _d = json.loads(_sp.read_text(encoding="utf-8-sig"))
         _xing = _d.get("性格") or {}
-        # ★ 用"假值"判断，不要写成 `== ""` —— 我第一版要求 `extra == ""`，
-        #   可 性格 下**根本没有 extra 字段**（它在 输出控制 下），
-        #   于是 `.get("extra")` 是 None，`None == ""` 为假 → 假红一次。
-        if not _xing.get("free_text"):
-            _cleared_any = True
+        if _xing.get("free_text"):
+            _kept_any = True
         else:
-            _still_has.append(_c.name)
-    check("★★发布产物的角色人设**已清空**（free_text/extra 都为空）",
-          _cleared_any and not _still_has, f"未清空: {_still_has}")
-    check("★人设清空后**结构仍在**（GIF/输出控制等产品结构没被删）",
-          all(((json.loads((_c / "settings.json").read_text(encoding="utf-8")))
+            _cleared_any = True
+    check("★★角色人设**作为出厂预设保留**（默认不清空；要清得显式传 --clear-persona）",
+          _kept_any, f"kept={_kept_any} cleared={_cleared_any}")
+    check("★人设保留的同时**结构仍完整**（输出控制等没被动）",
+          all(((json.loads((_c / "settings.json").read_text(encoding="utf-8-sig")))
                .get("输出控制") is not None)
               for _c in (_OUT / "data" / "桌宠形象").iterdir()
               if (_c / "settings.json").is_file()))
+    check("★两个预设形象都在（用户指定 deepseek / 铃兰 为预设）",
+          {_c.name for _c in (_OUT / "data" / "桌宠形象").iterdir()
+           if _c.is_dir()} >= {"deepseek", "铃兰"},
+          str(sorted(_c.name for _c in (_OUT / "data" / "桌宠形象").iterdir()
+                     if _c.is_dir())))
 
-    print("\n== E. 反向守卫：故意塞一个个人文件，确认真会被排除 ==")
-    _probe = ROOT / "data" / "avatars" / "user_avatar.jpg"
-    _had = _probe.exists()
-    check("★（前置）工作区里确实有个人头像这个文件，供本项验证", _had,
-          str(_probe.relative_to(ROOT)))
-    if _had:
-        _OUT2 = ROOT / "临时文件" / "_scratch_dev" / "tmp_release_194b"
-        if _OUT2.exists():
-            shutil.rmtree(_OUT2, ignore_errors=True)
-        _run("--out", str(_OUT2))
-        check("★★重新装配后，个人头像**依然不在**产物里（规则真的在起作用）",
-              not (_OUT2 / "data" / "avatars" / "user_avatar.jpg").exists())
+    print("\n== E. 反向守卫：密钥类文件确实进不了产物 ==")
+    _OUT2 = ROOT / "临时文件" / "_scratch_dev" / "tmp_release_194b"
+    if _OUT2.exists():
         shutil.rmtree(_OUT2, ignore_errors=True)
+    _run("--out", str(_OUT2))
+    check("★★重新装配后产物里**依然没有 .env**（规则真在起作用）",
+          not (_OUT2 / ".env").exists())
+    check("★★产物里没有 DBs / 日志（你的数据进不去）",
+          not (_OUT2 / "data" / "DBs").exists() and not (_OUT2 / "logs").exists())
+    shutil.rmtree(_OUT2, ignore_errors=True)
 
 shutil.rmtree(_OUT, ignore_errors=True)
 

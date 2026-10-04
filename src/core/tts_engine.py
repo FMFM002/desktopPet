@@ -21,11 +21,15 @@ _log = logging.getLogger("TTS")
 
 # ====== GENIE 资源路径配置（必须在 import genie_tts 之前） ======
 _GENIE_ROOT = Path(__file__).resolve().parent.parent.parent  # 项目根目录
-# ★ 1.5.0: TTS 模型归入源码资源目录（src/genie_tts/assets/genie），
-#   不再放在 data/ 下；保留 data/genie 作为降级回退。
-_GENIE_RES_PRIMARY = _GENIE_ROOT / "src" / "genie_tts" / "assets" / "genie"
-_GENIE_RES_LEGACY = _GENIE_ROOT / "data" / "genie"
-_GENIE_RES = _GENIE_RES_PRIMARY if _GENIE_RES_PRIMARY.is_dir() else _GENIE_RES_LEGACY
+# ★★ 1.9.4：TTS 模型**集中到 `data/models/genie/`**（用户要求"模型散落各处，希望集中管理"）。
+#   由 `src/core/models.py` 的注册表统一回答"东西在哪"：
+#     · 优先 `data/models/genie`；找不到就**回落旧位置**
+#       （`src/genie_tts/assets/genie` = 1.9.4 前的家，`data/genie` = 更早的降级位）
+#       → 所以**没搬的机器照常能用**，迁移是渐进的，不会因为这次改动开不了 TTS。
+#     · 真要搬文件，跑 `python tools/model_manager.py migrate`（本模块只解析路径，不动文件）。
+from src.core.models import resolve as _resolve_model
+_GENIE_RES = _resolve_model("genie") or (_GENIE_ROOT / "src" / "genie_tts"
+                                         / "assets" / "genie")
 _GENIE_DATA_DIR = _GENIE_RES / "GenieData"
 _GENIE_CHARACTERS_DIR = _GENIE_RES / "CharacterModels"
 

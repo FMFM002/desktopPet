@@ -58,10 +58,14 @@ EXCLUDE_DIRS = {
 }
 EXCLUDE_FILES = {
     ".env": "★★你的 API Key 等全部密钥（只发 .env.example 模板）",
-    "data/avatars/user_avatar.jpg": "★★你的个人头像",
+    # ★★ 1.9.4（用户 2026-10-04 拍板）：**头像与角色人设都作为「出厂预设」随包发布** ——
+    #   所以 `data/avatars/user_avatar.jpg` 与 `data/桌宠形象/*/settings.json` 里的
+    #   `性格.free_text` **不再排除/不再清空**。
+    #   注：`铃兰` 的人设文件里自己写着「明日方舟·铃兰」—— 这是**已记录的版权风险点**，
+    #   用户知情并选择作为预设发布；若将来要公开分发，这是唯一需要重新评估的地方。
     "data/ui_state.json": "★你的窗口状态",
     "data/app_paths.json": "★你机器上的路径记录",
-    "config.json": "★★你的个人配置（人设/头像/配色）；发布的是 config.default.json",
+    "config.json": "★★你的个人配置；发布的是 config.default.json（出厂版）",
 }
 
 # 顶层要带的（文件/目录）
@@ -136,7 +140,7 @@ def _clear_persona(src: Path, dst: Path) -> list[str]:
     return cleared
 
 
-def build(out: Path, dry: bool, include_models: bool, keep_persona: bool,
+def build(out: Path, dry: bool, include_models: bool, clear_persona: bool,
           include_tts: bool = False) -> int:
     picked: list[tuple[Path, Path]] = []
     skipped: list[tuple[str, str]] = []
@@ -182,9 +186,11 @@ def build(out: Path, dry: bool, include_models: bool, keep_persona: bool,
         shutil.copy2(s, d)
 
     # 角色人设：默认清成通用（发布红线）
-    if not keep_persona:
+    if clear_persona:
         cleared = _clear_persona(ROOT / "data" / "桌宠形象", out / "data" / "桌宠形象")
         print(f"  已清空人设字段: {len(cleared)} 处  {cleared}")
+    else:
+        print("  角色人设：**按出厂预设随包**（用户拍板，未清空）")
 
     print(f"\n  装配完成: {out}")
     return 0
@@ -196,13 +202,13 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="只报告，不写盘")
     ap.add_argument("--include-models", action="store_true",
                     help="把 whisper/easyocr 模型也带上（会大 600MB+）")
-    ap.add_argument("--keep-persona", action="store_true",
-                    help="保留角色人设（默认清空为通用；发布前请确认版权）")
+    ap.add_argument("--clear-persona", action="store_true",
+                    help="把角色人设清成通用（默认**保留为出厂预设**，用户 2026-10-04 拍板）")
     ap.add_argument("--include-tts-models", action="store_true",
                     help="带上 GENIE 的 TTS 模型（src/genie_tts/assets，约 1855MB）")
     a = ap.parse_args()
     out = Path(a.out) if a.out else (ROOT / "dist" / f"{APP_ID}-{__version__}")
-    return build(out, a.dry_run, a.include_models, a.keep_persona,
+    return build(out, a.dry_run, a.include_models, a.clear_persona,
                  a.include_tts_models)
 
 

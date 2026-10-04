@@ -116,21 +116,33 @@ if _probe is not None:
 print("\n== C. GENIE 资源必须在**项目内**（不依赖外部 editable 包）==")
 _te = (ROOT / "src" / "core" / "tts_engine.py").read_text(encoding="utf-8")
 _t2 = ast.parse(_te)
-_genie_res_ok = False
 _uses_inproject = False
 for _n in ast.walk(_t2):
-    if isinstance(_n, ast.Assign):
-        _tgt = ast.unparse(_n.targets[0])
-        if "GENIE_RES_PRIMARY" in _tgt:
-            _val = ast.unparse(_n.value)
-            _genie_res_ok = "src" in _val and "genie_tts" in _val
-        if "GENIE_ROOT" in _tgt:
-            _rv = ast.unparse(_n.value)
-            # 必须是"本文件所在位置往上推"，不是写死的绝对路径
-            _uses_inproject = "__file__" in _rv
-check("★GENIE 主资源指向项目内 `src/genie_tts/...`", _genie_res_ok)
+    if isinstance(_n, ast.Assign) and "GENIE_ROOT" in ast.unparse(_n.targets[0]):
+        # 必须是"本文件所在位置往上推"，不是写死的绝对路径
+        _uses_inproject = "__file__" in ast.unparse(_n.value)
 check("★`_GENIE_ROOT` 由 `__file__` 推出（换机器/换路径都成立，不是写死的绝对路径）",
       _uses_inproject)
+
+# ★★ 1.9.4：GENIE 的位置**改由集中注册表管理**（用户要求"模型集中管理"）。
+#   所以判据从"tsengine 里写着 src/genie_tts/..."改成更强的两条：
+#     ① tts_engine 走注册表解析（而不是自己硬拼路径）；
+#     ② 注册表里 genie 的**规范位置与旧位置都在项目内**（不会指到仓库外）。
+_uses_registry = "resolve" in _te and "src.core.models" in _te
+check("★★tts_engine 的 GENIE 路径走**集中注册表**解析（不再自己硬拼路径）",
+      _uses_registry)
+
+sys.path.insert(0, str(ROOT))
+from src.core.models import MODELS, ROOT as _MROOT          # noqa: E402
+_genie = MODELS.get("genie")
+_paths = ([_genie.rel, *_genie.legacy] if _genie else [])
+_all_in_project = bool(_paths) and all(
+    str((_MROOT / p).resolve()).startswith(str(_MROOT.resolve())) for p in _paths)
+check("★★注册表里 genie 的规范位置与旧位置**都在项目内**（不指向仓库外）",
+      _all_in_project, str(_paths))
+check("★规范位置是集中目录 data/models/（用户要求集中管理）",
+      bool(_genie) and _genie.rel.startswith("data/models/"),
+      _genie.rel if _genie else "")
 
 print("\n== D. 全仓不许有'同级目录包'的顶层硬 import ==")
 _bad = []

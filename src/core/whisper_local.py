@@ -31,10 +31,17 @@ _log = logging.getLogger("WhisperCLI")
 
 # ====== 默认路径 ======
 # whisper-cli.exe 和模型文件放在编译目录中：
-#   data/whisper/whisper-cli.exe     （可执行文件）
-#   data/whisper/ggml-small.bin      （推荐，多语言 465MB）
-#   data/whisper/ggml-tiny.en.bin    （轻量，英文 74MB）
-_BASE = Path(__file__).parent.parent.parent / "data" / "whisper"
+#   whisper-cli.exe     （可执行文件）
+#   ggml-small.bin      （推荐，多语言 465MB）
+#   ggml-tiny.en.bin    （轻量，英文 74MB）
+#
+# ★★ 1.9.4：目录改为**走集中管理的解析器**（用户要求"模型散落各处，希望集中管理"）。
+#   规范位置是 `data/models/whisper/`；**找不到就回落旧位置 `data/whisper/`** ——
+#   所以没搬的机器照常能用（迁移靠 `python tools/model_manager.py migrate`，是显式的）。
+from src.core.models import resolve as _resolve_model          # noqa: E402
+
+_BASE = (_resolve_model("whisper")
+         or (Path(__file__).parent.parent.parent / "data" / "whisper"))
 DEFAULT_WHISPER_CLI = str(_BASE / "whisper-cli.exe")
 DEFAULT_WHISPER_MODEL = str(_BASE / "ggml-small.bin")
 DEFAULT_WHISPER_MODEL_TINY = str(_BASE / "ggml-tiny.en.bin")
