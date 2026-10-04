@@ -62,7 +62,9 @@ ALLOWED = {
     "normalize_persona": "★待查：character_settings 里的人设归一化",
     "speak_now": "★待查：tts_engine 的立即朗读（可能是对外能力）",
     "take_all": "★待查：progress_bus 的全量取出（可能是对外能力）",
-    "wait_for_downloads": "★待查：jmcomic_tool 的等待下载完成",
+    # ↑ `wait_for_downloads` 第 57 轮已移出：它**其实一直被调用**，只是走的是
+    #   `from tools.jmcomic_tool import wait_for_downloads as _wait_jm`（**别名**）
+    #   + `_wait_jm(...)`，第一版扫描器认不出别名才误报。已在扫描器里补上别名映射。
 }
 
 PASS, FAIL = [], []
@@ -100,6 +102,31 @@ def scan():
     # ★ "被用到"要**连测试一起数** —— 否则会把"**故意只被测试用**的支撑 API"
     #   （第 43 轮已认定这类要留：wait_all / uninstall_foreground_hook / 状态机断言…）
     #   全判成死代码。本闸要抓的是"**连测试都没人用**"的真死代码。
+    # ★★ 1.9.3 第 57 轮：**别名导入也要算进去**。
+    #   第一版只收集 `ast.Name` / `ast.Attribute` 的标识符，于是
+    #       from tools.jmcomic_tool import wait_for_downloads as _wait_jm
+    #       _wait_jm(...)                     ← 按**别名**调用
+    #   里 `wait_for_downloads` 完全数不到 → 被误判成"零引用"。
+    #   ★ 第 57 轮我差点照着那份假清单去删 —— **这就是"别信扫描器，先验证"的又一例**。
+    #   这里建立 `本地名 → 原名` 映射：别名被用到时，原名也算被用到。
+    alias_of = {}          # 本地名（含 asname）→ 原始名
+    for p in ROOT.rglob("*.py"):
+        if any(s in p.parts for s in (".git", "node_modules", "__pycache__",
+                                      "临时文件", "genie_tts", "开发历史", "_vendor")):
+            continue
+        try:
+            t2 = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for n in ast.walk(t2):
+            if isinstance(n, ast.ImportFrom):
+                for a in n.names:
+                    alias_of[a.asname or a.name] = a.name
+            elif isinstance(n, ast.Import):
+                for a in n.names:
+                    if a.asname:
+                        alias_of[a.asname] = a.name.split(".")[-1]
+
     used = set()
     for p in ROOT.rglob("*.py"):
         if any(s in p.parts for s in (".git", "node_modules", "__pycache__",
@@ -112,6 +139,9 @@ def scan():
         for n in ast.walk(t2):
             if isinstance(n, ast.Name):
                 used.add(n.id)
+                # 别名被用到 ⇒ 原名也算被用到
+                if n.id in alias_of:
+                    used.add(alias_of[n.id])
             elif isinstance(n, ast.Attribute):
                 used.add(n.attr)
 
