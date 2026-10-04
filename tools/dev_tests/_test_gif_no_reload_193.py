@@ -37,7 +37,9 @@ def check(name, ok, detail=""):
 
 
 # ── 造一个合法的 1×1 GIF（避免依赖真实素材）──
-_TMP = ROOT / "_test_tmp_gif193"
+# ★ 放在 tools/dev_tests/ 下（与 _animsrc_193 / _fixtures_193 同风格），
+#   别在仓库根造目录 —— 进程内 QMovie 占着句柄删不掉时根目录会很脏。
+_TMP = ROOT / "tools" / "dev_tests" / "_gifsrc_193"
 _TMP.mkdir(exist_ok=True)
 _GIF = _TMP / "a.gif"
 _GIF2 = _TMP / "b.gif"
@@ -102,9 +104,37 @@ w.set_gif_file(str(_GIF), once=True)
 check("★★once=True 时即使同一个文件也不跳过（通知不能丢）", w._movie is not _m3)
 check("★once=True 设定为不循环", w._loop_gif is False)
 
-w.close()
-import shutil                                     # noqa: E402
-shutil.rmtree(_TMP, ignore_errors=True)
+# ★★ 清理（第 55 轮踩过两次坑）：
+#   1) 这个套件中途失败过（ImportError），临时目录就留在仓库根 → 我**误提交**了一次。
+#   2) 就算跑到底，QMovie 还**占着 GIF 的文件句柄**，Windows 上 rmtree 删不掉，
+#      而 ignore_errors=True 会把这失败**悄悄吞掉** → 还是残留。
+#   ⇒ 先**显式释放电影**，再删；并注册 atexit 保证异常退出也能清。
+def _cleanup():
+    try:
+        w.stop_gif()                     # 停掉并断开信号
+    except Exception:
+        pass
+    try:
+        w._movie = None                  # 丢掉引用 → 让 Qt 关掉文件句柄
+    except Exception:
+        pass
+    try:
+        w.close()
+    except Exception:
+        pass
+    app.processEvents()
+    import shutil
+    for _ in range(5):                   # 句柄释放有延迟，给几次机会
+        shutil.rmtree(_TMP, ignore_errors=True)
+        if not _TMP.exists():
+            return
+        import time as _t
+        _t.sleep(0.15)
+
+
+import atexit                                     # noqa: E402
+atexit.register(_cleanup)
+_cleanup()
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:

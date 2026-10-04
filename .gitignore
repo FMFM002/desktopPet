@@ -110,3 +110,8 @@ data/ui_state.json
 临时文件/
 tools/dev_tests/_animsrc_193/
 tools/dev_tests/_fixtures_193/
+
+# ★ 1.9.3 第 55 轮：_test_gif_no_reload_193.py 在仓库根造的 1×1 GIF 临时目录。
+#   它自己会在结束时删掉，但**万一测试中途失败**（比如 ImportError）就会残留 ——
+#   第 55 轮我就这样把它误提交过一次，所以这里兜一条。
+tools/dev_tests/_gifsrc_193/
