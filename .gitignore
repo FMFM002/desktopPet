@@ -81,6 +81,9 @@ data/tools/*.exe
 Thumbs.db
 desktop.ini
 
+# ★★ 1.9.4：发布装配器的输出目录（构建产物，重新生成即可，不入库）
+dist/
+
 # ★★ 1.9.4：**用户的运行配置，绝不入库**。
 #   它含个人信息（用户自己写的性格提示词、个人头像路径、界面配色、窗口位置）。
 #   发布/分发的是**出厂版** `config.default.json`（由 tools/make_default_config.py
