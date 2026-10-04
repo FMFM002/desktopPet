@@ -685,7 +685,7 @@ class ChatWidget(QWidget):
         #   main_window._on_subagent_done 的长注释：逐条落库会把整段子代理会话
         #   在重启后灌进主上下文，违反"只回传交付物"）。
         self.agent_text_in.connect(
-            lambda t, sp: self._append_message("assistant", t, sp))
+            lambda t, speaker: self._append_message("assistant", t, speaker))
         # ★ 1.9.1: 原来这里把 topic_list_refresh_in 转发成"刷新侧栏书签"的请求。
         #   书签删了 → 删掉这条转发；总结完成后由主窗口直接接 summary_done_in。
         # ★ 1.9.3 第 41 轮：思考/系统信息子窗口的三个信号连接已随子系统一起删除。

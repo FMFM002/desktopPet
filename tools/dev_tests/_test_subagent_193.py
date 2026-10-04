@@ -338,9 +338,10 @@ try:
 
     # ══════════════════ 6. 超时真能中止 ══════════════════
     print("\n== 6. 超时 / close 真能中止 ==")
-    # 慢速脚本：每块睡 0.4s，超时 1 秒 → 读几块就该被打断
-    _slow = [[_chunk(content="正在查")], [_chunk(content="还在查")],
-             [_chunk(content="快好了")], [_chunk(content="好了")]]
+    # 慢速脚本：**一轮里很多块、每块睡 0.4s**，超时 1 秒 → 读到第二三块就该被打断
+    #   ★ 必须"一轮多块"：如果一轮只有一块，这一轮 0.4 秒就跑完了，
+    #     子代理会正常结束（那就测不出超时了 —— 第一版就是这么假通过的）。
+    _slow = [[_chunk(content=f"还在查第 {i} 条…") for i in range(12)]]
     _box2 = {"script": _slow, "gap": 0.4, "clients": [], "prompts": []}
     _install_factory(_box2)
     _r3 = sa.submit(agent="deepseek", prompt="慢慢查", timeout=1)
@@ -353,21 +354,24 @@ try:
           (_st3.get("error") or _st3.get("deliverable") or "")[:50])
     check("★超时中间产物被保住（不是丢个空交付物）",
           "查" in (_st3.get("deliverable") or ""), (_st3.get("deliverable") or "")[:30])
+    check("★超时也真的把 HTTP 流关了", bool(_box2.get("closed")), str(_box2.get("closed")))
 
     # close：一个跑得很慢的子代理，中途掐掉
-    _box3 = {"script": [[_chunk(content="一句一句地吐")]], "gap": 0.5,
-             "clients": [], "prompts": []}
+    _box3 = {"script": [[_chunk(content=f"一句一句地吐 {i}") for i in range(10)]],
+             "gap": 0.4, "clients": [], "prompts": []}
     _install_factory(_box3)
+    _n_msgs_before = len(_fake_sess.messages)
     _r4 = sa.submit(agent="deepseek", prompt="说话慢一点", timeout=120)
     time.sleep(0.3)
-    _cl4 = _box3["clients"][0]
     _rc = sa.close(_r4["job"])
     check("★close 报告已中止", _rc.get("success") and _rc.get("state") == "cancelled",
           f"{_rc.get('state')} / {str(_rc.get('text'))[:40]}")
     check("★close 真的把 HTTP 流关了（stream.close 被调到）",
           bool(_box3.get("closed")), str(_box3.get("closed")))
     sa.wait_all(10)
-    check("★中止后 session.messages 依然没被污染", _fake_sess.messages == [])
+    check("★中止后 session.messages 依然没被污染（条数没变）",
+          len(_fake_sess.messages) == _n_msgs_before,
+          f"{_n_msgs_before} → {len(_fake_sess.messages)}")
 
     # ══════════════════ 7. 工具协商（阶段 2）：申请 / 放行 / 未授权拦截 ══════════════════
     print("\n== 7. 工具协商：没收 → 申请 → 主 LLM 放行 → 才能用 ==")

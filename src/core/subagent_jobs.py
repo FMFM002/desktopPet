@@ -602,11 +602,23 @@ def _make_client(system_prompt: str, max_tokens: int, tools: list):
 # ══════════════════ worker ══════════════════
 
 class _SubagentAbort(Exception):
-    """被 close 中止。"""
+    """被 close 中止。
+
+    ★ `partial`：**正在吐的正文别丢** —— 超时/中止时也要交代半成品，
+      否则主模型拿到的只是"（没做完）"，前面查到的线索全白费。
+    """
+
+    def __init__(self, msg: str = "", partial: str = ""):
+        super().__init__(msg)
+        self.partial = partial
 
 
 class _SubagentTimeout(Exception):
-    """超时。"""
+    """超时（同 `_SubagentAbort`，带半成品正文）。"""
+
+    def __init__(self, msg: str = "", partial: str = ""):
+        super().__init__(msg)
+        self.partial = partial
 
 
 def _job_snapshot(job_id: str) -> dict:
@@ -703,10 +715,12 @@ def _run_one(job_id: str):
             final = partial or "（子代理没给出交付物）"
         _finish(job_id, ok=True, deliverable=final)
     except _SubagentAbort as e:
-        _finish(job_id, ok=False, state="cancelled", error=str(e), deliverable=partial)
+        _finish(job_id, ok=False, state="cancelled", error=str(e),
+                deliverable=getattr(e, "partial", "") or partial)
     except _SubagentTimeout as e:
         _finish(job_id, ok=False, state="timeout",
-                error=f"{e}（{job.get('timeout')} 秒还没做完）", deliverable=partial)
+                error=f"{e}（{job.get('timeout')} 秒还没做完）",
+                deliverable=getattr(e, "partial", "") or partial)
     except Exception as e:
         _log.exception(f"[子代理 {job_id}] 异常: {e}")
         _finish(job_id, ok=False, state="failed",
@@ -733,12 +747,14 @@ def _stream_once(client, messages: list, job_id: str, deadline: float):
             if getattr(delta, "content", None):
                 content += delta.content
             _merge_tool_calls(buf, getattr(delta, "tool_calls", None))
-    except BaseException:
+    except BaseException as _e:
         # 中止/超时/网络错 → 与 session._run_loop 同一套做法：显式 close，真把请求断掉
         try:
             stream.close()
         except Exception:
             pass
+        if isinstance(_e, (_SubagentAbort, _SubagentTimeout)):
+            _e.partial = content      # 半成品正文带出去（超时也要能交代）
         raise
     return content, thinking, [tc for tc in buf if tc is not None]
 
