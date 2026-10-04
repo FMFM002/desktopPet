@@ -396,15 +396,6 @@ class TTSEngine:
 
         self._ensure_thread()
 
-    def speak_now(self, text: str):
-        """同步播放（阻塞当前线程）
-        注意：GENIE 运行在子进程中，无法同步等待；
-        因此 speak_now 始终使用 Edge-TTS。
-        """
-        if not self._enabled or not text or not text.strip():
-            return
-        self._speak_edge_sync(text)
-
     def stop(self):
         """清空待播放队列"""
         with self._lock:
@@ -596,31 +587,6 @@ class TTSEngine:
                 self.on_speak_end()
         except Exception as e:
             _log.error(f"播放失败: {e}")
-
-    def _speak_edge_sync(self, text: str):
-        """Edge-TTS 同步播放"""
-        voice = VOICE_MAP.get(self._character, "zh-CN-XiaoxiaoNeural")
-        import hashlib
-        import asyncio
-
-        text_hash = hashlib.md5(text.encode()).hexdigest()
-        cache_file = TEMP_DIR / f"{text_hash}.mp3"
-
-        if not cache_file.exists():
-            try:
-                import edge_tts
-                communicate = edge_tts.Communicate(text, voice, rate="+0%")
-                asyncio.run(communicate.save(str(cache_file)))
-            except Exception as e:
-                _log.error(f"Edge-TTS 合成失败: {e}")
-                return
-
-        if cache_file.exists():
-            if self.on_speak_start:
-                self.on_speak_start()
-            self._play_audio_file(str(cache_file))
-            if self.on_speak_end:
-                self.on_speak_end()
 
     @staticmethod
     def _play_audio_file(filepath: str):

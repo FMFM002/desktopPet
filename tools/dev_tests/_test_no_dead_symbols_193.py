@@ -51,20 +51,16 @@ FRAMEWORK_HOOKS = {
 #   ★ 本轮的处置：**如实记进名单当"待查"，不删**（用户没授权整批删，
 #     且第 42 轮"按 0 引用一次删 438 行"翻过车）。下一轮逐个查。
 ALLOWED = {
-    # ↓↓↓ 第 57 轮新发现，**待查**（不是"确认要留"，是"还没查清楚，先不删"）
-    "think_write": "★待查：think 面板的惰性入口之一，第 41 轮特意留的；"
-                   "守卫套件只用**字符串**断言它存在，所以 AST 数不到用法",
-    "think_delta": "★待查：同上（think 面板惰性入口）",
-    "_note_round_start": "★待查：chat_widget 内部函数，全仓无按名调用",
-    "_unload_old_rounds": "★待查：同上",
-    "clear_before_last_user_message": "★待查：看名字像是「会话层要调」的，需确认是不是漏接线",
-    "describe_strict": "★待查：llm_client 里的严格版描述函数",
-    "normalize_persona": "★待查：character_settings 里的人设归一化",
-    "speak_now": "★待查：tts_engine 的立即朗读（可能是对外能力）",
-    "take_all": "★待查：progress_bus 的全量取出（可能是对外能力）",
-    # ↑ `wait_for_downloads` 第 57 轮已移出：它**其实一直被调用**，只是走的是
-    #   `from tools.jmcomic_tool import wait_for_downloads as _wait_jm`（**别名**）
-    #   + `_wait_jm(...)`，第一版扫描器认不出别名才误报。已在扫描器里补上别名映射。
+    # ★★ 1.9.3 第 58 轮：**清空**。
+    #   第 57 轮那 9 条（think_write / think_delta / _note_round_start /
+    #   _unload_old_rounds / clear_before_last_user_message / describe_strict /
+    #   normalize_persona / speak_now / take_all）已按用户拍板删除 ——
+    #   用户原话："12345全部删，都是好久以前决定放弃的功能。"
+    #   `take_all` 也删，因为已核实**不影响 LLM 提交后台任务**：
+    #     主窗口走 `progress_bus.set_sink()` 直推（`main_window.py:558`），
+    #     提交侧是 `report()`；`take_all` 只是"没注册 sink 时的兜底"。
+    #   ★ 本名单的正确用法：只登记"**确认要留、但确实没人按名调**"的符号，并写清理由。
+    #     空着 = "零引用真的一条都没有"，这是健康状态。
 }
 
 PASS, FAIL = [], []

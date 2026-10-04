@@ -39,9 +39,10 @@ print("\n== 1. 三条显示入口：可调用、不崩、不显示 ==")
 from src.ui.chat_widget import ChatWidget  # noqa: E402
 
 w = ChatWidget()
-for _fn, _args in (("think_write", ("一段思考内容", "think")),
-                   ("think_delta", ("思考增量",)),
-                   ("append_system_msg", ("[调用: shell_exec]",))):
+# ★ 1.9.3 第 58 轮：`think_write` / `think_delta` 已按用户拍板删除
+#   （"12345全部删，都是好久以前决定放弃的功能"），所以它们不再参与"可调用且不崩"，
+#   改由下面的 4c 断言"**必须不存在**"。
+for _fn, _args in (("append_system_msg", ("[调用: shell_exec]",)),):
     try:
         getattr(w, _fn)(*_args)
         _ok = True
@@ -80,7 +81,7 @@ def _has_def(src, name):
 
 # 4a. 那三条惰性入口体里不能有"建面板/写面板"
 _bad = []
-for _fn in ("append_system_msg", "think_write", "think_delta"):
+for _fn in ("append_system_msg",):
     _m = _src.split(f"def {_fn}(self", 1)
     if len(_m) < 2:
         _bad.append(f"{_fn} 不存在")
@@ -129,9 +130,12 @@ _left = sorted(n for n in _gone if n in _names_cw)
 check("★上面这些残留一个都没回来（AST 口径：注释/docstring 不算）",
       not _left, "; ".join(_left[:6]))
 
-# 4c. 三条惰性入口必须还在（契约不能因为清理而丢掉）
-check("★think_write / think_delta 仍在（惰性入口的契约）",
-      all(_has_def(_src, f) for f in ("think_write", "think_delta")))
+# 4c. ★ 1.9.3 第 58 轮：**契约反转** —— 用户拍板删掉了这两条
+#     （原话："12345全部删，都是好久以前决定放弃的功能"）。
+#     它们以前是"必须存在的惰性入口"，现在改成"**必须不存在**" ——
+#     留着只是没人调的空壳，而删除是用户明确要的。
+check("★think_write / think_delta 已删（第 58 轮：用户确认放弃这两个功能）",
+      not _has_def(_src, "think_write") and not _has_def(_src, "think_delta"))
 check("★think_panel_count 已删（第 45 轮：连同它的形式一起清掉）",
       not _has_def(_src, "think_panel_count"))
 

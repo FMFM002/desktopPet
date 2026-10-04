@@ -58,12 +58,6 @@ def report(text: str, kind: str = "progress") -> bool:
     return True
 
 
-def take_all() -> list:
-    """主窗口侧：取走所有排队中的汇报（取完清空）。"""
-    global _queue
-    out, _queue = _queue, []
-    return out
-
 
 def reset_turn():
     """新一轮开始（主窗口在收到用户消息时调用）。"""

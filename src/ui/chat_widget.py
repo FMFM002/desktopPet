@@ -1830,46 +1830,6 @@ class ChatWidget(QWidget):
             _log.warning(f"[聊天历史] prepend 失败: {e}")
             return 0
 
-    def _note_round_start(self, pos: int):
-        marks = getattr(self, "_round_marks", None)
-        if marks is None:
-            marks = self._round_marks = []
-        marks.append(pos)
-
-    def _unload_old_rounds(self):
-        """★ 1.9.2（R51）：只保留最后 `_chat_keep_rounds` 轮，更早的**从文档里删掉**。
-
-        这是"分段式加载"的**卸载那一半**。删除之后必须把已登记的位置整体左移
-        （气泡区间 / 流式区间 / 轮次标记），否则气泡底色和滚动位置会错位。
-        """
-        try:
-            marks = getattr(self, "_round_marks", None) or []
-            keep = int(getattr(self, "_chat_keep_rounds", 2) or 2)
-            if keep < 1 or len(marks) <= keep:
-                return
-            cut = marks[-keep]
-            if cut <= 0:
-                return
-            cur = self._chat_display.textCursor()
-            cur.setPosition(0)
-            cur.setPosition(cut, QTextCursor.KeepAnchor)
-            cur.removeSelectedText()
-            # 位置整体左移
-            for sp in (getattr(self._chat_display, "bubble_spans", None) or []):
-                try:
-                    sp["start"] = max(0, sp["start"] - cut)
-                    sp["end"] = max(0, sp["end"] - cut)
-                except Exception:
-                    pass
-            if getattr(self, "_stream_span", None):
-                self._stream_span["start"] = max(0, self._stream_span["start"] - cut)
-                self._stream_span["end"] = max(0, self._stream_span["end"] - cut)
-            self._round_marks = [max(0, m - cut) for m in marks[-keep:]]
-            _log.debug(f"[聊天分段加载] 卸载旧轮次：切掉前 {cut} 个字符，"
-                       f"保留最后 {keep} 轮")
-        except Exception as e:
-            _log.debug(f"[聊天分段加载] 卸载旧轮次失败: {e}")
-
     # ================= 工作中指示器（★ 1.9.3 第 6 轮）=================
     def _tick_busy(self):
         """定时器每 160ms 走一帧（斜杠、破折号、反斜杠循环）。"""
@@ -1898,45 +1858,6 @@ class ChatWidget(QWidget):
             self._busy_label.hide()
         except Exception as e:
             _log.debug(f"[工作中] 停止指示器失败: {e}")
-
-    def clear_before_last_user_message(self):
-        """★ 1.9.2（R55/R60）：发言即清屏 —— 把这条用户消息**之前**的记录整段卸载。
-        全部卸载 —— 话题不断、上下文不断（`session.messages` 一个字不动），
-        只是让"每一次对话都是干净的聊天界面"。
-
-        触发点放在 `main_window._on_user_message`（真实发送那一条链路），
-        **不放在 `_append_message`** —— 那里是所有路径共用的（含渲染历史、自测的
-        逐条追加），上一轮塞在那里实测打挂 7 条断言。
-        """
-        try:
-            spans = getattr(self._chat_display, "bubble_spans", None) or []
-            # ★ 切点用"最后一条用户消息的起始位置" —— 由 _append_message 直接记录。
-            cut = int(getattr(self, "_last_user_start", 0) or 0)
-            if cut <= 0:
-                return
-            cur = self._chat_display.textCursor()
-            cur.setPosition(0)
-            cur.setPosition(cut, QTextCursor.KeepAnchor)
-            cur.removeSelectedText()
-            for sp in spans:
-                try:
-                    sp["start"] = max(0, sp["start"] - cut)
-                    sp["end"] = max(0, sp["end"] - cut)
-                except Exception:
-                    pass
-            if getattr(self, "_stream_span", None):
-                self._stream_span["start"] = max(0, self._stream_span["start"] - cut)
-                self._stream_span["end"] = max(0, self._stream_span["end"] - cut)
-            # ★ 1.9.3：切掉的是文档最前面那一段 —— 分割线（如果有）也在里面，
-            #   所以它的位置要么跟着左移，要么直接失效。
-            try:
-                _de = int(getattr(self, "_topic_divider_end", -1))
-                self._topic_divider_end = (_de - cut) if _de > cut else -1
-            except Exception:
-                self._topic_divider_end = -1
-            _log.debug(f"[分段加载] 发言清屏：切掉前面 {cut} 个字符，只留刚发的这条")
-        except Exception as e:
-            _log.debug(f"[分段加载] 发言清屏失败: {e}")
 
     def append_streaming_text(self, text: str):
         """流式文本（桌宠风格，无底色）"""
@@ -2020,14 +1941,6 @@ class ChatWidget(QWidget):
     #
     # 只留下三条**仍被调用**的惰性入口 —— 保留是为了守住"调用不崩、且什么都不显示"
     # 这条契约（`_test_think_disabled_193.py` 钉着它）。
-
-    def think_write(self, text: str, kind: str = "think"):
-        """**已停用**：思考/系统信息不再显示（面板子系统已删除）。"""
-        _log.debug(f"[已隐藏] think_write: {str(text)[:60]}")
-
-    def think_delta(self, delta: str):
-        """**已停用**：思考/系统信息不再显示（面板子系统已删除）。"""
-        _log.debug(f"[已隐藏] think_delta: {str(delta)[:60]}")
 
     def _get_image_size(file_path: str) -> str:
         try:

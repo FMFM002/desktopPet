@@ -180,28 +180,6 @@ class VisionClient:
             pass
         return {}
 
-    def describe_strict(self, image: Image.Image, prompt: str = None,
-                        max_tokens: int = 900, mode: str = None) -> str:
-        """★ 1.9.0: 给「文件查看工具」用的**如实描述**。
-
-        与 analyze() 的区别：
-          · 提示词默认强调"只说你真看到的"，禁推测/禁客套（调用方一般传
-            file_view.STRICT_PROMPT）
-          · 显式关掉推理模型的 thinking（否则 content 可能为空）
-          · max_tokens 更大（要逐条抄录文字，300 不够）
-          · mode 可覆盖本次使用的后端（api/ollama/ocr）—— 设置页「多模态」那块
-            由此真正接上（多模态开 → 用视觉大模型；关 → 听「视觉识别」那块）
-        """
-        prompt = prompt or ("只描述你真实看到的内容，不要推测、不要客套。"
-                            "逐条抄录画面中的文字，并客观描述画面主体。")
-        use = (mode or self.mode or "api").lower()
-        if use == "ocr":
-            return self._analyze_ocr(image)
-        extra = self._thinking_disabled_extra()
-        if use == "ollama":
-            return self._analyze_ollama(image, prompt, max_tokens=max_tokens, extra=None)
-        return self._analyze_api(image, prompt, max_tokens=max_tokens, extra=extra)
-
     def _analyze_ocr(self, image: Image.Image) -> str:
         """本地 OCR 文字识别"""
         try:
