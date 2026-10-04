@@ -359,6 +359,11 @@ class ChatWidget(QWidget):
     #     （**只显示、不落库、不进 session.messages、不喂 LTM**，用户原话）。
     direct_dispatch_request = Signal()
     bot_text_in = Signal(str)
+    # ★ 1.9.3 第 59 轮（子代理）：(文本, 说话者形象名) → 以**那个形象的头像**插一条
+    #   assistant 气泡。子代理在 worker 线程里说话，绝不能在它里面碰 Qt 控件，
+    #   所以走这个跨线程 queued signal（与 bot_text_in 同一套理由）。
+    #   与 bot_text_in 的区别：那个用**当前形象**的头像，这个按 speaker 取头像。
+    agent_text_in = Signal(str, str)
 
     # 话题相关（★ 1.6.0: 一个角色一个窗口，只有「开启新话题 / 总结旧话题」两个动作）
     new_topic_request = Signal()
@@ -675,6 +680,12 @@ class ChatWidget(QWidget):
         #     否则同一条消息"刚显示时"和"重画历史后"会拿到不同头像。
         self.bot_text_in.connect(
             lambda t: self._append_message("assistant", t, self._char_name))
+        # ★ 1.9.3 第 59 轮（子代理）：文本 + 说话者形象名 → 按 speaker 取头像。
+        #   窗口里**只显示**；落库由主窗口只对"最终交付物"做一次（见
+        #   main_window._on_subagent_done 的长注释：逐条落库会把整段子代理会话
+        #   在重启后灌进主上下文，违反"只回传交付物"）。
+        self.agent_text_in.connect(
+            lambda t, sp: self._append_message("assistant", t, sp))
         # ★ 1.9.1: 原来这里把 topic_list_refresh_in 转发成"刷新侧栏书签"的请求。
         #   书签删了 → 删掉这条转发；总结完成后由主窗口直接接 summary_done_in。
         # ★ 1.9.3 第 41 轮：思考/系统信息子窗口的三个信号连接已随子系统一起删除。
