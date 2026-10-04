@@ -255,6 +255,36 @@ if _APPLY is not None:
     check("★★全仓 assistant 的 _append_message 调用都带上了说话者",
           not _miss, "; ".join(_miss))
 
+# ──────────────────────────────────────────────────────────────
+# ★★ 1.9.3 第 54 轮：**启动时历史消息的用户头像**
+#    真机反馈："刚启动时，历史聊天记录的用户头像渲染错误"。
+#    原因：`chat-reload`（重画历史）与 `_apply_config_to_ui`（设头像）是两个独立
+#    启动任务，**谁先跑不保证**；历史一旦先画，HTML 里就固化了默认头像，
+#    之后 set_avatars 只改 `_avatar_uri`，**已画进文档的图不会变**。
+#    → 判据：`_apply_config_to_ui` 里设完头像后，**头像真的变了就重画一次**，
+#      而且是"不赌顺序"的写法（比较前后路径），并带防重入。
+print("\n== 启动头像：设完要重画（不赌启动任务顺序）==")
+_src = _MW.read_text(encoding="utf-8")
+_tree2 = ast.parse(_src)
+_apply_fn = None
+for _n in ast.walk(_tree2):
+    if isinstance(_n, ast.FunctionDef) and _n.name == "_apply_config_to_ui":
+        _apply_fn = _n
+check("★找到 _apply_config_to_ui", _apply_fn is not None)
+_aseg = ast.unparse(_apply_fn) if _apply_fn else ""
+check("★★设完头像后，头像真变了会重画历史（否则已渲染的消息一直挂旧头像）",
+      "set_avatars" in _aseg and "_reload_chat_view" in _aseg,
+      "缺少 set_avatars 后的重画")
+_index_sa = _aseg.find("set_avatars")
+_index_rl = _aseg.find("_reload_chat_view")
+check("★★重画发生在 set_avatars **之后**（顺序错了等于没修）",
+      _index_sa != -1 and _index_rl != -1 and _index_sa < _index_rl,
+      f"set_avatars@{_index_sa} / _reload_chat_view@{_index_rl}")
+check("★比较了前后头像路径（不赌启动任务顺序，只有真变了才重画）",
+      "_user_avatar_path" in _aseg and "_bot_avatar_path" in _aseg)
+check("★有防重入标志（避免重画过程中再次进来）",
+      "_avatar_redraw_busy" in _aseg)
+
 # 收尾
 shutil.rmtree(_TMP, ignore_errors=True)
 

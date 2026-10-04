@@ -2652,7 +2652,28 @@ class MainWindow:
                 info = self.pet_mgr.characters.get(self.pet_mgr.current)
                 if info and info.avatar:
                     pet_avatar = str(info.avatar)
+            # ★★ 1.9.3 第 54 轮：**头像变了要把已渲染的历史重画一次**。
+            #   真机反馈："刚启动时，历史聊天记录的用户头像渲染错误"。
+            #   原因：`chat-reload`（重画历史）和 `_apply_config_to_ui`（真正设头像）
+            #   是两个独立的启动任务，**谁先跑并不保证**；一旦历史先画，
+            #   那批消息的 HTML 里就固化了**默认头像**，之后再 `set_avatars`
+            #   只改 `_avatar_uri`，**已经画进文档的图不会变** → 一直是错的。
+            #   所以这里不赌顺序：头像路径**真的变了**就重画一次。
+            #   （带防重入，_reload_chat_view 自身不会回调到这里，加个保险。）
+            _prev_av = (getattr(self.chat, "_user_avatar_path", ""),
+                        getattr(self.chat, "_bot_avatar_path", ""))
             self.chat.set_avatars(user_avatar, pet_avatar)
+            _now_av = (getattr(self.chat, "_user_avatar_path", ""),
+                       getattr(self.chat, "_bot_avatar_path", ""))
+            if _now_av != _prev_av and not getattr(self, "_avatar_redraw_busy", False):
+                self._avatar_redraw_busy = True
+                try:
+                    _log.debug("[聊天头像] 路径变了 → 重画历史（否则已渲染的消息还挂着旧头像）")
+                    self._reload_chat_view(keep_position=True)
+                except Exception as _e:
+                    _log.debug(f"[聊天头像] 重画历史失败（不影响头像本身）: {_e}")
+                finally:
+                    self._avatar_redraw_busy = False
         except Exception as e:
             _log.debug(f"应用聊天头像失败: {e}")
 
