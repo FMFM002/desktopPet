@@ -1489,7 +1489,11 @@ if _wc.available:
     if _speech is None:
         print("  NOTE 没有可用的真实语音素材（原素材在 2026-10-04 的私有目录清理中丢失，"
               "本机 SAPI 也没装语音）→ **跳过真实转写**；"
-              "不依赖音频的断言（-m 路径 / JSON 解析兜底）已在上方通过。")
+              "不依赖音频的断言（-m 路径 / JSON 解析兜底）已在上方通过。"
+              "★ 1.9.4：whisper 这条链路的**结构性验证**另由 "
+              "`_test_whisper_structural_194.py` 覆盖（命令行参数固化 / JSON 解析 / "
+              "原始输出兜底 / 坏输出不炸，共 15 条），**所以这里不再是盲区** —— "
+              "只差'真语音'这一项，而那需要真素材，本机造不出来。")
     elif _commit_free is None or _commit_free >= 6 * 1024 ** 3:
         _tr = _wc.transcribe_file(str(_speech))
         check("★★真实转写：whisper-cli 出文字了（走完整代码路径，不是模拟）",
