@@ -863,7 +863,15 @@ check("附件以 assistant 角色写进当前话题",
       _fdb.chat.rows and _fdb.chat.rows[0][0] == "assistant" and _fdb.chat.rows[0][2] == 7)
 check("附件的路径标记不进长期记忆提取队列", _fdb.chat.marked == [([42], 1)])
 check("附件进入「待补进会话」队列（错开工具调用链，避免 400）",
-      _stub8._pending_attachments == ["[[FILE:C:\\x\\y.pdf|1 KB|标签]]"])
+      # ★ 1.9.3 第 53 轮：队列元素从**裸字符串**改成 **(文本, 说话者)** ——
+      #   原来补进 session.messages 时只写 {"role","content"}，**丢了 speaker**，
+      #   于是同一条附件 DB 里有说话者、内存里没有 → 切形象后被当成"谁都算自己"说的。
+      #   断言意图不变（附件确实排进了队列、没有直接插进调用链中间），
+      #   只是形态跟着变了 —— 所以这里顺带钉住"说话者也一起进了队列"。
+      len(_stub8._pending_attachments) == 1
+      and _stub8._pending_attachments[0][0] == "[[FILE:C:\\x\\y.pdf|1 KB|标签]]"
+      and len(_stub8._pending_attachments[0]) == 2,
+      str(_stub8._pending_attachments))
 _stub8._pending_attachments = ["m1", "m2"]
 MainWindow._flush_pending_attachments(_stub8)
 check("本轮结束后补进 session.messages 且队列清空",

@@ -94,6 +94,178 @@ class _TaskSignalRelay(QObject):
     context_note = Signal(str)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ 1.9.3 第 52 轮：**重画历史时的本地图片**（用户真机："有一次少了一张图"，
+#   那张图是桌宠发的表情包）
+#
+# 现场（data/DBs/chat_records.db 里的真实记录，不是猜的）：
+#     assistant  '![](file:///D:/Dtopdesk/%E6%99%AE…/data/memes/deepseek-chan/038.webp)\n🎭 表情包'
+#
+# 两条路原来长得不一样：
+#   · **实时**：`self.chat.bot_image_in.emit(p)` → `append_image_preview(p, from_bot=True)`
+#     → "头像 + 一整行的图片"；
+#   · **重画**：`_reload_chat_view` 只把正文交给 `_append_message` —— 图片标记最多
+#     以内联缩略图的形式混在气泡里，观感与实时那条**对不上**，
+#     用户看到的就是"重画之后这张图没了/不一样了"。
+#
+# 现在两条路都走 `append_image_preview`，重画出来的和刚发出来的一模一样。
+#
+# ★ 为什么放在**模块级**（而不是 MainWindow 的方法）：自测里有多处
+#   "`MainWindow._reload_chat_view(普通桩对象)`"的用法（比如 `_test_topic_buttons_191`），
+#   桩对象上根本没有这些属性 → 一旦做成方法，重画会在第一条消息上抛
+#   AttributeError、被外层 try 吞掉 → **整屏历史一条都不渲染**。
+#   做成纯函数（chat 当参数传）后，桩对象那条路也照常工作。
+#   下面三个只做"扫标记 + 解析成本地路径 + 交给 chat 画"，**不碰顺序记账**
+#   （`prepend_messages` / 气泡区间那段一个字没动）。
+# ══════════════════════════════════════════════════════════════════════
+
+# markdown 图片：`![alt](url)`（url 允许含空格，尖括号包裹也认）
+_HIST_MD_IMG_RE = re.compile(r'!\[[^\]]*\]\(\s*([^)]*?)\s*\)')
+# HTML 图片：`<img src="url">`（单/双引号都认，属性顺序无所谓）
+_HIST_HTML_IMG_RE = re.compile(
+    r'<img\b[^>]*?\bsrc\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+
+
+def _history_local_image_path(url):
+    """把 `![](...)` / `<img src=...>` 里的 URL 解析成**本地文件路径**（Path）。
+
+    返回 Path；**不是本地图片**（http/https/data/ftp/UNC 主机名）或解析失败 → None。
+    注意：这里**只解析、不判断文件是否存在** —— 存在性由调用方查，
+    这样"解析规则"本身可以被单独断言（自测里用的是不存在的假路径）。
+
+    现场要处理的四种写法：
+      · `file:///D:/...`  → `D:\\...`（去掉 `file:///` 和开头那个 `/`）；
+      · `%E6%99%A…` 这种 URL 编码 → `urllib.parse.unquote` 还原成中文；
+      · `![](<D:/a b.png>)` 尖括号包裹、路径含空格；
+      · 相对路径（相对仓库根，与 `ChatWidget._render_inline_image_html` 的口径一致）。
+    """
+    try:
+        from urllib.parse import unquote, urlparse
+        raw = (url or "").strip()
+        if raw.startswith("<") and raw.endswith(">"):
+            raw = raw[1:-1].strip()              # ![](<…>) 的尖括号形式
+        if not raw:
+            return None
+        low = raw.lower()
+        if low.startswith(("http://", "https://", "data:", "ftp://", "//")):
+            return None                          # 远程 / 内嵌数据 → 不归这条路管
+        if low.startswith("file:"):
+            parsed = urlparse(raw)
+            if parsed.netloc and parsed.netloc.lower() != "localhost":
+                # file://某主机/共享名 → UNC 形式，这里不冒险解析（交给文本回退）
+                _log.debug(f"[聊天历史] 图片是共享主机路径，按文本渲染: {raw[:80]}")
+                return None
+            p = unquote(parsed.path)             # 去掉 file:// 与查询串，并解开 %XX
+            if len(p) >= 3 and p[0] == "/" and p[2] == ":":
+                p = p[1:]                        # /D:/… → D:/…
+            elif len(p) >= 4 and p[0:2] == "//" and p[3] == ":":
+                p = p[2:]                        # //D:/… → D:/…
+            if not p.strip():
+                return None                      # `file:` 这种空壳 → 不算图片
+            path = Path(p)
+        else:
+            raw2 = unquote(raw) if "%" in raw else raw
+            path = Path(raw2)
+        if not path.is_absolute():
+            path = _BASE_DIR / path
+        return path.resolve()
+    except Exception as e:
+        _log.debug(f"[聊天历史] 图片路径解析失败（按文本渲染）{str(url)[:80]}: {e}")
+        return None
+
+
+def _history_local_images(content):
+    """扫出正文里**确实存在**的本地图片 → `[(start, end, Path), ...]`（按出现顺序）。
+
+    · 一条消息里多张图、图夹在文字中间，都按它们在正文里的**先后**返回；
+    · 远程 URL / data: / 解析失败 / 文件不在 → **不进结果**（那部分留在正文里
+      按普通文本渲染，行为与改动前完全一致），文件不在时留一句 `_log`；
+    · 任何异常都不外抛（最坏就是返回空 = 全部按文本渲染）。
+    """
+    text = content or ""
+    if "![" not in text and "<img" not in text.lower():
+        return []
+    spans = []
+    try:
+        for mm in _HIST_MD_IMG_RE.finditer(text):
+            spans.append((mm.start(), mm.end(), mm.group(1)))
+        for mm in _HIST_HTML_IMG_RE.finditer(text):
+            spans.append((mm.start(), mm.end(), mm.group(1)))
+    except Exception as e:
+        _log.debug(f"[聊天历史] 图片标记扫描失败（按文本渲染）: {e}")
+        return []
+    spans.sort(key=lambda x: (x[0], -x[1]))
+    out = []
+    last_end = -1
+    for s, e, u in spans:
+        if s < last_end:
+            continue                             # 与上一个重叠（两种写法混写）→ 跳过
+        p = _history_local_image_path(u)
+        if p is None:
+            continue
+        try:
+            exists = p.is_file()
+        except Exception:
+            exists = False
+        if not exists:
+            # ★ 用户可查："为什么这张图重画后没了" —— 日志里能直接看到是哪个文件
+            _log.warning(f"[聊天历史] 本地图片不存在，这一张按文本渲染: {p}")
+            continue
+        out.append((s, e, p))
+        last_end = e
+    return out
+
+
+def _render_history_message(chat, role: str, content: str, speaker: str = "") -> bool:
+    """★ 第 52 轮：重画历史时，把**本地图片**按"实时那条路"画出来。
+
+    返回 True = 这一条**已经画完了**（调用方不要再画，否则会重复）；
+    返回 False = 里面没有可用的本地图片 → 调用方按老样子
+    `chat._append_message(role, content, speaker)` 渲染（**行为一字不变**）。
+
+    画法（顺序 = 正文里的出现顺序）：
+        文本段 → `_append_message` ；图片段 → `append_image_preview` ；
+    也就是"图前面的话照旧、图真的画成图、图后面的话照旧"。
+    整条就是一张图、没有其余文字时 → 只画图。
+
+    安全约束：
+      · 图片标记只被"认领"一次 —— 交给 `append_image_preview` 的那段标记
+        **不会**再进 `_append_message`，不会出现"同一张图渲染两遍"；
+      · `append_image_preview` 的签名/行为一个字不改（本轮硬约束）；
+      · 半路出错时：已经画过东西就返回 True（宁可少画，也不让调用方再画一遍
+        把文字重复出来）。
+    """
+    drew = False
+    try:
+        if not hasattr(chat, "append_image_preview"):
+            return False                         # 桩对象 / 非常规 chat → 走老路
+        imgs = _history_local_images(content)
+        if not imgs:
+            return False
+        text = content or ""
+        from_bot = (role == "assistant")
+        pos = 0
+        for s, e, p in imgs:
+            seg = text[pos:s].strip("\n")
+            if seg.strip():
+                chat._append_message(role, seg, speaker)
+                drew = True
+            chat.append_image_preview(str(p), from_bot=from_bot)
+            drew = True
+            pos = e
+        tail = text[pos:].strip("\n")
+        if tail.strip():
+            chat._append_message(role, tail, speaker)
+            drew = True
+        _log.debug(f"[聊天历史] 重画：本地图片 {len(imgs)} 张已按预览画出来"
+                   f"（role={role}, speaker={speaker or '-'}）")
+        return True
+    except Exception as e:
+        _log.warning(f"[聊天历史] 重画本地图片失败（按文本渲染）: {e}")
+        # 已经画过东西就返回 True —— 宁可少画一点，也不能让调用方把整条再画一遍
+        return drew
+
+
 class MainWindow:
     """主窗口管理器"""
 
@@ -118,7 +290,11 @@ class MainWindow:
         # ★ 1.9.0: 工具推给聊天窗口的附件（图片/文件卡片）待补进会话的正文。
         #   工具回调发生在工具调用链中间，不能当场插 assistant 消息
         #   （会破坏 tool_calls ↔ tool 结果配对 → 400），统一延后到本轮结束。
-        self._pending_attachments: list[str] = []
+        # ★ 1.9.3 第 53 轮：改存 (文本, 说话者)。原来只存字符串，
+        #   于是 _flush_pending_attachments 补进内存时**丢了 speaker** ——
+        #   DB 里有、内存里没有，切形象后这条附件会被当成谁都算自己说的，
+        #   正好从后面捅穿第 52 轮刚修好的头像按说话者取。
+        self._pending_attachments: list[tuple] = []
         # ★ 1.9.0: 本轮已经推送过的附件路径（小写）——LLM 常先调 download
         #   再调 file_ops send，同一张图会显示两遍（W6 反馈"封面发了两次"）。
         #   每轮用户消息开始时清空。
@@ -1026,15 +1202,31 @@ class MainWindow:
                 return False
             older = keep[start_new:start_old]
             items = []
+            _has_local_img = False
             for m in older:
                 role = m.get("role")
                 if role in ("user", "assistant"):
+                    content = m.get("content") or ""
+                    # ★ 第 52 轮：这一批里只要含**本地图片**，prepend 就撑不住 ——
+                    #   `append_image_preview` 只会往文档**末尾**画图（它没有"插到某个
+                    #   位置"的接口，给它加等于动整套区间记账，本轮硬约束不改它），
+                    #   硬插的话图片会跑到聊天最下面、顺序全乱。
+                    #   所以这种情况**回退整段重画**：重画那条路已经能把本地图按
+                    #   `append_image_preview` 画出来（见 `_render_history_message`），
+                    #   于是"插上来的"和"整段重画的"观感仍然一致 —— 这正是本轮的目
+                    #   标，且顺序一定不会错。
+                    if not _has_local_img and _history_local_images(content):
+                        _has_local_img = True
                     # ★ 1.9.3（共享工作台）：往上插的这批也要带 speaker，
                     #   否则同一条消息"prepend 上来的"和"整段重画出来的"头像不一致。
-                    items.append({"role": role, "content": m.get("content") or "",
+                    items.append({"role": role, "content": content,
                                   "speaker": m.get("speaker") or ""})
                 # system 行按既有设计不进视图（也不该为它造子窗口）
             if not items:
+                return False
+            if _has_local_img:
+                _log.info("[聊天历史] 这一轮含本地图片 → 回退整段重画"
+                          "（prepend 只能在文档末尾画图，插上来会错序）")
                 return False
             if self.chat.prepend_messages(items) <= 0:
                 return False
@@ -1328,6 +1520,17 @@ class MainWindow:
                     self._chat_archived_rendered = True
                     for m in msgs:
                         content = m.get("content") or ""
+                        # ★ 第 52 轮（用户真机"重画后少了一张表情包"）：归档段里的
+                        #   **本地图片**先走共用小工具 —— 它会 `append_image_preview`
+                        #   把图真画出来（与实时那条路一致）。不是图片 → 返回 False，
+                        #   下面几行按老样子渲染，普通文本消息的行为一字不变。
+                        if _render_history_message(
+                                self.chat, m.get("role"), content,
+                                m.get("speaker") or ""):
+                            total += 1
+                            if total >= _slots:
+                                break
+                            continue
                         if m.get("role") == "user":
                             self.chat._append_message("user", content)
                         else:
@@ -1371,6 +1574,13 @@ class MainWindow:
                 content = m.get("content") or ""
                 if not content:
                     continue
+                # ★ 第 52 轮（用户真机"重画后少了一张表情包"）：当前话题里的**本地图片**
+                #   先走共用小工具 —— 里面会 `append_image_preview` 把图真画出来
+                #   （与实时 `bot_image_in` 那条路完全一致）。不是图片 → 返回 False，
+                #   下面按老样子渲染，普通文本消息的行为一字不变。
+                if role in ("user", "assistant") and _render_history_message(
+                        self.chat, role, content, m.get("speaker") or ""):
+                    continue
                 if role == "user":
                     self.chat._append_message("user", content)
                 elif role == "assistant":
@@ -1385,6 +1595,31 @@ class MainWindow:
                     #   界面又乱、位置也容易错，还白占内存。
                     #   → 渲染历史时**直接跳过**（不造面板、也不占位）。
                     _skipped_sys += 1
+            # ★★ 1.9.3 第 53 轮：把**本轮还在进行中**的附件也画出来。
+            #   背景（真机反馈"有一次少了一张图"）：`_persist_attachment` 是
+            #   **先落 DB、只把文本排进 `_pending_attachments`**，等本轮结束才由
+            #   `_flush_pending_attachments` 补进 `session.messages`
+            #   （延后是为了不打断 tool_calls ↔ tool 结果配对，见那里的注释）。
+            #   而 `_reload_chat_view` 的当前话题读的正是 `session.messages` ——
+            #   于是**一轮还没结束时**的任何一次重画（切形象/加载历史）里
+            #   就**没有那条表情包**；要是之后没人再触发重画，它就一直"少着"。
+            #   → 这里把队列里那几条补画在最后（它们本来就是最新的，
+            #     而且已经在 DB 里了，顺序不会错）。flush 之后队列会清空，不会重复画。
+            try:
+                _pend_now = list(getattr(self, "_pending_attachments", None) or [])
+                for _it in _pend_now:
+                    if isinstance(_it, (tuple, list)):
+                        _pt = _it[0]
+                        _speaker = _it[1] if len(_it) > 1 else ""
+                    else:
+                        _pt, _speaker = _it, ""
+                    if _render_history_message(self.chat, "assistant", _pt, _speaker) is False:
+                        self.chat._append_message("assistant", _pt, _speaker)
+                if _pend_now:
+                    _log.info(f"[聊天历史] 额外补画了本轮 {len(_pend_now)} 条"
+                              f"仍在排队的附件（尚未补进内存）")
+            except Exception as _e:
+                _log.debug(f"[聊天历史] 补画排队附件失败: {_e}")
             # ★ 1.9.2（R64）：把"这一屏到底渲染了多少条"打出来 ——
             #   用户报过"加载历史还是把当前话题全加载了"，有这条就能一眼对上：
             #   渲染条数 = 预算内该有的条数，还是真的把全部塞进去了。
@@ -1749,22 +1984,41 @@ class MainWindow:
             except Exception:
                 pass
         try:
-            self._pending_attachments.append(text)
+            # ★ 1.9.3 第 53 轮：连**说话者**一起入队 —— 原来只排队文本，
+            #   补进内存时丢了 speaker，DB 里有、内存里没有，
+            #   切形象后这条附件会被当成"谁都算自己"说的。
+            self._pending_attachments.append(
+                (text, getattr(self.session, "character", "") or ""))
         except Exception:
             pass
 
     def _flush_pending_attachments(self):
         """★ 1.9.0: 本轮结束后把附件消息补进 session.messages ——
         这样话题内重画（_reload_chat_view 读的是 session.messages）也能看到，
-        内存与 DB 保持一致。"""
+        内存与 DB 保持一致。
+
+        ★ 1.9.3 第 53 轮：队列元素现在是 `(文本, 说话者)` ——
+        原来只排文本，补进内存时**丢了 speaker**：DB 里那条有 speaker、
+        内存里这条没有，切形象后它会被当成"谁都算自己"说的，
+        从后面捅穿第 52 轮刚修好的"头像按说话者取"。
+        这里兼容裸字符串（万一别处还塞过老形态）。
+        """
         pend = getattr(self, "_pending_attachments", None)
         if not pend:
             return
         self._pending_attachments = []
         try:
             with self.session._lock:
-                for t in pend:
-                    self.session.messages.append({"role": "assistant", "content": t})
+                for it in pend:
+                    if isinstance(it, (tuple, list)):
+                        _t = it[0]
+                        _speaker = it[1] if len(it) > 1 else ""
+                    else:
+                        _t, _speaker = it, ""
+                    _msg = {"role": "assistant", "content": _t}
+                    if _speaker:
+                        _msg["speaker"] = _speaker
+                    self.session.messages.append(_msg)
             _log.debug(f"附件消息已补进会话: {len(pend)} 条")
         except Exception as e:
             _log.debug(f"附件补进会话失败: {e}")
