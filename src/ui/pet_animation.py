@@ -172,9 +172,20 @@ class PetAnimationWidget(QWidget):
             _log.info(f"  角色 '{name}': {list(behaviors.keys())}")
 
     def set_character(self, name: str):
+        # ★★ 1.9.3 第 55 轮（用户："切换到同一个 gif 时……就不切换，不用加载了"）：
+        #   **已经是这个角色、而且 GIF 还在播 → 直接返回**，一个字都不动。
+        #   原来这里无条件 `_current_behavior = ""` + `set_behavior("待机")`
+        #   （那句注释还专门写着"避免 early return 跳过加载"）——
+        #   于是**每次重复收到同一个角色命令都会把 GIF 整个重载一遍**，
+        #   日志里 `切换角色: 铃兰` + `切换行为: 铃兰/GIF` 反复出现就是这个。
+        #   真机上换 GIF 的解码/加载就是掉帧的来源之一（探针抓到过
+        #   "最差 125ms" 与 `切换行为: deepseek/GIF` 同一秒）。
+        if name == self._current_character and self._movie is not None:
+            _log.debug(f"[形象] 已经是角色「{name}」且 GIF 在播 → 不重载")
+            return
         if name in self._characters:
             self._current_character = name
-            self._current_behavior = ""  # 重置，避免 set_behavior 的 early return 跳过加载
+            self._current_behavior = ""  # 换角色了才需要绕开 early return
             self.set_behavior("待机")
             _log.debug(f"切换角色: {name}")
         else:
@@ -203,6 +214,29 @@ class PetAnimationWidget(QWidget):
         （用于「启动默认 GIF 只播放一遍再切入待机」）。
         """
         if not file_path:
+            return
+        # ★★ 1.9.3 第 55 轮（用户："切换到同一个 gif 时……就不切换，不用加载了"）：
+        #   **已经是同一个 GIF 文件、QMovie 还在、而且都是"循环播"→ 直接返回**，
+        #   不重建 QMovie（重建要重新解码/加载，正是掉帧的来源之一）。
+        #   · 为什么放在这里（形象进程侧）而不是 PetManager 侧：
+        #     只有这里知道 `self._movie` **到底还在不在**。若只比对路径而电影
+        #     其实已经没了（自愈/释放过），跳过就会让形象变成空白。
+        #   · 为什么 `once=True` 不跳过：那个模式播完要发 `gif_once_finished`，
+        #     若上一次已经发过，跳过会把这次的通知吞掉。
+        #   · 行为名不同但解析到**同一个文件**时也跳过（这正是用户要的：
+        #     看的是"同一个 gif"，不是"同一个行为名"）；只把标签更新一下。
+        #   ★★ 必须要求 `state() != NotRunning`：自愈路径 `repaint_current()` 在
+        #      "电影停了 / 当前帧是空图"时正是靠 `set_gif_file(_last_file)` 重新加载
+        #      （见那里的注释：Windows 分层窗口偶发合成失效）。若只比对路径 + `_movie
+        #      不是 None`，就会把**自愈**挡掉 —— 形象会一直空白。
+        if (not once and file_path == getattr(self, "_last_file", None)
+                and self._movie is not None and getattr(self, "_loop_gif", False)
+                and self._movie.state() != QMovie.NotRunning):
+            if behavior_label and behavior_label != self._current_behavior:
+                self._current_behavior = behavior_label
+                self._behavior_override = behavior_label
+                self.behavior_changed.emit(behavior_label)
+            _log.debug(f"[形象] 同一个 GIF（{Path(file_path).name}）→ 不重载")
             return
         self._last_file = file_path      # ★ 1.9.0: 自愈时用它重载（见 repaint_current）
         if behavior_label:
