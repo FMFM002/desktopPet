@@ -23,6 +23,24 @@ os.environ.setdefault(
     os.path.join(BASE_DIR, "src", "genie_tts", "assets", "genie", "GenieData"))
 os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BAR", "0")
 
+# ★★ 1.9.4：**首次运行没有 `.env` 时，从随包的 `.env.preset` 复制一份**。
+#   用户 2026-10-05 拍板（选 C）："这部分key作为出厂默认预设。熟人使用的小项目，
+#   不担心被刷爆。" —— 预设的是**辅助服务**（和风天气 / Tavily / 终末地），
+#   让熟人拿到就能直接用天气与搜索，不必自己注册三个服务。
+#   ★ **LLM 的 Key 不在预设里**（首次配置引导会问它，填进用户自己的 .env）。
+#   ★ 位置必须在**任何 dotenv 加载之前**（这里正好是 `BASE_DIR` 之后），
+#     否则这一次启动读到的仍是空的。
+#   ★ 只用 os/shutil，不 import 项目模块 —— main.py 模块级要保持最小初始化
+#     （子进程 spawn 时也会走到这里）。
+try:
+    _env_path = os.path.join(BASE_DIR, ".env")
+    _preset_path = os.path.join(BASE_DIR, ".env.preset")
+    if not os.path.exists(_env_path) and os.path.exists(_preset_path):
+        import shutil as _shutil
+        _shutil.copyfile(_preset_path, _env_path)
+except Exception:
+    pass          # 复制失败不影响启动（用户手填也能用）
+
 
 def _is_main_process() -> bool:
     """判断是否为真正的主进程（非 multiprocessing spawn 子进程）"""

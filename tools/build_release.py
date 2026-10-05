@@ -57,7 +57,11 @@ EXCLUDE_DIRS = {
     "src/genie_tts/assets": "★★TTS 模型 1855MB（GENIE）—— 默认不带，见 --include-tts-models",
 }
 EXCLUDE_FILES = {
-    ".env": "★★你的 API Key 等全部密钥（只发 .env.example 模板）",
+    # ★ `.env` = **用户自己的**运行文件（可能含他自己的 Key 与覆盖）→ 绝不随包。
+    #   ★ 与之相对：`.env.preset` = **出厂预设**（用户 2026-10-05 拍板选 C：
+    #     "这部分key作为出厂默认预设。熟人使用的小项目，不担心被刷爆。"）
+    #     → **故意随包**，见下面 INCLUDE 里那一条。两者是**不同**的文件，别混。
+    ".env": "★★用户自己的 .env（可能含他自己的 Key）—— 只发 .env.example 与 .env.preset",
     # ★★ 1.9.4（用户 2026-10-04 拍板）：**头像与角色人设都作为「出厂预设」随包发布** ——
     #   所以 `data/avatars/user_avatar.jpg` 与 `data/桌宠形象/*/settings.json` 里的
     #   `性格.free_text` **不再排除/不再清空**。
@@ -71,7 +75,9 @@ EXCLUDE_FILES = {
 # 顶层要带的（文件/目录）
 INCLUDE = [
     "main.py", "requirements.txt", "README.md",
-    ".env.example", "config.default.json",
+    # ★ `.env.example` = 给用户看的模板；`.env.preset` = **出厂预设密钥**
+    #   （用户 2026-10-05 拍板选 C，**故意随包**，让熟人直接用天气/搜索/终末地）
+    ".env.example", ".env.preset", "config.default.json",
     "src", "tools", "data",
 ]
 

@@ -161,6 +161,43 @@ check("★★初始化时（__init__）用户槽也传了 pet_fallback=False"
       "（第一条消息就是在那之前渲染的）",
       _src_cw.count("pet_fallback=False") >= 2, f"出现 {_src_cw.count('pet_fallback=False')} 次")
 
+print("\n== H. ★★ 出厂预设密钥（用户 2026-10-05 拍板选 C）==")
+# 用户原话："c。这部分key作为出厂默认预设。熟人使用的小项目，不担心被刷爆。"
+_preset = ROOT / ".env.preset"
+check("★★.env.preset 存在（随包发的出厂预设）", _preset.is_file())
+if _preset.is_file():
+    _pt = _preset.read_text(encoding="utf-8")
+    check("★★预设里有**天气**的键（用户点名的三个之一）",
+          "WEATHER_API_KEY" in _pt and "WEATHER_API_HOST" in _pt)
+    check("★预设里有**联网搜索**的键", "TAVILY_API_KEY" in _pt)
+    check("★预设里有**终末地**的键", "ENDFIELD_API_KEY" in _pt)
+    check("★★★预设里**没有** DEEPSEEK_API_KEY（LLM 的 Key 由引导问用户；"
+          "它是要花钱的那个，且引导的存在意义就是它）",
+          not any(l.strip().startswith("DEEPSEEK_API_KEY")
+                  for l in _pt.splitlines()))
+    check("★★预设里没有**机器相关**项（PIXIV_PROXY / COMFYUI_PATH 到别人机器上是错的）",
+          "PIXIV_PROXY=" not in _pt and "COMFYUI_PATH=" not in _pt)
+    check("★预设里保留了「PRTS_PET_COMPOSITED=0」这个坑的提示",
+          "PRTS_PET_COMPOSITED=0" in _pt)
+
+check("★★生成器在（可复现，不是手抄）", (ROOT / "tools" / "make_preset_env.py").is_file())
+
+_main = (ROOT / "main.py").read_text(encoding="utf-8")
+check("★★main.py 首启会把 .env.preset 复制成 .env",
+      ".env.preset" in _main and "copyfile" in _main)
+check("★★而且**在加载 dotenv 之前**（否则这一次启动读到的还是空的）",
+      _main.index(".env.preset") < _main.index("load_dotenv")
+      if "load_dotenv" in _main else True)
+
+_br = (ROOT / "tools" / "build_release.py").read_text(encoding="utf-8")
+check("★★装配器**带上** .env.preset（随包发）",
+      '".env.preset"' in _br)
+check("★★装配器**仍然排除** .env（那是用户自己的）",
+      '".env":' in _br or '".env"' in _br)
+check("★出厂配置里**不写**这些预设密钥（密钥只走 .env.preset，"
+      "两处写同一把钥匙迟早不一致）",
+      "WEATHER_API_KEY" not in (ROOT / "config.default.json").read_text(encoding="utf-8"))
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
