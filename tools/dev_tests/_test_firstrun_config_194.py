@@ -73,8 +73,17 @@ if DEFAULT.exists():
     check("★★出厂人设为空（不夹带用户写的性格提示词）",
           get("pet.personality_prompt") == "",
           repr(get("pet.personality_prompt"))[:60])
-    check("★★出厂不含个人头像路径",
-          get("ui.user_avatar_path") == "", repr(get("ui.user_avatar_path")))
+    # ★★ 1.9.4 真机修复后**改了口径**：用户 2026-10-04 拍板"头像作为出厂预设"，
+    #   所以 `user_avatar_path` **应当**指向随包的预设头像，而不是空串。
+    #   （旧断言要求"必须为空" —— 那正是"用户头像显示成 deepseek 的脸"的成因：
+    #     空 → 回落 → 而回落目标是**形象**头像。）
+    _uav = get("ui.user_avatar_path")
+    check("★★出厂头像指向**随包的预设**（不是空串，空串会让用户头像变成形象的脸）",
+          bool(_uav), repr(_uav))
+    check("★而且那个预设文件真的在（不许指向不存在的路径）",
+          bool(_uav) and (ROOT / _uav).exists(), str(_uav))
+    check("★预设放在 data/avatars 下（不是指向某个角色目录里的图）",
+          str(_uav).replace("\\", "/").startswith("data/avatars/"), str(_uav))
     check("★窗口位置为出厂值 [100, 100]", get("ui.pet_position") == [100, 100],
           str(get("ui.pet_position")))
     check("★★绝不出现 llm.api_key（密钥只走 .env）",
@@ -118,8 +127,9 @@ _cfg = AppConfig(config_path=_base / "config.json")
 check("★★只有出厂文件时，首启会生成 config.json", (_base / "config.json").exists())
 if (_base / "config.json").exists():
     _j = json.loads((_base / "config.json").read_text(encoding="utf-8"))
-    check("★生成的 config.json 用的是出厂值（人设空、头像空）",
-          _j["pet"]["personality_prompt"] == "" and _j["ui"]["user_avatar_path"] == "")
+    check("★生成的 config.json 用的是出厂值（人设空、头像指向随包预设）",
+          _j["pet"]["personality_prompt"] == ""
+          and _j["ui"]["user_avatar_path"] == _uav)
     check("★内存里的配置也确实按出厂值生效", _cfg.pet.personality_prompt == "")
 
 # E. 连出厂文件都没有 → 不崩、也不乱造文件

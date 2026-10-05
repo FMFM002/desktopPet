@@ -1843,7 +1843,18 @@ class ChatSession:
                         round_count -= 1
                         continue
                     if self.on_system_msg:
-                        self.on_system_msg(f"[错误] {e}")
+                        # ★★ 1.9.4 真机补：连接失败要说清"为什么"，别只甩一句
+                        #   Connection error —— 用户实测撞到的是"Windows 系统代理开着
+                        #   但代理客户端没开"，他以为是"没给桌宠联网权限"，
+                        #   对着 Connection error 完全无处下手。
+                        _diag = ""
+                        try:
+                            from src.core.net_proxy import diagnose_conn_error
+                            _diag = diagnose_conn_error(e)
+                        except Exception:
+                            pass
+                        self.on_system_msg(
+                            f"[错误] {e}" + (f"\n\n{_diag}" if _diag else ""))
                 break
 
         # ★ 1.4.0+: 边界轮补偿 — 最后一轮执行了工具但 LLM 没机会处理结果

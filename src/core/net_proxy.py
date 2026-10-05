@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 
 _log = logging.getLogger("NetProxy")
@@ -187,3 +188,76 @@ def advice() -> str:
     except Exception:
         pass
     return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════
+# ★★ 1.9.4：**Windows 系统代理**的诊断（与上面 `.env` 里配的那个不是一回事）
+#
+#   真机踩坑（用户首次跑便携版就撞上，2026-10-05）：
+#     用户机器上 `ProxyEnable=1 / ProxyServer=127.0.0.1:7897`，但**代理客户端没开**；
+#     某些 HTTP 客户端会**自动读系统代理**（那台机器上的 openai 被改造过，
+#     用的是 httpx 的一个分支 `httpx2`，它会读注册表里的系统代理），
+#     于是**所有 LLM 请求**都被送去一个没人监听的端口 → 每个请求都失败。
+#     而用户看到的现象是"检测异常 / 发消息没反应"，
+#     **根本想不到是系统代理在拦路** —— 他当时的判断是"没给联网权限"。
+#   ⇒ 这个诊断的价值就在于：**把真正的元凶说出来**。
+# ══════════════════════════════════════════════════════════════
+def system_proxy() -> tuple:
+    """读 **Windows 系统代理**设置（指注册表里那个，不是 .env 里的）。
+
+    返回 `(是否启用, 服务器字符串)`；非 Windows 或读不到返回 `(False, "")`。
+    """
+    if sys.platform != "win32":
+        return False, ""
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Internet Settings") as k:
+            try:
+                enable = winreg.QueryValueEx(k, "ProxyEnable")[0]
+            except FileNotFoundError:
+                enable = 0
+            try:
+                server = winreg.QueryValueEx(k, "ProxyServer")[0]
+            except FileNotFoundError:
+                server = ""
+        return bool(enable), str(server or "")
+    except Exception:
+        return False, ""
+
+
+def _probe_host_port(server: str, timeout: float = 0.8) -> bool:
+    """系统代理里写的那个 host:port **有没有人在听**。"""
+    try:
+        import socket
+        from urllib.parse import urlparse
+        s = server.split(";")[0].strip()                 # 可能是 "http=..;https=.."
+        if "=" in s:
+            s = s.split("=", 1)[1]
+        u = urlparse(s if "://" in s else f"http://{s}")
+        host = u.hostname or "127.0.0.1"
+        port = u.port or 7890
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def diagnose_conn_error(err: object = None) -> str:
+    """连接失败时给一句**可操作的人话**；没发现问题就返回空串。
+
+    ★ 只在"系统代理开着、但那个端口没人听"时才说 —— 这正是最坑人的场景。
+      代理开着且端口在听时**不乱甩锅**（返回空串）。
+    """
+    enabled, server = system_proxy()
+    if not enabled or not server:
+        return ""
+    if _probe_host_port(server):
+        return ""            # 代理在跑 → 不是它的问题
+    return (f"⚠ 检测到 **Windows 系统代理已开启**（{server}），"
+            f"但那个端口**没有程序在监听** —— 请求可能全被送去这里然后失败。\n"
+            f"   两种解法任选其一：\n"
+            f"     ① 打开你的代理客户端（Clash / v2ray 等），让 {server} 重新可用；\n"
+            f"     ② 或者到「Windows 设置 → 网络和 Internet → 代理」里**关掉**"
+            f"「使用代理服务器」—— 用国内模型（如 DeepSeek）本来就不需要代理。")

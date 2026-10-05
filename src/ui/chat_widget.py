@@ -439,7 +439,10 @@ class ChatWidget(QWidget):
         self._user_avatar_path = ""
         self._bot_avatar_path = ""
         self._avatar_uri = {
-            "user": self._make_avatar_uri(None),
+            # ★★ 1.9.4 真机修复：初始化时「用户」槽也**不许**用形象头像兜底 ——
+            #   否则第一条消息一渲染，用户头像就是 deepseek 的脸（真机反馈原话：
+            #   "用户头像是 deep seek。不是预设。"）。
+            "user": self._make_avatar_uri(None, pet_fallback=False),
             "bot": self._make_avatar_uri(None),
         }
         # ★ 1.9.3（共享工作台头像修复）：**别的形象**的头像 URI，按说话者名缓存。
@@ -2335,8 +2338,19 @@ class ChatWidget(QWidget):
     # ══════════════════════════════════════════
 
     @staticmethod
-    def _make_avatar_uri(path) -> str:
-        """加载图片并转成圆形 PNG 的 data URI；失败时回退到自带形象"""
+    def _make_avatar_uri(path, pet_fallback: bool = True) -> str:
+        """加载图片并转成圆形 PNG 的 data URI。
+
+        ★★ 1.9.4 真机修复：新增 `pet_fallback`。
+          真机反馈原话："发送第一条消息时发现，**用户头像是 deep seek**。不是预设。"
+          根因：本函数**同时服务"用户头像"和"形象头像"**，却无条件把
+          `DEFAULT_AVATAR_PATH`（那是**桌宠形象**的头像，由 `_default_pet_avatar()`
+          扫 `data/桌宠形象/` 得到）当兜底 ——
+          于是**用户头像一旦为空，就显示成形象的脸**（deepseek / 铃兰）。
+          ⇒ 「用户」这个槽**不许**回落到形象头像（`pet_fallback=False`）：
+            空就空着，也不给用户安一张别人的脸。
+          「形象」/「其它说话者」保持原行为（回落是合理的）。
+        """
         from PIL import Image, ImageDraw, ImageOps
 
         def _load(p):
@@ -2357,7 +2371,9 @@ class ChatWidget(QWidget):
             #   PTRTS1.8.0 的绝对路径）。相对路径一律以项目根解析。
             _p = Path(path)
             candidates.append(_p if _p.is_absolute() else (_BASE_DIR / _p))
-        if DEFAULT_AVATAR_PATH:
+        if pet_fallback and DEFAULT_AVATAR_PATH:
+            # ★ 只有"形象/其它说话者"才允许回落到自带形象的头像；
+            #   "用户"槽传 pet_fallback=False —— 否则用户头像会变成形象的脸（真机踩过）。
             candidates.append(DEFAULT_AVATAR_PATH)
 
         for c in candidates:
@@ -2442,9 +2458,12 @@ class ChatWidget(QWidget):
             pass
 
     def _refresh_avatar_uris(self):
-        # 空路径 = 自带形象（铃兰）；用户上传后 settings 会写入 data/avatars/user_avatar.jpg
+        # ★★ 1.9.4：出厂预设的用户头像由 `config.default.json` 指向
+        #   `data/avatars/user_avatar.jpg`（随包发布）。
+        #   「用户」槽传 pet_fallback=False —— 它**绝不**回落到形象头像
+        #   （真机踩过：用户头像显示成了 deepseek 的脸）。
         self._avatar_uri = {
-            "user": self._make_avatar_uri(self._user_avatar_path),
+            "user": self._make_avatar_uri(self._user_avatar_path, pet_fallback=False),
             "bot": self._make_avatar_uri(self._bot_avatar_path),
         }
         # ★ 1.9.3（共享工作台）：**别的形象**的头像缓存一起失效 ——

@@ -265,6 +265,11 @@ class FirstRunWizard(QDialog):
         self._stack.setCurrentIndex(i)
         self._btn_prev.setEnabled(i > 0)
         self._btn_next.setText("完成" if i == self._stack.count() - 1 else "下一步")
+        # ★★ 1.9.4 真机修复：进入"完成页"时**立刻把内容填上**。
+        #   原来只在本页点「完成」时才 _render_done()，于是用户切到这一页时
+        #   看到的是**一个空白的框**（真机反馈原话："下面有一个空白的框，不知道是干嘛的"）。
+        if i == self._stack.count() - 1:
+            self._render_done()
         # 第 2 步：如果没有必填项，就不要在"配 Key"上停留
         if i == 1 and not self._report.must_fill and not self._key_edit.text().strip():
             self._btn_next.setText("下一步（已配好，可跳过）")
@@ -320,8 +325,24 @@ class FirstRunWizard(QDialog):
         picked = getattr(self, "_optional_picked", [])
         if picked:
             names = "、".join(self._checks[k].text().split("（")[0] for k in picked)
-            parts.append(f"· 你勾了：{names}（按提示配好后即可使用）")
-        parts.append("· 其余项目都用了自动检测到的值，或程序默认值")
+            parts.append(f"· 你勾了：{names}")
+        # ★★ 1.9.4 真机修复：勾了**需要模型**的能力却什么也没发生。
+        #   用户原话："点击完成。形象出现。**没有看见下载模型和其他东西的迹象**。"
+        #   原因是本包**故意不含模型**（否则 77MB 变 2GB 级），而向导只是"记录勾选"，
+        #   既没下也没说怎么下 —— 用户自然会以为坏了。
+        #   ⇒ 这里把"下一步到底做什么"**明说出来**，并给出确切命令。
+        _MODEL_KEYS = {"whisper": "STT 语音识别", "easyocr": "OCR 文字识别",
+                       "genie": "TTS 语音合成"}
+        _need = [k for k in picked if k in _MODEL_KEYS]
+        if _need:
+            _who = "、".join(_MODEL_KEYS[k] for k in _need)
+            parts.append(
+                f"<br>⚠ <b>你勾的能力需要额外的模型文件（本包不含，共约 2.4 GB）</b>："
+                f"{_who}<br>"
+                f"　　在项目目录下跑这一条即可获取：<br>"
+                f"　　<code>python tools/model_manager.py install --all</code><br>"
+                f"　　（不装也能用其他功能 —— 只是这几项不可用）")
+        parts.append("<br>· 其余项目都用了自动检测到的值，或程序默认值")
         self._done_lbl.setText("<br>".join(parts))
 
 

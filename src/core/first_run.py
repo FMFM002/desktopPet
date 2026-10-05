@@ -251,11 +251,17 @@ def detect(base: Path | None = None) -> FirstRunReport:
             _has = bool(_probe())
         except Exception:
             _has = False
+        # ★★ 1.9.4 真机反馈（用户原话）：
+        #   "代理好像不是桌宠的能力，应该是写反了，JM 和 P 站是能力，**需要代理是提示**。"
+        #   ⇒ 代理不是"要不要开启的功能"，而是 P站/JM 的**前提条件**。
+        #     所以它**不出勾选框**（askable=False），只作为说明出现；
+        #     有没有它也不会写任何配置。
+        _askable = (_k != "proxy")
         r.findings.append(Finding(
             _k, _label, OK if _has else OPTIONAL,
             "已配置 / 端口在监听" if _has else "环境变量或端口都没有",
             "已就绪" if _has else "未配置", "optional",
-            askable=True, hint=_hint))
+            askable=_askable, hint=_hint))
 
     return r
 
@@ -312,10 +318,23 @@ def verify_llm_key(key: str, host: str = "", timeout: float = 8.0) -> tuple[bool
         return True, f"连接成功，可用模型 {n} 个"
     except Exception as e:
         msg = str(e)
-        if "401" in msg or "Unauthorized" in msg:
-            return False, "Key 无效（服务端返回 401）"
+        # ★★ 1.9.4 真机补：把"连接失败"**归因清楚**，别只回一句 Connection error。
+        #   实测最常见的元凶是 **Windows 系统代理开着、但代理客户端没开** ——
+        #   请求全被送去一个没人监听的端口。用户看到"检测异常"根本想不到这点
+        #   （他当时的判断是"没给桌宠联网权限"）。
+        _diag = ""
+        try:
+            from src.core.net_proxy import diagnose_conn_error
+            _diag = diagnose_conn_error(e)
+        except Exception:
+            pass
+        if "401" in msg or "Unauthorized" in msg or "invalid_api_key" in msg:
+            return False, "Key 无效（服务端返回 401）—— 检查是否复制完整"
+        if _diag:
+            return False, _diag
         if "timed out" in msg.lower() or "timeout" in msg.lower():
-            return False, "连不上（超时）—— 检查网络或 Host"
+            return False, ("连不上（超时）—— 检查网络，或 Host 是否写错。\n"
+                           f"   原始错误: {type(e).__name__}: {msg[:60]}")
         return False, f"{type(e).__name__}: {msg[:80]}"
 
 

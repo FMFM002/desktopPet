@@ -90,9 +90,12 @@ try:
     check("★★在产物上首启**真的会生成 config.json**", (OUT / "config.json").exists())
     if (OUT / "config.json").exists():
         _j = json.loads((OUT / "config.json").read_text(encoding="utf-8"))
-        check("★生成的是**出厂值**（人设空、无个人头像、位置 [100,100]）",
+        check("★生成的是**出厂值**（人设空、位置 [100,100]、"
+              "头像指向随包预设 —— 用户拍板『头像作为出厂预设』，"
+              "**不能是空串**，否则用户头像会变成形象的脸）",
               _j["pet"]["personality_prompt"] == ""
-              and _j["ui"]["user_avatar_path"] == ""
+              and _j["ui"]["user_avatar_path"].replace("\\", "/")
+              .startswith("data/avatars/")
               and _j["ui"]["pet_position"] == [100, 100],
               f"{_j['pet']['personality_prompt']!r} / {_j['ui']['user_avatar_path']!r}")
         check("★出厂配置里**没有密钥字段**",

@@ -90,7 +90,7 @@
     "user_text_color": "#222222",
     "bot_bubble_color": "transparent",
     "bot_text_color": "#222222",
-    "user_avatar_path": "",
+    "user_avatar_path": "data/avatars/user_avatar.jpg",
     "pet_avatar_path": ""
   },
   "vision": {

@@ -42,9 +42,19 @@ DEST = ROOT / "config.default.json"
 STRUCTURAL_FROM_CURRENT = ("enabled_tools", "tool_policies")
 
 # ── 出厂时**必须**是这些值的个人项（防手滑把个人信息写进出厂文件）──
+# ★★ 1.9.4 真机修复（用户原话："发送第一条消息时发现，**用户头像是 deep seek**。
+#   不是预设。"）：
+#   用户 2026-10-04 已拍板"**头像作为出厂预设**" —— `data/avatars/user_avatar.jpg`
+#   确实随包发了，但出厂配置里 `ui.user_avatar_path` 被强制成 `""`，
+#   于是程序回落到"默认头像"，而那个默认**是桌宠形象的**（扫 data/桌宠形象/ 得到）
+#   → **用户的头像显示成了 deepseek 的脸**。
+#   ⇒ 出厂配置必须**指向那个随包的预设**；只有确实没这文件时才留空。
+_USER_AVATAR_PRESET = "data/avatars/user_avatar.jpg"
+
 FORCED = {
     "pet.personality_prompt": "",
-    "ui.user_avatar_path": "",
+    "ui.user_avatar_path": (_USER_AVATAR_PRESET
+                            if (ROOT / _USER_AVATAR_PRESET).exists() else ""),
     "ui.pet_position": [100, 100],
 }
 
