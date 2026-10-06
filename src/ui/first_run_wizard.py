@@ -28,8 +28,8 @@ import threading
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-    QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from src.core import first_run as fr
@@ -426,15 +426,40 @@ class FirstRunWizard(QDialog):
                 _btn_probe = QPushButton("检测" + ("（会试着启动它）"
                                                   if _f.key == "ollama" else ""))
                 _hs.addWidget(_btn_probe)
+                # ★★ 1.9.4（用户拍板 Q4：**只做这个**）：本地语言模型的"一键获取"。
+                #   用户选的是"**② 只自动拉模型**"——**不替他装 Ollama 本体**，
+                #   只在他装好之后自动 `ollama pull`；
+                #   并选了"**按硬件自动选**"（拉之前把型号和体积告诉他，他确认了再拉）。
+                if _f.key == "ollama":
+                    _btn_pull = QPushButton("拉取推荐模型")
+                    _btn_pull.setToolTip("会先告诉你型号和体积，确认后才开始拉")
+                    _hs.addWidget(_btn_pull)
+                else:
+                    _btn_pull = None
                 _hs.addStretch(1)
                 _rl.addLayout(_hs)
                 _sres = QLabel("")
                 _sres.setObjectName("hint")
                 _sres.setWordWrap(True)
                 _rl.addWidget(_sres)
-                self._svc_rows[_f.key] = {"res": _sres}
+                self._svc_rows[_f.key] = {"res": _sres, "btn_pull": _btn_pull}
                 _btn_probe.clicked.connect(
                     lambda _c=False, k=_f.key: self._on_probe(k))
+                if _btn_pull is not None:
+                    _btn_pull.clicked.connect(
+                        lambda _c=False: self._on_pull_llm())
+                    # 把推荐（型号 + 体积）**先摆出来**，别等他点了才知道
+                    try:
+                        from src.core import llm_local as _L
+                        _p = _L.recommend()
+                        _reco = QLabel(
+                            f"　　→ 按你这台机器，推荐 <b>{_p.model}</b>（{_p.size_hint}）"
+                            f"<br>　　{_p.why}")
+                        _reco.setObjectName("hint")
+                        _reco.setWordWrap(True)
+                        _rl.addWidget(_reco)
+                    except Exception:
+                        pass
 
             # ★ 已就位的**不给**填路径的框（没有可填的东西，给了只会让人卡住）
             # ★★ 而且**只有"模型"才给路径/下载** —— 本地服务（ollama/comfyui）
@@ -495,6 +520,52 @@ class FirstRunWizard(QDialog):
             return
         row["res"].setStyleSheet("color:#15803d" if ok else "#b91c1c")
         row["res"].setText(why)
+
+    def _on_pull_llm(self):
+        """★ 拉取推荐模型（用户拍板 Q4）。
+
+        用户选的是"**按硬件自动选**：拉之前把型号和体积告诉我，**确认了再拉**"
+        ⇒ 先弹一个确认框，把型号与体积摆清楚；他点了"开始拉"才动。
+        ★ 拉取跑在后台线程，输出**逐行**进日志框（看得见在动）。
+        """
+        try:
+            from src.core import llm_local as _L
+            _p = _L.recommend()
+        except Exception as e:
+            self._dl_log.appendPlainText(f"[错误] 推荐失败: {e}")
+            return
+        if not _p.model:
+            QMessageBox.information(
+                self, "这台机器不太适合",
+                "按你的配置，本地跑语言模型太勉强了。\n\n"
+                "建议直接用云端 API —— 就是你在第一步填的那个 Key。")
+            return
+        # ★ **确认框** —— 用户明确要求"确认了再拉"
+        _ans = QMessageBox.question(
+            self, "确认拉取",
+            f"按你这台机器的配置，推荐：\n\n"
+            f"    模型：{_p.model}\n"
+            f"    体积：{_p.size_hint}\n\n"
+            f"{_p.why}\n\n"
+            f"确认后会用 `ollama pull {_p.model}` 下载。\n"
+            f"（Ollama 本体需要你自己装：{_L.OLLAMA_DOWNLOAD_URL}）",
+            QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Ok)
+        if _ans != QMessageBox.Ok:
+            return
+        self._dl_log.appendPlainText(f"── 开始拉取 {_p.model}（{_p.size_hint}）──")
+
+        def _work():
+            from src.core import llm_local as _L2
+            try:
+                ok, msg = _L2.pull(_p.model, on_line=self._sig_line.emit)
+                if ok:
+                    _w2, _m2 = _L2.write_back(_p.model)
+                    self._sig_line.emit(_m2)
+                self._sig_line.emit(msg)
+            except Exception as e:
+                self._sig_line.emit(f"[错误] {type(e).__name__}: {e}")
+
+        threading.Thread(target=_work, daemon=True).start()
 
     def _page_done(self) -> QWidget:
         w = QWidget()
