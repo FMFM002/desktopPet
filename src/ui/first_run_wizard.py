@@ -60,6 +60,7 @@ class FirstRunWizard(QDialog):
     #   （Qt 规矩：控件只能在 GUI 线程碰；跨线程直接 appendPlainText 会崩或乱序）。
     _sig_line = Signal(str)      # 下载日志的单行
     _sig_done = Signal(str)      # 某个模型下载结束（key）
+    _sig_probe = Signal(str, bool, str)   # 本地服务检测结束（key, 在跑?, 说明）
 
     def __init__(self, parent=None, base=None):
         super().__init__(parent)
@@ -75,6 +76,7 @@ class FirstRunWizard(QDialog):
         # 下载线程 → GUI：日志逐行进框、结束后恢复按钮
         self._sig_line.connect(self._dl_log.appendPlainText)
         self._sig_done.connect(self._on_download_done)
+        self._sig_probe.connect(self._on_probe_done)
         self._goto(0)
 
     def _on_download_done(self, key: str):
@@ -382,6 +384,7 @@ class FirstRunWizard(QDialog):
             if _w is not None:
                 _w.deleteLater()
         self._model_rows = {}
+        self._svc_rows = {}          # 本地服务（ollama/comfyui）的检测结果标签
 
         _picked = list(getattr(self, "_optional_picked", []) or [])
         if not _picked:
@@ -411,8 +414,34 @@ class FirstRunWizard(QDialog):
                 _h2.setWordWrap(True)
                 _rl.addWidget(_h2)
 
+            # ★★ 1.9.4（用户 2026-10-06）：
+            #   "检测时，**ollama 可以直接启动服务看看有没有 ollama**；
+            #    **comfyUI 不能自动检测注册表**，path 的话就让用户**手动启动，再点击检测**。"
+            #   ⇒ 本地服务类能力（ollama / comfyui）给一个「检测」按钮：
+            #      · ollama → 检测时会**替他试着启动一次**（用户明确要求）
+            #      · comfyui → **不替他启动**（位置/服务名都不固定），
+            #        只告诉他"先自己启动，再点检测"
+            if _f.key in ("ollama", "comfyui"):
+                _hs = QHBoxLayout()
+                _btn_probe = QPushButton("检测" + ("（会试着启动它）"
+                                                  if _f.key == "ollama" else ""))
+                _hs.addWidget(_btn_probe)
+                _hs.addStretch(1)
+                _rl.addLayout(_hs)
+                _sres = QLabel("")
+                _sres.setObjectName("hint")
+                _sres.setWordWrap(True)
+                _rl.addWidget(_sres)
+                self._svc_rows[_f.key] = {"res": _sres}
+                _btn_probe.clicked.connect(
+                    lambda _c=False, k=_f.key: self._on_probe(k))
+
             # ★ 已就位的**不给**填路径的框（没有可填的东西，给了只会让人卡住）
-            if not _f.ok:
+            # ★★ 而且**只有"模型"才给路径/下载** —— 本地服务（ollama/comfyui）
+            #   靠上面那个「检测」按钮，它们**不是模型**，没有"路径"可填、也没有
+            #   "下载模型"这回事。（我第一版漏了这个 group 判断，于是 ollama
+            #   同时出现在"模型行"和"服务行"里 —— 两套 UI 打架。）
+            if not _f.ok and _f.group == "models":
                 _h = QHBoxLayout()
                 _edit = QLineEdit()
                 _edit.setPlaceholderText("本地已有的话，把路径粘这里（指它的上一级也行）")
@@ -433,6 +462,39 @@ class FirstRunWizard(QDialog):
                 _btn_dl.clicked.connect(
                     lambda _c=False, k=_f.key: self._on_download(k))
             self._setup_host_lay.addWidget(self._card(_row))
+
+    def _on_probe(self, key: str):
+        """★ 本地服务检测（Ollama / ComfyUI）。
+
+        Ollama：**替他试着启动一次**（用户明确要求"可以直接启动服务看看有没有 ollama"）。
+        ComfyUI：**不替他启动** —— 只报端口通不通，并提醒"先自己启动再点检测"。
+        ★ 放在 GUI 线程里跑会卡住界面（试启动要等几秒）→ 用后台线程 + 信号回报。
+        """
+        row = self._svc_rows.get(key)
+        if not row:
+            return
+        row["res"].setStyleSheet("color:#6b7280")
+        row["res"].setText("检测中…" + ("（正在试着启动它，最多等几秒）"
+                                       if key == "ollama" else ""))
+        self.repaint()
+
+        def _work():
+            from src.core import services as _S
+            try:
+                ok, why = _S.probe_by_key(
+                    key, try_start=(key == "ollama"))
+            except Exception as e:
+                ok, why = False, f"[错误] {type(e).__name__}: {e}"
+            self._sig_probe.emit(key, ok, why)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _on_probe_done(self, key: str, ok: bool, why: str):
+        row = self._svc_rows.get(key)
+        if not row:
+            return
+        row["res"].setStyleSheet("color:#15803d" if ok else "#b91c1c")
+        row["res"].setText(why)
 
     def _page_done(self) -> QWidget:
         w = QWidget()
