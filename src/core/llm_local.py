@@ -30,6 +30,16 @@ from src.core import services as _svc
 # Ollama 官方下载页（"引导用户去装"时给他）
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 
+# ══════════════════════════════════════════════════════════════
+# ★★ 拉取成功后要写回**现成的配置槽** ision.ollama_model
+#    （**不新增配置键** —— 那个键本来就有，就是给本地视觉用的）。
+#    原先有个 write_back() 干这件事，但它当时**零引用**
+#    （Ollama 的 UI 已按用户要求从首次配置挪走，设置窗口那边还没接），
+#    于是按项目规矩（**放行名单保持为空**）暂时移除。
+#    ⇒ **下轮接设置窗口时**：把 write_back() 连同调用一起加回来，
+#      目标就是 vision.ollama_model，不要另立新键。
+# ══════════════════════════════════════════════════════════════
+
 
 @dataclass
 class Pick:
@@ -146,18 +156,3 @@ def pull(model: str, on_line=None, timeout: float = 3600.0) -> tuple:
     if proc.returncode == 0:
         return True, f"✅ {model} 拉取完成"
     return False, f"❌ 拉取失败（返回码 {proc.returncode}）—— 上面的输出里有原因"
-
-
-def write_back(model: str) -> tuple:
-    """拉成功后把它写进配置（`vision.ollama_model`），这样桌宠就会真的用它。
-
-    ★ 用**现成的配置槽**，不新增键。
-    """
-    try:
-        from src.utils.config import get_config
-        cfg = get_config()
-        cfg.vision.ollama_model = model
-        cfg.save()
-        return True, f"已写入配置: vision.ollama_model = {model}"
-    except Exception as e:
-        return False, f"写配置失败: {type(e).__name__}: {e}"

@@ -589,6 +589,14 @@ class ToolManager:
 
     def execute_tool(self, tool_name: str, **kwargs) -> str:
         _log.info(f"执行工具: {tool_name}({list(kwargs.keys())})")
+        # ★★ 1.9.4（用户 2026-10-06："强化log，最好全量记录"）：
+        #   主日志这里**只记参数名**（`list(kwargs.keys())`）、结果只记前 100 字，
+        #   出问题时**看不到参数值和结果全貌**。所以另外往全量记录里写一份。
+        try:
+            from src.utils import transcript as _T
+            _T.tool_call(tool_name, kwargs)
+        except Exception:
+            pass
         tool = self.get_tool(tool_name)
         if tool is None:
             return f"[错误] 工具 '{tool_name}' 未找到"
@@ -612,6 +620,13 @@ class ToolManager:
             _log.debug(f"检查 action 禁用失败: {e}")
         result = tool.execute(**kwargs)
         _log.debug(f"工具 {tool_name} 返回: {str(result)[:100]}")
+        # ★★ 全量记录：结果**完整**落盘（主日志只留前 100 字，翻不出问题）
+        try:
+            from src.utils import transcript as _T2
+            _T2.tool_result(tool_name, result,
+                            error=str(result).lstrip().startswith("[错误]"))
+        except Exception:
+            pass
         return result
 
     def shutdown(self):

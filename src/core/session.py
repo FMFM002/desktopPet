@@ -1006,6 +1006,15 @@ class ChatSession:
 
         # ★ 1.9.1: 不再截断到 80 字（你要求尽可能记录所有数据，全文更好调试）
         _log.info(f"用户消息 (topic={self._topic_id}, {len(user_text)} 字): {user_text}")
+        # ★★ 1.9.4（用户："强化log，最好全量记录"）：开新一轮并记进全量记录。
+        #   轮次号让"这一轮到底调了几次工具/发了几条汇报"一眼可见 ——
+        #   他报的"汇报每次都强制出现"正是要靠这个查。
+        try:
+            from src.utils import transcript as _T
+            _T.next_turn()
+            _T.chat_bubble("user", user_text)
+        except Exception:
+            pass
         thread = threading.Thread(target=self._run_loop, daemon=True)
         thread.start()
 
@@ -1731,6 +1740,12 @@ class ChatSession:
                         _log.info(f"[思考] 本轮思考内容 ({len(thinking_buffer)} 字)：\n"
                                   f"{thinking_buffer}")
                     _log.debug(f"LLM回复: {content_buffer}")
+                    # ★★ 全量记录：模型这一轮的原始输出（正文 + 它打算调哪些工具）
+                    try:
+                        from src.utils import transcript as _T3
+                        _T3.llm_reply(content_buffer, tool_calls)
+                    except Exception:
+                        pass
                     with self._lock:
                         msg_dict = {"role": "assistant", "content": content_buffer,
                                     "speaker": self._character}

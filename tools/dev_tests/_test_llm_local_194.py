@@ -77,13 +77,17 @@ check("★提示里指向了下载页", "ollama.com/download" in _why)
 
 print("\n== D/E/F/G. Ollama 的入口**从引导挪走了**（用户要求）==")
 _w_src = (ROOT / "src" / "ui" / "first_run_wizard.py").read_text(encoding="utf-8")
-check("★★成功后写进现成配置槽 `vision.ollama_model`（不新增键）",
-      "vision.ollama_model" in _src)
+check("★★写回的目标配置槽仍是那个现成键 `vision.ollama_model`（不新增配置键）"
+      "—— `write_back` 本体按「零引用」规矩**暂时移除**了（放行名单保持为空），"
+      "下轮接**设置窗口**时连同调用一起加回来",
+      "vision.ollama_model" in _src
+      or "vision.ollama_model" in (ROOT / "src" / "core" / "llm_local.py")
+      .read_text(encoding="utf-8"))
 check("★Windows 上起子进程隐藏窗口（用户报过闪黑框）",
       "0x08000000" in _src)
 check("★★`llm_local` 模块**本身仍然完整**（供设置窗口调用）",
       all(k in _src for k in ("recommend", "list_installed", "has_model",
-                              "pull", "write_back")))
+                              "pull")))
 # ★★ 1.9.4 真机修复（用户 2026-10-06）：
 #   "我的建议是**首次配置，不提及 comfyUI 和 Ollama**。
 #    **ollama 在设置里面**检测，下载，扫描，选择。"

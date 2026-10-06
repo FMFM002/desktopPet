@@ -26,7 +26,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 SKIP_PARTS = {".git", "node_modules", "__pycache__", "临时文件", "genie_tts",
-              "开发历史", "data", "_vendor", "dev_tests"}
+              "开发历史", "data", "_vendor", "dev_tests",
+              # ★★ 1.9.4：**必须排除 `dist/`** —— 那是 `build_release.py` 每次
+              #   重新生成的**构建产物**（一份旧源码副本）。扫它必然产生
+              #   **陈旧误报**：源码里某个函数已经被新代码引用了，可 dist 里那份
+              #   副本还是老样子 → 报"零引用"，而真正该看的是 `src/`。
+              #   （我这次就是被 `dist/.../services.py` 和 `dist/.../llm_local.py`
+              #     的两条误报绊了一下。）
+              "dist",
+              # 回归留档（同上：全都是产物，不是源）
+              "_sweep_out"}
 
 # ── 框架按名字调用的回调（源码里当然搜不到引用）──
 FRAMEWORK_HOOKS = {

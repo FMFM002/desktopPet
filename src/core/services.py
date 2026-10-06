@@ -89,12 +89,3 @@ def probe_comfyui(host: str = COMFYUI_HOST, port: int = COMFYUI_PORT) -> tuple:
     return False, (f"❌ {host}:{port} 没有服务在跑。\n"
                    f"     请**先自己启动 ComfyUI**（双击它的 `run_nvidia_gpu.bat`），\n"
                    f"     等它自己的窗口跑起来之后，再点这个「检测」。")
-
-
-def probe_by_key(key: str, **kw) -> tuple:
-    """按能力 key 探测（给向导用）。未知 key 返回"不需要探测"。"""
-    if key == "ollama":
-        return probe_ollama(try_start=kw.get("try_start", False))
-    if key == "comfyui":
-        return probe_comfyui()
-    return False, ""          # 其它能力不需要本地服务探测

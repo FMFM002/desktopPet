@@ -50,11 +50,23 @@ def report(text: str, kind: str = "progress") -> bool:
             _sink(text)
             _log.info(f"[临时汇报] 已投递（{kind}，本轮第 {_count_this_turn} 条）: "
                       f"{text[:60]}")
+            # ★★ 1.9.4（用户："强化log，最好全量记录"）：
+            #   他报的正是"汇报每次都出现，显得混乱"——所以**每一次投递**都要有据可查。
+            try:
+                from src.utils import transcript as _T
+                _T.progress(text, delivered=True)
+            except Exception:
+                pass
             return True
         except Exception as e:
             _log.warning(f"[临时汇报] 投递失败，改为排队: {e}")
     _queue.append(text)
     _log.info(f"[临时汇报] 已排队（{kind}）: {text[:60]}")
+    try:
+        from src.utils import transcript as _T2
+        _T2.progress(text, delivered=False)
+    except Exception:
+        pass
     return True
 
 
