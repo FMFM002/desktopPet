@@ -618,6 +618,13 @@ class ToolManager:
                         f"需要的话可在「设置 → 工具设置 → {tool_name} → 设置」里重新开启。")
         except Exception as e:
             _log.debug(f"检查 action 禁用失败: {e}")
+        # ★★ 1.9.4（用户要求）：累计"本轮工具调用数" —— 这是**临时汇报的
+        #   代码级门槛**（<3 次调用不许汇报，见 `progress_bus._MIN_TOOL_CALLS`）。
+        try:
+            from src.core import progress_bus as _PB
+            _PB.note_tool_called()
+        except Exception:
+            pass
         result = tool.execute(**kwargs)
         _log.debug(f"工具 {tool_name} 返回: {str(result)[:100]}")
         # ★★ 全量记录：结果**完整**落盘（主日志只留前 100 字，翻不出问题）

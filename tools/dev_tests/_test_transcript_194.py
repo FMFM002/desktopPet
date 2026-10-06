@@ -107,11 +107,23 @@ _sent = []
 _orig_sink = P._sink
 try:
     P.set_sink(lambda t: _sent.append(t))
+    # ★★ 1.9.4（用户要求）：**代码级限制 —— 工具连续调用 < 3 次不许汇报**。
+    #   所以这里必须先"调够 3 次工具"，否则第一条也会被拒（守卫本身要跟上新规矩）。
+    check("★★★工具调用 <3 次时，汇报**一律拒绝**（用户要的代码级限制）",
+          P.report("短任务不该汇报") is False and not _sent,
+          f"sent={_sent}")
+    for _ in range(3):
+        P.note_tool_called()
     _r1 = P.report("第一条")
     _r2 = P.report("第二条（应被拒）")
-    check("★★★**一轮只放行一条**临时汇报（第二条被拒且不投递）",
+    check("★★★调够 3 次后**一轮只放行一条**（第二条被拒且不投递）",
           _r1 is True and _r2 is False and _sent == ["第一条"], f"sent={_sent}")
     P.reset_turn()
+    check("★★reset_turn 把**工具计数也清零**"
+          "（否则上一轮的调用数会累加，短任务被误判成'调够了'）",
+          P.tools_this_turn() == 0, str(P.tools_this_turn()))
+    for _ in range(3):
+        P.note_tool_called()
     _r3 = P.report("新一轮第一条")
     check("★★**新一轮能重新发**（限流是按轮算的，不是全局只许一条）",
           _r3 is True and _sent[-1] == "新一轮第一条")

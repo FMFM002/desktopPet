@@ -25,6 +25,29 @@ _log = logging.getLogger("ProgressBus")
 _queue: list = []
 _sink = None
 _count_this_turn: int = 0
+_tools_this_turn: int = 0
+
+# ★★★ 1.9.4（用户 2026-10-06 要求 —— **代码级硬限制，不靠提示词**）：
+#   "临时汇报这个功能是在**长任务**中，为了不让用户干等，让用户知道 LLM 在做什么的。
+#    希望加入**代码级别的限制**，比如**工具连续调用小于三个，就不要临时汇报**。"
+#   ⇒ 本轮工具调用数 **< `_MIN_TOOL_CALLS`** 时，`report()` **一律拒绝**。
+#   ★ 为什么必须放在代码里：提示词只是"建议"，模型可以不遵守
+#     （真机就发生过：一次查天气发了两条汇报）。**代码说不行就是不行。**
+_MIN_TOOL_CALLS = 3
+
+
+def note_tool_called():
+    """★ 工具侧（`tool_manager`）每执行一次工具就调一次。
+
+    支撑上面那条**代码级限制**："工具连续调用 < 3 次不许临时汇报"。
+    """
+    global _tools_this_turn
+    _tools_this_turn += 1
+
+
+def tools_this_turn() -> int:
+    """本轮到目前为止调了几次工具（给界面/诊断看）。"""
+    return _tools_this_turn
 
 
 def set_sink(fn):
@@ -43,6 +66,22 @@ def report(text: str, kind: str = "progress") -> bool:
     global _count_this_turn          # ★ 必须在使用之前声明（Python 语法要求）
     text = (text or "").strip()
     if not text:
+        return False
+    # ★★★ 1.9.4（用户要求，**代码级限制**）：**工具连续调用 < 3 次 → 不许汇报**。
+    #   他说这功能是"给**长任务**用的，别让人干等"，而查一次天气（1 次工具调用）
+    #   根本不需要汇报 —— 那只会变成噪音。
+    #   ⇒ 放在**代码**里，不放在提示词里：提示词是建议，模型可以不遵守。
+    if kind == "progress" and _tools_this_turn < _MIN_TOOL_CALLS:
+        _log.info(f"[临时汇报] 本轮才调了 {_tools_this_turn} 次工具"
+                  f"（<{_MIN_TOOL_CALLS}）→ 按「短任务不汇报」的规矩**拒绝**: "
+                  f"{text[:40]}")
+        try:
+            from src.utils import transcript as _T1
+            _T1.note("临时汇报/短任务被拒",
+                     f"本轮工具调用 {_tools_this_turn} 次（<{_MIN_TOOL_CALLS}），"
+                     f"内容={text[:60]}")
+        except Exception:
+            pass
         return False
     # ★★★ 1.9.4 真机修复（用户 2026-10-06，附**实际对话**为证）：
     #   他查一次天气，聊天里出现了**两条**临时汇报：
@@ -92,9 +131,12 @@ def report(text: str, kind: str = "progress") -> bool:
 
 def reset_turn():
     """新一轮开始（主窗口在收到用户消息时调用）。"""
-    global _queue, _count_this_turn
+    global _queue, _count_this_turn, _tools_this_turn
     _queue = []
     _count_this_turn = 0
+    # ★ 工具计数也要清零 —— 否则上一轮的调用数会**累加到下一轮**，
+    #   短任务就会误判成"已调够 3 次"，那条限制等于形同虚设。
+    _tools_this_turn = 0
 
 
 def count_this_turn() -> int:

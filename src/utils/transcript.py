@@ -72,6 +72,19 @@ def _short(s: str, limit: int = _MAX_FIELD) -> str:
     return s[:limit] + f"…（此处截掉 {len(s) - limit} 字）"
 
 
+def _one_line(s: str) -> str:
+    """★ 1.9.4 修：**把多行内容压成一行**。
+
+    为什么必须这么做：本文件的设计是"**一行一条事件**"（好 grep、好整份发人）。
+    可工具的返回值**经常是多行的** —— 真机 transcript 里就混进过
+    `DBs\\chat_records.db-wal:632: …` 这种**没有标签的裸行**（那是某次文件搜索
+    的结果被原样写进来），把"一行一条"冲垮了，**看起来像文件坏了**。
+    ⇒ 换行统一转义成 `⏎`（可见、可读，又不破坏一行一条）。
+    """
+    return (str(s).replace("\r\n", "⏎").replace("\n", "⏎")
+            .replace("\r", "⏎"))
+
+
 def _path() -> Path:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     return LOG_DIR / f"transcript_{_dt.date.today():%Y%m%d}.log"
@@ -92,7 +105,7 @@ def _write(tag: str, text: str):
                 pass
             _ts = _dt.datetime.now().strftime("%H:%M:%S")
             with open(_p, "a", encoding="utf-8") as f:
-                f.write(f"[{_ts}] [T{_turn}] {tag} {text}\n")
+                f.write(f"[{_ts}] [T{_turn}] {tag} {_one_line(text)}\n")
     except Exception:
         pass
 
