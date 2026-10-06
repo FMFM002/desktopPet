@@ -52,6 +52,25 @@ def collect() -> dict:
         items.append({"status": status, "name": name, "detail": detail,
                       "action": action})
 
+    # ── 0. 本地服务（可选能力）现状 ──
+    # ★★ 1.9.4：这里给 `services.probe_ollama/probe_comfyui` 一个**正当调用方**
+    #   （它们本来零引用 —— 首次配置已按用户要求不再探测这两项）。
+    #   放进发布自检很合适：**发布前一眼看到**这台机器上有没有本地服务，
+    #   也方便日后排查"用户说 Ollama 检测不出来"。
+    #   ★ 探测是**只读**的：`try_start=False` → **不会**替谁启动服务。
+    try:
+        from src.core import services as _svc
+        # ★ status 只能用 OK / WARN / TODO（渲染处是 icon[status]，写别的会 KeyError
+        #   —— 我第一版写了 "info"，跑起来直接崩，别重犯）
+        _ok_o, _why_o = _svc.probe_ollama(try_start=False)
+        add(OK if _ok_o else WARN, "本地服务：Ollama",
+            _why_o.splitlines()[0], "" if _ok_o else "可选，装了才有本地视觉")
+        _ok_c, _why_c = _svc.probe_comfyui()
+        add(OK if _ok_c else WARN, "本地服务：ComfyUI",
+            _why_c.splitlines()[0], "" if _ok_c else "可选，第三方功能")
+    except Exception as e:
+        add(WARN, "本地服务探测", f"跳过: {type(e).__name__}: {e}")
+
     # ── 1. 版本一致性 ──
     rc, out = _run([sys.executable, str(ROOT / "tools" / "dev_tests"
                                        / "_test_version_193.py")])

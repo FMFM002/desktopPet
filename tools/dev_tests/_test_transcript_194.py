@@ -97,6 +97,37 @@ check("★★工具调用记的是**参数值**（不是只有参数名）",
 check("★★工具结果也记（主日志只留前 100 字，翻不出问题）",
       "tool_result(tool_name, result" in _s_tm)
 
+print("\n== G. ★★★ 一轮最多一条「临时汇报」（用户实测的 bug）==")
+# 用户 2026-10-06 附**实际对话**为证：查一次天气冒出两条汇报，第一条还是
+# "我正在陪你聊天呢，稍等一下～"（跟查天气无关）。
+# 用户原话："**汇报应该是调用工具后的，不是每次都强制，现在这样显得混乱。**"
+from src.core import progress_bus as P                   # noqa: E402
+P.reset_turn()
+_sent = []
+_orig_sink = P._sink
+try:
+    P.set_sink(lambda t: _sent.append(t))
+    _r1 = P.report("第一条")
+    _r2 = P.report("第二条（应被拒）")
+    check("★★★**一轮只放行一条**临时汇报（第二条被拒且不投递）",
+          _r1 is True and _r2 is False and _sent == ["第一条"], f"sent={_sent}")
+    P.reset_turn()
+    _r3 = P.report("新一轮第一条")
+    check("★★**新一轮能重新发**（限流是按轮算的，不是全局只许一条）",
+          _r3 is True and _sent[-1] == "新一轮第一条")
+    check("★★第二轮起会记一笔「被限流」到全量记录（方便日后核对）",
+          "被限流" in _p.read_text(encoding="utf-8"))
+finally:
+    P._sink = _orig_sink
+    P.reset_turn()
+
+_s_lc = (ROOT / "src/core/llm_client.py").read_text(encoding="utf-8")
+check("★★提示词**明确排除了「一次工具调用就能完成的事」**"
+      "（查天气/查视频/读文件/问游戏数据）—— 原文把「查资料」也算进多步任务，"
+      "于是一次调用也会触发",
+      "一次工具调用就能出结果" in _s_lc and "查天气" in _s_lc)
+check("★提示词里写了「一轮最多说一句」", "一轮最多说一句" in _s_lc)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

@@ -1741,11 +1741,20 @@ class ChatSession:
                                   f"{thinking_buffer}")
                     _log.debug(f"LLM回复: {content_buffer}")
                     # ★★ 全量记录：模型这一轮的原始输出（正文 + 它打算调哪些工具）
+                    # ★ 1.9.4 修：原来这里写的是 `tool_calls`，可这个作用域里的变量
+                    #   叫 **`valid_tool_calls`** → 每轮都抛 `NameError`，
+                    #   而我又用 `except Exception: pass` 把它**吞掉了** ——
+                    #   结果全量记录里**一条 `[模型]` 都没有**（是真机 transcript
+                    #   暴露的：整份文件只有气泡和工具行）。
+                    #   ⇒ ① 变量名改对（并用 locals().get 兜住定义顺序）；
+                    #     ② **不再静默**：出问题就写进日志，不然下次还是查不出来。
                     try:
                         from src.utils import transcript as _T3
-                        _T3.llm_reply(content_buffer, tool_calls)
-                    except Exception:
-                        pass
+                        _T3.llm_reply(content_buffer,
+                                      locals().get("valid_tool_calls"))
+                    except Exception as _e3:
+                        _log.warning(f"写全量记录失败（不影响对话）: "
+                                     f"{type(_e3).__name__}: {_e3}")
                     with self._lock:
                         msg_dict = {"role": "assistant", "content": content_buffer,
                                     "speaker": self._character}

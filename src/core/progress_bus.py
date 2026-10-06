@@ -40,10 +40,29 @@ def report(text: str, kind: str = "progress") -> bool:
     ★ 有 sink 就**立刻**送出去（用户马上看到，这才是"别让人等久了"的意义）；
       没有 sink 才排队（不会丢）。
     """
+    global _count_this_turn          # ★ 必须在使用之前声明（Python 语法要求）
     text = (text or "").strip()
     if not text:
         return False
-    global _count_this_turn
+    # ★★★ 1.9.4 真机修复（用户 2026-10-06，附**实际对话**为证）：
+    #   他查一次天气，聊天里出现了**两条**临时汇报：
+    #       重庆
+    #       → 我正在陪你聊天呢，稍等一下～            ← 汇报 1（跟查天气毫无关系）
+    #       → 正在看重庆相关的资料，马上给你整理～    ← 汇报 2
+    #       → 重庆今天是多云呢，气温 24°C…            ← 真正的答案
+    #   用户原话："**汇报应该是调用工具后的，不是每次都强制，现在这样显得混乱。**"
+    #   ⇒ **一轮只放行一条临时汇报**（原来没有上限，模型想发几条发几条）。
+    #     第二条起直接**拒掉并且不投递**，让模型把话留到最终回答里。
+    if kind == "progress" and _count_this_turn >= 1:
+        _log.info(f"[临时汇报] 本轮已有 {_count_this_turn} 条，"
+                  f"按「一轮只放一条」的规矩**拒绝**这条: {text[:40]}")
+        try:
+            from src.utils import transcript as _T0
+            _T0.progress(text, delivered=False)
+            _T0.note("临时汇报/被限流", f"本轮第 {_count_this_turn + 1} 条被拒")
+        except Exception:
+            pass
+        return False
     _count_this_turn += 1
     if _sink is not None:
         try:
