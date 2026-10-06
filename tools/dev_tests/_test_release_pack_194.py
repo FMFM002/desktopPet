@@ -30,6 +30,8 @@ os.environ.setdefault("PRTS_NO_COMFY_START", "1")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from _fixtures_193 import no_window_kwargs   # noqa: E402
+
 PASS, FAIL = [], []
 
 
@@ -41,7 +43,7 @@ def check(name, ok, detail=""):
 def _run(*args) -> str:
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "build_release.py"), *args],
                        capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=str(ROOT))
+                       errors="replace", cwd=str(ROOT), **no_window_kwargs())
     return (r.stdout or "") + (r.stderr or "")
 
 

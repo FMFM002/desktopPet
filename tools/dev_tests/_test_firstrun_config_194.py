@@ -28,6 +28,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from _fixtures_193 import no_window_kwargs   # noqa: E402
+
 PASS, FAIL = [], []
 
 
@@ -107,7 +109,7 @@ if DEFAULT.exists():
 print("\n== C. 出厂配置与代码默认值不漂移 ==")
 _r = subprocess.run([sys.executable, str(ROOT / "tools" / "make_default_config.py"), "--check"],
                     capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    cwd=str(ROOT))
+                    cwd=str(ROOT), **no_window_kwargs())
 check("★★config.default.json 与代码当前默认值一致"
       "（配置项有增减却没重跑生成器 → 这里报红）",
       _r.returncode == 0, (_r.stdout or _r.stderr or "").strip().splitlines()[-1:][0]

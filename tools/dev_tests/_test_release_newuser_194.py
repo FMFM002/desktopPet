@@ -30,6 +30,8 @@ os.environ.setdefault("PRTS_NO_COMFY_START", "1")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from _fixtures_193 import no_window_kwargs   # noqa: E402
+
 PASS, FAIL = [], []
 
 
@@ -46,7 +48,7 @@ print("== 0. 先装配出一份发布产物 ==")
 _r = subprocess.run([sys.executable, str(ROOT / "tools" / "build_release.py"),
                      "--out", str(OUT)],
                     capture_output=True, text=True, encoding="utf-8",
-                    errors="replace", cwd=str(ROOT))
+                    errors="replace", cwd=str(ROOT), **no_window_kwargs())
 check("★装配成功", OUT.is_dir(),
       ((_r.stdout or "") + (_r.stderr or "")).strip().splitlines()[-1:][0]
       if ((_r.stdout or "") + (_r.stderr or "")) else "")

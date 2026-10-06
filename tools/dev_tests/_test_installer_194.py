@@ -33,6 +33,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.version import APP_ID, __version__          # noqa: E402
 
+from _fixtures_193 import no_window_kwargs   # noqa: E402
+
 PASS, FAIL = [], []
 
 
@@ -68,7 +70,7 @@ check("★tools/model_manager.py 存在", _mm.is_file())
 if _mm.is_file():
     _r = subprocess.run([sys.executable, str(_mm), "status", "--json"],
                         capture_output=True, text=True, encoding="utf-8",
-                        errors="replace", cwd=str(ROOT))
+                        errors="replace", cwd=str(ROOT), **no_window_kwargs())
     check("★★`model_manager.py status --json` 真能跑（安装程序要读它）",
           _r.returncode == 0 and '"models"' in (_r.stdout or ""),
           ((_r.stdout or "")[:40] + "…") if _r.stdout else (_r.stderr or "")[:60])

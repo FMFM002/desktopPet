@@ -132,9 +132,11 @@ def make_speech_wav(dest, text: str = "这是一段用于回归测试的语音�
             "$s.Dispose()"
         )
         # ★ 不要 capture_output：DSH 沙箱下"管道 stdio"会被拒（EPERM）。
+        # ★★ 1.9.4：**必须加 no_window_kwargs()** —— 否则每次调用都会在屏幕上
+        #   闪一个 PowerShell 黑框（用户真机反馈："屏幕不停的闪现 cmd 黑色窗口"）。
         subprocess.run(["powershell", "-NoProfile", "-Command", ps],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       timeout=60)
+                       timeout=60, **no_window_kwargs())
     except Exception:
         return None
     return dest if (dest.exists() and dest.stat().st_size > 1000) else None
@@ -158,3 +160,22 @@ if __name__ == "__main__":
     print("pptx:", make_pptx(d / "a.pptx").stat().st_size, "字节")
     print("wav :", make_wav(d / "a.wav").stat().st_size, "字节")
     print("fixture 根目录:", FIXTURE_ROOT)
+
+
+def no_window_kwargs() -> dict:
+    """★ 1.9.4：起子进程时**别弹黑窗口**。
+
+    用户真机反馈（2026-10-06）："你的这一步动作导致我的屏幕不停的闪现 cmd
+    黑色窗口，持续约3秒。担心是bug。" —— 原因是 Windows 上 `subprocess` 起
+    控制台程序**默认会弹窗**；回归套件里每起一个 python/powershell 子进程就闪一下。
+
+    用法：
+        subprocess.run(cmd, ..., **no_window_kwargs())
+
+    非 Windows 返回空 dict（`creationflags` 是 Windows 专有参数）。
+    """
+    import sys as _sys
+    if _sys.platform != "win32":
+        return {}
+    # CREATE_NO_WINDOW = 0x08000000（不给子进程建控制台窗口）
+    return {"creationflags": 0x08000000}

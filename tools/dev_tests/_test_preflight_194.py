@@ -27,6 +27,8 @@ os.environ.setdefault("PRTS_NO_COMFY_START", "1")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from _fixtures_193 import no_window_kwargs   # noqa: E402
+
 PASS, FAIL = [], []
 
 
@@ -38,7 +40,7 @@ def check(name, ok, detail=""):
 def _run(*args):
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "preflight.py"), *args],
                        capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=str(ROOT), timeout=420)
+                       errors="replace", cwd=str(ROOT), timeout=420, **no_window_kwargs())
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
