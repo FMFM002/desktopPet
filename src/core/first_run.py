@@ -224,17 +224,34 @@ def detect(base: Path | None = None) -> FirstRunReport:
         sys.version.split()[0], "env"))
 
     # 模型类：找到就自动用，没有就"可选下载"（不属于"必须手填"）
-    for _k, _label, _rel, _size_hint in (
-        ("whisper", "语音识别模型（whisper）", "data/whisper/ggml-small.bin", "约 465MB"),
-        ("easyocr", "OCR 模型（easyocr）", "data/models/easyocr", "约 100MB"),
-    ):
-        _p = root / _rel
-        _found = _p.exists() and (any(_p.iterdir()) if _p.is_dir() else _p.stat().st_size > 0)
+    # ★★ 1.9.4 真机修复（用户原话："**2，缺少TTS块**"）：
+    #   原来这里**手写了两项**（whisper / easyocr），**漏了 TTS 的 GENIE** ——
+    #   于是向导里根本没有"语音合成"那一块，用户勾完也不知道 TTS 需要模型。
+    #   ⇒ 改成**走集中注册表** `src/core/models.py`（那是模型位置的唯一真理）：
+    #     ① TTS 自动就进来了（注册表里有 genie）；
+    #     ② 每项的"在不在"也用注册表的 resolve（会**优先规范位置、回落旧位置**），
+    #        不再是写死一条路径 —— 用户把模型搬过位置也认得出来。
+    try:
+        from src.core import models as _M
+        _specs = list(_M.MODELS.values())
+    except Exception:
+        _specs = []
+    for _spec in _specs:
+        # ★ 把 base 传下去 —— 否则"模拟一台空机器"的测试会失效（见 models.resolve_dir）
+        _found_path, _where = _M.resolve_dir(_spec.key, base=root)
+        _found = _found_path is not None
+        _loc = {"canonical": "规范位置", "legacy": "旧位置（建议迁移）",
+                "missing": "没有"}[_where]
         r.findings.append(Finding(
-            _k, _label, AUTO if _found else OPTIONAL,
-            f"看 {_rel} 在不在", "已就位" if _found else "没有（要用再下载）",
+            _spec.key, _spec.label, AUTO if _found else OPTIONAL,
+            f"按集中注册表找 {_spec.rel}"
+            + (f"，回落旧位置 {_spec.legacy[0]}" if _spec.legacy else ""),
+            "已就位" if _found else f"没有（要用再下载，{_spec.size_hint}）",
             "models", askable=not _found,
-            hint=f"要用这个能力的话需要下载（{_size_hint}）"))
+            hint=f"要用「{_spec.feature}」就需要它（{_spec.size_hint}）；"
+                 f"本地已有一份的话可以直接填路径让我扫描"))
+        if _found and _where == "legacy":
+            r.findings[-1].detail += f"（现在在{_loc}）"
 
     # ── 3. 运行时目录（首次要能自建）──
     _dirs = ["data/桌宠形象", "data/桌宠私有data", "data/cache",

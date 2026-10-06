@@ -89,10 +89,18 @@ class FirstRunWizard(QDialog):
         root.setSpacing(12)
 
         self._stack = QStackedWidget(self)
-        self._stack.addWidget(self._page_welcome())
-        self._stack.addWidget(self._page_key())
-        self._stack.addWidget(self._page_optional())
-        self._stack.addWidget(self._page_done())
+        self._stack.addWidget(self._page_welcome())      # 0
+        self._stack.addWidget(self._page_key())          # 1
+        self._stack.addWidget(self._page_optional())     # 2
+        # ★★ 1.9.4（用户 2026-10-06 要求）：**新增一页专门放"检测 / 下载"**。
+        #   用户原话："勾选功能页面就**纯勾选和一些提醒说明**，检测和下载放在下一步。
+        #             检测项和下载项要**根据上一步勾选情况来排版**，
+        #             不要出现**没勾线但还是要求填写路径**的情况，
+        #             傻逼用户可能会卡在这里。"
+        #   ⇒ 这一页是**动态生成的**（进这一页时才按勾选结果铺内容），见 _populate_setup()。
+        self._setup_page = self._page_setup()            # 3
+        self._stack.addWidget(self._setup_page)
+        self._stack.addWidget(self._page_done())         # 4
         root.addWidget(self._stack, 1)
 
         # 底部按钮条
@@ -253,52 +261,16 @@ class FirstRunWizard(QDialog):
         #   ⇒ 每个"缺失的模型"给三样：① 路径输入（我本地已有 → 扫描并写入配置）
         #        ② 下载按钮（真下）③ 日志框（看得见在动，而不是干等）
         # ══════════════════════════════════════════════════════════
-        lay.addWidget(QLabel(""))
-        _mt = QLabel("<b>模型文件</b>（大文件，不随包）—— "
-                     "本地已有一份的话，<b>填路径让我扫描，别重复下载</b>")
-        _mt.setObjectName("sub")
-        _mt.setWordWrap(True)
-        lay.addWidget(_mt)
-
-        self._model_rows = {}
-        for _f in self._report.findings:
-            if _f.group != "models":
-                continue
-            _row = QWidget()
-            _rl = QVBoxLayout(_row)
-            _rl.setContentsMargins(0, 2, 0, 6)
-            _st = "✅ 已就位" if _f.ok else "❌ 缺失"
-            _lab = QLabel(f"{_st} &nbsp;<b>{_f.label}</b> &nbsp;"
-                          f"<span style='color:#6b7280'>{_f.detail}</span>")
-            _lab.setTextFormat(Qt.RichText)
-            _rl.addWidget(_lab)
-
-            _h = QHBoxLayout()
-            _edit = QLineEdit()
-            _edit.setPlaceholderText("本地已有的话，把路径粘这里（指它的上一级也行）")
-            _h.addWidget(_edit, 1)
-            _btn_scan = QPushButton("扫描并写入")
-            _btn_dl = QPushButton("下载")
-            _h.addWidget(_btn_scan)
-            _h.addWidget(_btn_dl)
-            _rl.addLayout(_h)
-
-            _res = QLabel("")
-            _res.setObjectName("hint")
-            _res.setWordWrap(True)
-            _rl.addWidget(_res)
-            lay.addWidget(self._card(_row))
-
-            self._model_rows[_f.key] = {"edit": _edit, "res": _res,
-                                        "btn_dl": _btn_dl, "key": _f.key}
-            _btn_scan.clicked.connect(lambda _c=False, k=_f.key: self._on_scan(k))
-            _btn_dl.clicked.connect(lambda _c=False, k=_f.key: self._on_download(k))
-
-        self._dl_log = QPlainTextEdit()
-        self._dl_log.setReadOnly(True)
-        self._dl_log.setMaximumHeight(110)
-        self._dl_log.setPlaceholderText("（下载时的输出会显示在这里）")
-        lay.addWidget(self._dl_log)
+        # ★★ 1.9.4（用户 2026-10-06）：这一页**只放纯勾选 + 提醒说明**。
+        #   检测 / 下载 / 填路径全部挪到**下一页**（`_page_setup`）——
+        #   用户原话："勾选功能页面就纯勾选和一些提醒说明，检测和下载放在下一步。"
+        #   原来这里就摆着"模型文件 + 路径框 + 下载"，而用户还没勾任何东西，
+        #   于是出现"**没勾线但还是要求填写路径**"的情况（他说"傻逼用户会卡在这里"）。
+        _hint = QLabel("勾好之后，<b>下一步</b>我会按你勾的内容逐项检查"
+                       "（缺什么、要不要下、本地已有的可以指路径给我扫描）。")
+        _hint.setObjectName("hint")
+        _hint.setWordWrap(True)
+        lay.addWidget(_hint)
 
         lay.addStretch(1)
         return w
@@ -355,6 +327,113 @@ class FirstRunWizard(QDialog):
         threading.Thread(target=_work, daemon=True).start()
 
     # ── 第 4 步：完成 ──
+    # ══════════════════════════════════════════════════════════
+    # ★★ 1.9.4（用户 2026-10-06）：**按勾选排版的"检测 / 下载"页**
+    #
+    #   用户原话："检测项和下载项要**根据上一步勾选情况来排版**，
+    #             不要出现**没勾线但还是要求填写路径**的情况。"
+    #   所以这一页**进来时才生成**（`_populate_setup`），
+    #   而且**只为勾了的东西**出内容 —— 没勾的连字都不出现。
+    # ══════════════════════════════════════════════════════════
+    def _page_setup(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setSpacing(6)
+        self._setup_lay = lay
+
+        self._setup_title = QLabel("按你勾选的来检查")
+        self._setup_title.setObjectName("title")
+        lay.addWidget(self._setup_title)
+
+        self._setup_sub = QLabel("")
+        self._setup_sub.setObjectName("sub")
+        self._setup_sub.setWordWrap(True)
+        lay.addWidget(self._setup_sub)
+
+        # 动态区：每次进这一页都清空重建
+        self._setup_host = QWidget()
+        self._setup_host_lay = QVBoxLayout(self._setup_host)
+        self._setup_host_lay.setContentsMargins(0, 4, 0, 0)
+        lay.addWidget(self._setup_host)
+
+        # 下载日志（用户要求"显示在引导里面，让用户看见正在下载"）
+        self._dl_log = QPlainTextEdit()
+        self._dl_log.setReadOnly(True)
+        self._dl_log.setMaximumHeight(110)
+        self._dl_log.setPlaceholderText("（下载时的输出会显示在这里）")
+        lay.addWidget(self._dl_log)
+
+        lay.addStretch(1)
+        return w
+
+    def _populate_setup(self):
+        """★ 按 `self._optional_picked`（勾选页的结果）**重新生成**这一页的内容。
+
+        规则（用户："不要出现没勾线但还是要求填写路径的情况"）：
+          · 只为**勾了的**项目出内容；
+          · 没勾的**一个字都不显示**；
+          · 勾了但**已就位**的 → 只显示"✅ 已就位"，**不给**填路径的框
+            （没有可填的东西，给了只会让人卡住）。
+        """
+        # 清空上一次的内容
+        while self._setup_host_lay.count():
+            _it = self._setup_host_lay.takeAt(0)
+            _w = _it.widget()
+            if _w is not None:
+                _w.deleteLater()
+        self._model_rows = {}
+
+        _picked = list(getattr(self, "_optional_picked", []) or [])
+        if not _picked:
+            self._setup_title.setText("没有勾选任何可选项")
+            self._setup_sub.setText("你什么都没勾 —— 那就直接点「下一步」。"
+                                    "以后想开，在「右键桌宠 → 设置」里随时能开。")
+            return
+
+        self._setup_title.setText("按你勾选的来检查")
+        self._setup_sub.setText("下面**只有你勾了的**项目。缺的东西可以"
+                                "① 指个路径让我扫描（本地已有就别重复下载），或 ② 我来下。")
+
+        for _f in self._report.findings:
+            if _f.key not in _picked:
+                continue
+            _row = QWidget()
+            _rl = QVBoxLayout(_row)
+            _rl.setContentsMargins(0, 2, 0, 6)
+            _st = "✅ 已就位" if _f.ok else "❌ 缺少模型/未配置"
+            _lab = QLabel(f"{_st} &nbsp;<b>{_f.label}</b> &nbsp;"
+                          f"<span style='color:#6b7280'>{_f.detail}</span>")
+            _lab.setTextFormat(Qt.RichText)
+            _rl.addWidget(_lab)
+            if _f.hint:
+                _h2 = QLabel("　　" + _f.hint)
+                _h2.setObjectName("hint")
+                _h2.setWordWrap(True)
+                _rl.addWidget(_h2)
+
+            # ★ 已就位的**不给**填路径的框（没有可填的东西，给了只会让人卡住）
+            if not _f.ok:
+                _h = QHBoxLayout()
+                _edit = QLineEdit()
+                _edit.setPlaceholderText("本地已有的话，把路径粘这里（指它的上一级也行）")
+                _h.addWidget(_edit, 1)
+                _btn_scan = QPushButton("扫描并写入")
+                _btn_dl = QPushButton("下载")
+                _h.addWidget(_btn_scan)
+                _h.addWidget(_btn_dl)
+                _rl.addLayout(_h)
+                _res = QLabel("")
+                _res.setObjectName("hint")
+                _res.setWordWrap(True)
+                _rl.addWidget(_res)
+                self._model_rows[_f.key] = {"edit": _edit, "res": _res,
+                                            "btn_dl": _btn_dl, "key": _f.key}
+                _btn_scan.clicked.connect(
+                    lambda _c=False, k=_f.key: self._on_scan(k))
+                _btn_dl.clicked.connect(
+                    lambda _c=False, k=_f.key: self._on_download(k))
+            self._setup_host_lay.addWidget(self._card(_row))
+
     def _page_done(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -389,6 +468,11 @@ class FirstRunWizard(QDialog):
         self._stack.setCurrentIndex(i)
         self._btn_prev.setEnabled(i > 0)
         self._btn_next.setText("完成" if i == self._stack.count() - 1 else "下一步")
+        # ★★ 1.9.4：离开"勾选页"（index 2）后进入"检测/下载页"（index 3）时，
+        #   先把勾选结果收下来，再**按勾选**重建那一页 —— 这就是"根据上一步勾选排版"。
+        if i == 3:
+            self._apply_optional()          # 收下勾选结果（原来只在点完成时收）
+            self._populate_setup()
         # ★★ 1.9.4 真机修复：进入"完成页"时**立刻把内容填上**。
         #   原来只在本页点「完成」时才 _render_done()，于是用户切到这一页时
         #   看到的是**一个空白的框**（真机反馈原话："下面有一个空白的框，不知道是干嘛的"）。

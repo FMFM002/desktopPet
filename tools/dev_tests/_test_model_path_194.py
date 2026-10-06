@@ -109,10 +109,19 @@ from src.ui.first_run_wizard import FirstRunWizard    # noqa: E402
 
 _w2 = FirstRunWizard(base=_B)                         # 空目录 = 没有模型
 try:
+    # ★★ 1.9.4：模型行现在在**第 4 页（检测/下载页）**，而且**只列出勾了的**。
+    #   所以要先勾上、再进那一页，内容才会生成（这正是用户要的"按勾选排版"）。
+    for _k2 in list(_w2._checks):
+        if _k2 in ("whisper", "easyocr"):
+            _w2._checks[_k2].setChecked(True)
+    _w2._goto(3)
     check("★★每个缺失的模型都有：路径框 / 扫描 / 下载",
           bool(_w2._model_rows) and all(
               k in r for r in _w2._model_rows.values()
               for k in ("edit", "btn_dl", "res")),
+          str(sorted(_w2._model_rows)))
+    check("★★**只为你勾了的**项目出内容（没勾的一个字都不显示）",
+          set(_w2._model_rows) <= {"whisper", "easyocr"},
           str(sorted(_w2._model_rows)))
     check("★★有**下载日志框**（用户要求『显示在引导里面，让用户看见正在下载』）",
           hasattr(_w2, "_dl_log"))

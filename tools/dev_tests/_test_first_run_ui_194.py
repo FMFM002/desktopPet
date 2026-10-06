@@ -37,8 +37,9 @@ def check(name, ok, detail=""):
 print("== A. 向导能构造、四步齐全 ==")
 w = fw.FirstRunWizard()
 check("★能构造且不抛异常", w is not None)
-check("★是四步（欢迎 / Key / 可选 / 完成）", w._stack.count() == 4,
-      f"实际 {w._stack.count()}")
+check("★★现在是**五步**（欢迎 / Key / 勾选 / **检测下载** / 完成）—— "
+      "用户 2026-10-06 要求「勾选页纯勾选，检测和下载放到下一步」",
+      w._stack.count() == 5, f"实际 {w._stack.count()}")
 check("★初始在第 1 步", w._step == 0)
 check("★第 1 步展示「已自动发现 N 项」（让新用户安心）",
       "自动发现" in w._summary_text() if hasattr(w, "_summary_text")

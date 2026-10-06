@@ -106,7 +106,8 @@ try:
           "whisper" in _w._checks and "easyocr" in _w._checks,
           str(sorted(_w._checks)))
 
-    _w._goto(3)                                        # 切到完成页（不点"完成"）
+    # ★ 1.9.4：向导从 4 页变成 5 页（多插了"检测/下载"页），完成页随之从 3 → **4**。
+    _w._goto(4)                                        # 切到完成页（不点"完成"）
     check("★★【修复②】进入完成页**立刻就有内容**（不再是空白框）",
           len(_w.done_page_text().strip()) > 20,
           _w.done_page_text()[:50].replace("\n", " "))

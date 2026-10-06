@@ -95,21 +95,27 @@ def _has_content(p: Path, marker: str = "") -> bool:
         return False
 
 
-def resolve_dir(key: str) -> tuple[Path | None, str]:
+def resolve_dir(key: str, base: Path | None = None) -> tuple[Path | None, str]:
     """找出这个模型**现在**在哪。
 
     返回 `(路径 或 None, 位置标记)`；标记取值：
       `"canonical"` 已在规范位置 / `"legacy"` 还在旧位置（建议迁移）/ `"missing"` 都没有。
     ★ 优先规范位置 —— 这样迁移是**渐进**的，不必一次搬完。
+
+    ★ `base` 给**测试**用：让引导能"在一台什么都没有的机器上"跑
+      （`first_run.detect(base=...)` 就干这个）。
+      我第一版这里写死了 `ROOT`，于是 `detect(base=空目录)` **照样报"已就位"** ——
+      "模拟新机器"的断言全部失效（是反向验证把它抓出来的）。
     """
     spec = MODELS.get(key)
     if spec is None:
         return None, "missing"
-    canon = ROOT / spec.rel
+    _root = Path(base) if base is not None else ROOT
+    canon = _root / spec.rel
     if _has_content(canon, spec.marker):
         return canon, "canonical"
     for leg in spec.legacy:
-        lp = ROOT / leg
+        lp = _root / leg
         if lp == canon:
             continue
         if _has_content(lp, spec.marker):
@@ -117,9 +123,9 @@ def resolve_dir(key: str) -> tuple[Path | None, str]:
     return None, "missing"
 
 
-def resolve(key: str) -> Path | None:
+def resolve(key: str, base: Path | None = None) -> Path | None:
     """只要路径（找不到返回 None）。给业务代码用。"""
-    return resolve_dir(key)[0]
+    return resolve_dir(key, base)[0]
 
 
 def status_all() -> list[dict]:
