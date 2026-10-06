@@ -28,12 +28,13 @@ import threading
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from src.core import first_run as fr
 from src.utils.logger import get_logger
+from src.utils.proc import no_window_kwargs as _nw
 
 _log = get_logger(__name__)
 
@@ -60,15 +61,25 @@ class FirstRunWizard(QDialog):
     #   （Qt 规矩：控件只能在 GUI 线程碰；跨线程直接 appendPlainText 会崩或乱序）。
     _sig_line = Signal(str)      # 下载日志的单行
     _sig_done = Signal(str)      # 某个模型下载结束（key）
-    _sig_probe = Signal(str, bool, str)   # 本地服务检测结束（key, 在跑?, 说明）
 
     def __init__(self, parent=None, base=None):
         super().__init__(parent)
         self.setWindowTitle("铃兰桌宠 · 首次配置")
         self.setMinimumWidth(520)
+        # ★★ 1.9.4 真机修复（用户 2026-10-06）：
+        #   "需要**固定窗口长度**，做滚轮。" + "报错的**红色文字显示不完全**，
+        #    给的窗口太小了。"
+        #   ⇒ 把窗口**高度固定住在合理值**（内容由上面的滚动区消化），
+        #     并放宽一点宽度 —— 长报错才换得开行、不截断。
+        self.resize(620, 640)
+        self.setMinimumHeight(520)
+        self.setMaximumHeight(900)
         self.setStyleSheet(_STYLE)
         self._base = base
-        self._report = fr.detect(base=base)
+        # ★★ 1.9.4 真机修复（用户 2026-10-06）：
+        #   "我的建议是**首次配置，不提及 comfyUI 和 Ollama**。"
+        #   ⇒ 引导只要"不含服务"的那份报告（设置窗口仍用默认的、含服务的）。
+        self._report = fr.detect(base=base, include_services=False)
         self._step = 0
         self._checks: dict[str, QCheckBox] = {}
         self._model_rows: dict[str, dict] = {}
@@ -76,7 +87,6 @@ class FirstRunWizard(QDialog):
         # 下载线程 → GUI：日志逐行进框、结束后恢复按钮
         self._sig_line.connect(self._dl_log.appendPlainText)
         self._sig_done.connect(self._on_download_done)
-        self._sig_probe.connect(self._on_probe_done)
         self._goto(0)
 
     def _on_download_done(self, key: str):
@@ -103,7 +113,19 @@ class FirstRunWizard(QDialog):
         self._setup_page = self._page_setup()            # 3
         self._stack.addWidget(self._setup_page)
         self._stack.addWidget(self._page_done())         # 4
-        root.addWidget(self._stack, 1)
+
+        # ★★ 1.9.4 真机修复（用户 2026-10-06）—— **这条让他走不下去**：
+        #   原话："检测模型和具体数据配置页面，**选项太多，页面太长，没有滚轮，
+        #         看不见下一步按钮和下面的配置**。需要**固定窗口长度，做滚轮**。"
+        #   根因：页面直接堆在窗口里，内容一长就把底部按钮条**顶出可视区**。
+        #   ⇒ 把整叠页面塞进 **QScrollArea**，按钮条留在滚动区**外面**
+        #     —— 内容再长，按钮条也永远可见。
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setFrameShape(QFrame.NoFrame)
+        _scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        _scroll.setWidget(self._stack)
+        root.addWidget(_scroll, 1)
 
         # 底部按钮条
         bar = QHBoxLayout()
@@ -315,7 +337,7 @@ class FirstRunWizard(QDialog):
                     [sys.executable, str(_root / "tools" / "model_manager.py"),
                      "install", "--key", key, "--yes"],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                    encoding="utf-8", errors="replace", cwd=str(_root))
+                    encoding="utf-8", errors="replace", cwd=str(_root), **_nw())
                 for line in proc.stdout:            # 逐行 → 日志框
                     self._sig_line.emit(line.rstrip())
                 proc.wait()
@@ -384,7 +406,6 @@ class FirstRunWizard(QDialog):
             if _w is not None:
                 _w.deleteLater()
         self._model_rows = {}
-        self._svc_rows = {}          # 本地服务（ollama/comfyui）的检测结果标签
 
         _picked = list(getattr(self, "_optional_picked", []) or [])
         if not _picked:
@@ -414,52 +435,13 @@ class FirstRunWizard(QDialog):
                 _h2.setWordWrap(True)
                 _rl.addWidget(_h2)
 
-            # ★★ 1.9.4（用户 2026-10-06）：
-            #   "检测时，**ollama 可以直接启动服务看看有没有 ollama**；
-            #    **comfyUI 不能自动检测注册表**，path 的话就让用户**手动启动，再点击检测**。"
-            #   ⇒ 本地服务类能力（ollama / comfyui）给一个「检测」按钮：
-            #      · ollama → 检测时会**替他试着启动一次**（用户明确要求）
-            #      · comfyui → **不替他启动**（位置/服务名都不固定），
-            #        只告诉他"先自己启动，再点检测"
-            if _f.key in ("ollama", "comfyui"):
-                _hs = QHBoxLayout()
-                _btn_probe = QPushButton("检测" + ("（会试着启动它）"
-                                                  if _f.key == "ollama" else ""))
-                _hs.addWidget(_btn_probe)
-                # ★★ 1.9.4（用户拍板 Q4：**只做这个**）：本地语言模型的"一键获取"。
-                #   用户选的是"**② 只自动拉模型**"——**不替他装 Ollama 本体**，
-                #   只在他装好之后自动 `ollama pull`；
-                #   并选了"**按硬件自动选**"（拉之前把型号和体积告诉他，他确认了再拉）。
-                if _f.key == "ollama":
-                    _btn_pull = QPushButton("拉取推荐模型")
-                    _btn_pull.setToolTip("会先告诉你型号和体积，确认后才开始拉")
-                    _hs.addWidget(_btn_pull)
-                else:
-                    _btn_pull = None
-                _hs.addStretch(1)
-                _rl.addLayout(_hs)
-                _sres = QLabel("")
-                _sres.setObjectName("hint")
-                _sres.setWordWrap(True)
-                _rl.addWidget(_sres)
-                self._svc_rows[_f.key] = {"res": _sres, "btn_pull": _btn_pull}
-                _btn_probe.clicked.connect(
-                    lambda _c=False, k=_f.key: self._on_probe(k))
-                if _btn_pull is not None:
-                    _btn_pull.clicked.connect(
-                        lambda _c=False: self._on_pull_llm())
-                    # 把推荐（型号 + 体积）**先摆出来**，别等他点了才知道
-                    try:
-                        from src.core import llm_local as _L
-                        _p = _L.recommend()
-                        _reco = QLabel(
-                            f"　　→ 按你这台机器，推荐 <b>{_p.model}</b>（{_p.size_hint}）"
-                            f"<br>　　{_p.why}")
-                        _reco.setObjectName("hint")
-                        _reco.setWordWrap(True)
-                        _rl.addWidget(_reco)
-                    except Exception:
-                        pass
+            # ★★ 1.9.4 真机修复（用户 2026-10-06）：
+            #   "我的建议是**首次配置，不提及 comfyUI 和 Ollama**。
+            #    **ollama 在设置里面**检测，下载，扫描，选择。
+            #    **comfyUI 就完全从项目剥离**作为第三方功能…"
+            #   ⇒ 引导这一页**不再出**本地服务的检测按钮（那两项已经不在报告里了）。
+            #     Ollama 的一键获取改到**设置窗口**（见 settings 那边）。
+            #     所以这里原先那块 `_svc_rows` / `_on_probe` 整块删掉了。
 
             # ★ 已就位的**不给**填路径的框（没有可填的东西，给了只会让人卡住）
             # ★★ 而且**只有"模型"才给路径/下载** —— 本地服务（ollama/comfyui）
@@ -487,85 +469,6 @@ class FirstRunWizard(QDialog):
                 _btn_dl.clicked.connect(
                     lambda _c=False, k=_f.key: self._on_download(k))
             self._setup_host_lay.addWidget(self._card(_row))
-
-    def _on_probe(self, key: str):
-        """★ 本地服务检测（Ollama / ComfyUI）。
-
-        Ollama：**替他试着启动一次**（用户明确要求"可以直接启动服务看看有没有 ollama"）。
-        ComfyUI：**不替他启动** —— 只报端口通不通，并提醒"先自己启动再点检测"。
-        ★ 放在 GUI 线程里跑会卡住界面（试启动要等几秒）→ 用后台线程 + 信号回报。
-        """
-        row = self._svc_rows.get(key)
-        if not row:
-            return
-        row["res"].setStyleSheet("color:#6b7280")
-        row["res"].setText("检测中…" + ("（正在试着启动它，最多等几秒）"
-                                       if key == "ollama" else ""))
-        self.repaint()
-
-        def _work():
-            from src.core import services as _S
-            try:
-                ok, why = _S.probe_by_key(
-                    key, try_start=(key == "ollama"))
-            except Exception as e:
-                ok, why = False, f"[错误] {type(e).__name__}: {e}"
-            self._sig_probe.emit(key, ok, why)
-
-        threading.Thread(target=_work, daemon=True).start()
-
-    def _on_probe_done(self, key: str, ok: bool, why: str):
-        row = self._svc_rows.get(key)
-        if not row:
-            return
-        row["res"].setStyleSheet("color:#15803d" if ok else "#b91c1c")
-        row["res"].setText(why)
-
-    def _on_pull_llm(self):
-        """★ 拉取推荐模型（用户拍板 Q4）。
-
-        用户选的是"**按硬件自动选**：拉之前把型号和体积告诉我，**确认了再拉**"
-        ⇒ 先弹一个确认框，把型号与体积摆清楚；他点了"开始拉"才动。
-        ★ 拉取跑在后台线程，输出**逐行**进日志框（看得见在动）。
-        """
-        try:
-            from src.core import llm_local as _L
-            _p = _L.recommend()
-        except Exception as e:
-            self._dl_log.appendPlainText(f"[错误] 推荐失败: {e}")
-            return
-        if not _p.model:
-            QMessageBox.information(
-                self, "这台机器不太适合",
-                "按你的配置，本地跑语言模型太勉强了。\n\n"
-                "建议直接用云端 API —— 就是你在第一步填的那个 Key。")
-            return
-        # ★ **确认框** —— 用户明确要求"确认了再拉"
-        _ans = QMessageBox.question(
-            self, "确认拉取",
-            f"按你这台机器的配置，推荐：\n\n"
-            f"    模型：{_p.model}\n"
-            f"    体积：{_p.size_hint}\n\n"
-            f"{_p.why}\n\n"
-            f"确认后会用 `ollama pull {_p.model}` 下载。\n"
-            f"（Ollama 本体需要你自己装：{_L.OLLAMA_DOWNLOAD_URL}）",
-            QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Ok)
-        if _ans != QMessageBox.Ok:
-            return
-        self._dl_log.appendPlainText(f"── 开始拉取 {_p.model}（{_p.size_hint}）──")
-
-        def _work():
-            from src.core import llm_local as _L2
-            try:
-                ok, msg = _L2.pull(_p.model, on_line=self._sig_line.emit)
-                if ok:
-                    _w2, _m2 = _L2.write_back(_p.model)
-                    self._sig_line.emit(_m2)
-                self._sig_line.emit(msg)
-            except Exception as e:
-                self._sig_line.emit(f"[错误] {type(e).__name__}: {e}")
-
-        threading.Thread(target=_work, daemon=True).start()
 
     def _page_done(self) -> QWidget:
         w = QWidget()

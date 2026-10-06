@@ -33,6 +33,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from src.utils.proc import no_window_kwargs as _nw
 
 _log = logging.getLogger("Torrent")
 
@@ -241,7 +242,7 @@ def start_bt(target: str, save_dir: Path, seed_time: int = 0,
     try:
         proc = subprocess.Popen(args, cwd=str(save_dir), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True,
-                                encoding="utf-8", errors="replace", **kwargs)
+                                encoding="utf-8", errors="replace", **kwargs, **_nw())
     except Exception as e:
         return {"success": False, "bt": True, "error": f"启动 aria2c 失败: {e}"}
 

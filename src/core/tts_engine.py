@@ -28,6 +28,7 @@ _GENIE_ROOT = Path(__file__).resolve().parent.parent.parent  # 项目根目录
 #       → 所以**没搬的机器照常能用**，迁移是渐进的，不会因为这次改动开不了 TTS。
 #     · 真要搬文件，跑 `python tools/model_manager.py migrate`（本模块只解析路径，不动文件）。
 from src.core.models import resolve as _resolve_model
+from src.utils.proc import no_window_kwargs as _nw
 _GENIE_RES = _resolve_model("genie") or (_GENIE_ROOT / "src" / "genie_tts"
                                          / "assets" / "genie")
 _GENIE_DATA_DIR = _GENIE_RES / "GenieData"
@@ -619,11 +620,11 @@ class TTSEngine:
                 subprocess.run(
                     ["powershell", "-c",
                      f'(New-Object Media.SoundPlayer "{filepath}").PlaySync()'],
-                    capture_output=True, timeout=30)
+                    capture_output=True, timeout=30, **_nw())
             elif system == "Darwin":
-                subprocess.run(["afplay", filepath], capture_output=True, timeout=30)
+                subprocess.run(["afplay", filepath], capture_output=True, timeout=30, **_nw())
             else:
-                subprocess.run(["aplay", filepath], capture_output=True, timeout=30)
+                subprocess.run(["aplay", filepath], capture_output=True, timeout=30, **_nw())
         except Exception as e:
             _log.error(f"系统播放失败: {e}")
 

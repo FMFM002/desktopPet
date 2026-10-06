@@ -19,6 +19,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QTimer, QEvent, QUrl, QRect, QPoint, QRectF
 from PySide6.QtGui import QFont, QFontMetrics, QTextCursor, QDragEnterEvent, QDropEvent, QDesktopServices, QPainter, QColor, QPen, QTextTable, QTextLength, QTextDocument
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextBrowser, QPushButton, QLineEdit, QLabel, QFileDialog, QApplication, QFrame, QMenu
+from src.utils.proc import no_window_kwargs as _nw
 _log = logging.getLogger("ChatWidget")
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -968,7 +969,7 @@ class ChatWidget(QWidget):
             if os.name == "nt":
                 os.startfile(str(path))
             else:
-                subprocess.run(["xdg-open", str(path)])
+                subprocess.run(["xdg-open", str(path)], **_nw())
         except Exception as e:
             _log.warning(f"打开文件失败: {e}")
             self._suppress_next_hide = False

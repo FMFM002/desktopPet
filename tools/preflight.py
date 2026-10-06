@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.core.models import status_all, total_size_hint      # noqa: E402
+from src.utils.proc import no_window_kwargs as _nw           # noqa: E402
 from src.version import APP_ID, __version__                  # noqa: E402
 
 OK, WARN, TODO = "OK", "WARN", "TODO"
@@ -36,7 +37,9 @@ OK, WARN, TODO = "OK", "WARN", "TODO"
 def _run(cmd: list, timeout: int = 120) -> tuple[int, str]:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", cwd=str(ROOT), timeout=timeout)
+                           errors="replace", cwd=str(ROOT), timeout=timeout,
+                           # ★ 1.9.4：别弹控制台黑窗口（回归会反复跑这里，用户被闪过）
+                           **_nw())
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
         return 1, f"{type(e).__name__}: {e}"

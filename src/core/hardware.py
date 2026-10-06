@@ -27,6 +27,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from src.utils.proc import no_window_kwargs as _nw
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,7 +60,7 @@ def _nvidia_smi() -> tuple:
             ["nvidia-smi", "--query-gpu=name,memory.total",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=6)
+            timeout=6, **_nw())
         if r.returncode != 0 or not (r.stdout or "").strip():
             return "", 0.0
         first = r.stdout.strip().splitlines()[0]

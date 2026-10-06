@@ -35,6 +35,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -201,12 +202,17 @@ def _looks_like(key: str, d: Path) -> bool:
     return False
 
 
-def probe_dir(key: str, path: str, depth: int = 1) -> tuple:
+def probe_dir(key: str, path: str, depth: int | None = None) -> tuple:
     """★ 扫用户给的目录，确认是不是我们要的模型。
 
-    `depth=1` = **看目录本身 + 它的一级子目录**（用户要求"深度为1"）——
-    因为用户习惯不同：有人直接指模型根目录，有人指它的上一级
-    （例如指 `assets` 而模型其实在 `assets/genie`）。
+    ★★ 1.9.4 真机修复（用户 2026-10-06）：
+       原话："**模型检测，改成当前路径，搜索全部文件，不再限制深度。**"
+       我原来写的是 `depth=1`（目录本身 + 一级子目录），因为想着"用户习惯不同"，
+       但真机上仍然找不到 —— 用户的模型散在更深的层级里（尤其画图模型，
+       **一般是散装在 ComfyUI 里面**的）。
+       ⇒ 默认 `depth=None` = **不限深度**，把整棵树走一遍，
+         找**第一个**满足特征判据的目录。
+       （性能没问题：只在用户点"扫描"时跑，而且模型目录里文件不多。）
 
     返回 `(是否可用, 可用路径 或 None, 给人看的说明)`。
     """
@@ -219,21 +225,39 @@ def probe_dir(key: str, path: str, depth: int = 1) -> tuple:
         return False, None, "路径无法解析"
     if not root.exists():
         return False, None, f"路径不存在: {root}"
-    if not root.is_dir():
-        return False, None, f"不是一个目录: {root}"
+    if not root.is_file() and not root.is_dir():
+        return False, None, f"不是文件也不是目录: {root}"
 
+    # ★ 不限深度：把 root 及其所有子目录都试一遍（root 自己最先试）
     tried = [root]
-    if depth >= 1:
+    if root.is_dir() and depth != 0:
         try:
-            tried += [c for c in sorted(root.iterdir()) if c.is_dir()]
+            for _cur, _dirs, _files in os.walk(root):
+                _dirs.sort()                       # 稳定顺序，便于复现
+                for _d in _dirs:
+                    tried.append(Path(_cur) / _d)
+                if depth is not None and depth >= 1:
+                    # 兼容仍想限制深度的调用方
+                    _rel = len((Path(_cur) / "x").relative_to(root).parts) - 1
+                    if _rel >= depth:
+                        _dirs[:] = []
         except Exception:
             pass
+
     for cand in tried:
         if _looks_like(key, cand):
-            where = "（就是它）" if cand == root else f"（在它的子目录 {cand.name}）"
-            return True, cand, f"✅ 找到了 {spec.label} 的模型文件{where}"
-    return False, None, (f"❌ 在 {root} 及其一级子目录里没找到 {spec.label} 的特征：\n"
-                         f"     {_SHAPE_DOC.get(key, '（未定义判据）')}")
+            _rel = "（就是它）"
+            try:
+                if cand != root:
+                    _rel = f"（在子目录 {cand.relative_to(root)}）"
+            except Exception:
+                _rel = f"（在子目录 {cand.name}）"
+            return True, cand, f"✅ 找到了 {spec.label} 的模型文件{_rel}"
+    return False, None, (
+        f"❌ 把 {root} 及其**所有子目录**都翻了一遍，"
+        f"没找到 {spec.label} 的特征：\n"
+        f"     {_SHAPE_DOC.get(key, '（未定义判据）')}\n"
+        f"     如果你确认文件在，请直接把**模型所在的那一层**路径填进来。")
 
 
 def bind_path(key: str, found) -> tuple:

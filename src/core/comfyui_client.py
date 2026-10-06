@@ -45,6 +45,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from src.utils.proc import no_window_kwargs as _nw
 
 _log = logging.getLogger("ComfyUIClient")
 
@@ -352,7 +353,7 @@ def gpu_top(n: int = 5) -> list:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True, text=True, timeout=30,
-            encoding="utf-8", errors="replace")
+            encoding="utf-8", errors="replace", **_nw())
         raw = out.stdout or ""
     except Exception as e:
         _log.debug(f"[ComfyUI] 取显存占用失败: {e}")

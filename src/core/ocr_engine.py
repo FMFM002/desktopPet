@@ -11,6 +11,7 @@ import time
 import hashlib
 from pathlib import Path
 from PIL import Image
+from src.utils.proc import no_window_kwargs as _nw
 
 _log = logging.getLogger("OCR")
 
@@ -26,7 +27,7 @@ except Exception:
 # 检测 Tesseract 系统级依赖
 _tesseract_available = False
 try:
-    result = subprocess.run(["tesseract", "--version"], capture_output=True, text=True, timeout=5)
+    result = subprocess.run(["tesseract", "--version"], capture_output=True, text=True, timeout=5, **_nw())
     if result.returncode == 0:
         _tesseract_available = True
 except (FileNotFoundError, subprocess.TimeoutExpired):

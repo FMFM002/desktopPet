@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """★ 1.9.4：**本地服务探测**（Ollama / ComfyUI）守卫 —— 用户 2026-10-06 要求。
 
 用户原话：
@@ -19,7 +19,6 @@
 import os
 import socket
 import sys
-import threading
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -82,9 +81,17 @@ try:
     for _cb in _w._checks.values():
         _cb.setChecked(True)
     _w._goto(3)
-    check("★本地服务行里有 ollama 与 comfyui",
-          {"ollama", "comfyui"} <= set(_w._svc_rows), str(sorted(_w._svc_rows)))
-    check("★★★**本地服务不出现在「模型行」里**"
+    # ★★ 1.9.4 真机修复（用户 2026-10-06）：
+    #   "我的建议是**首次配置，不提及 comfyUI 和 Ollama**。
+    #    **ollama 在设置里面**检测，下载，扫描，选择。
+    #    **comfyUI 就完全从项目剥离**作为第三方功能…"
+    #   ⇒ 引导的勾选表里**不许**出现这两项（它们在设置窗口那边才出现）。
+    check("★★★**首次配置里不再出现 ComfyUI / Ollama**（用户要求）",
+          not ({"ollama", "comfyui"} & set(_w._checks)),
+          str(sorted(_w._checks)))
+    check("★但引导**保留了**该有的可选项（天气/搜索/终末地/P站）",
+          {"weather", "tavily", "endfield", "pixiv"} <= set(_w._checks))
+    check("★★★**服务也不再出现在「模型行」里**"
           "（它不是模型：没有路径可填、也没有模型可下）"
           "—— 我第一版漏了这个判断，两套 UI 打架",
           not ({"ollama", "comfyui"} & set(_w._model_rows)),
@@ -93,12 +100,14 @@ try:
           {"genie", "easyocr", "whisper"} <= set(_w._model_rows),
           str(sorted(_w._model_rows)))
     _src = (ROOT / "src" / "ui" / "first_run_wizard.py").read_text(encoding="utf-8")
-    check("★★检测跑在**后台线程 + 信号**（试启动要等几秒，不能卡住界面）",
-          "_sig_probe" in _src and "threading.Thread(target=_work" in _src)
-    check("★Ollama 的检测按钮文案说明了「会试着启动它」（别让用户意外）",
-          "会试着启动它" in _src or "试着启动" in _src)
     check("★★只有 `group == 'models'` 才给路径/下载 UI",
           'group == "models"' in _src)
+    check("★★服务探测仍在（只是不再从引导入口用）—— services 模块要完整",
+          (ROOT / "src" / "core" / "services.py").is_file())
+    check("★引导里**删干净了**：不再有 `def _on_probe` / `self._svc_rows` / `self._sig_probe`",
+          "def _on_probe" not in _src
+          and "self._svc_rows = {}" not in _src
+          and "self._sig_probe" not in _src)
 finally:
     import shutil as _sh
     _sh.rmtree(_b, ignore_errors=True)

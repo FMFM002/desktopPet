@@ -75,39 +75,41 @@ _ok, _why = L.pull("qwen2.5:7b")          # 本机没 Ollama → 走"引导去�
 check("★★拉取**不抛异常**且给可读原因", isinstance(_why, str) and bool(_why), _why[:40])
 check("★提示里指向了下载页", "ollama.com/download" in _why)
 
-print("\n== D/E/F/G. 向导接线 ==")
-from PySide6.QtWidgets import QApplication            # noqa: E402
-_app = QApplication.instance() or QApplication([])
-from src.ui.first_run_wizard import FirstRunWizard    # noqa: E402
-
+print("\n== D/E/F/G. Ollama 的入口**从引导挪走了**（用户要求）==")
 _w_src = (ROOT / "src" / "ui" / "first_run_wizard.py").read_text(encoding="utf-8")
-check("★★拉取前有**确认框**（用户：「确认了再拉」）",
-      "QMessageBox.question" in _w_src and "确认拉取" in _w_src)
-check("★确认框里摆了**型号与体积**",
-      "{_p.model}" in _w_src and "{_p.size_hint}" in _w_src)
 check("★★成功后写进现成配置槽 `vision.ollama_model`（不新增键）",
       "vision.ollama_model" in _src)
-check("★拉取跑在后台线程（不能卡住界面）",
-      "threading.Thread(target=_work" in _w_src)
-check("★★QMessageBox **已导入**（我第一版用了却没导入 → 点了就 NameError）",
-      "QMessageBox" in _w_src.split("from PySide6.QtWidgets import")[1][:400])
 check("★Windows 上起子进程隐藏窗口（用户报过闪黑框）",
       "0x08000000" in _src)
+check("★★`llm_local` 模块**本身仍然完整**（供设置窗口调用）",
+      all(k in _src for k in ("recommend", "list_installed", "has_model",
+                              "pull", "write_back")))
+# ★★ 1.9.4 真机修复（用户 2026-10-06）：
+#   "我的建议是**首次配置，不提及 comfyUI 和 Ollama**。
+#    **ollama 在设置里面**检测，下载，扫描，选择。"
+#   ⇒ 引导里**不该再有** Ollama 的拉取按钮/确认框（那套 UI 要挪到设置窗口；
+#     本轮先把引导清干净，设置窗口的接线下一轮做）。
+#   ★ 「引导里没有 ollama」这条**在下面用运行时行为验**（看勾选表），
+#     **不按源码文本判** —— 我第一版按 `"Ollama" not in 源码` 判，
+#     而注释里正常会提到它 → **假红一次**。断言要看行为，别看字符串。
 
 _b = ROOT / "临时文件" / "_scratch_dev" / "tmp_llm_guard"
 if _b.exists():
     import shutil
     shutil.rmtree(_b, ignore_errors=True)
 _b.mkdir(parents=True)
+from PySide6.QtWidgets import QApplication            # noqa: E402
+_app = QApplication.instance() or QApplication([])
+from src.ui.first_run_wizard import FirstRunWizard    # noqa: E402
+
 try:
-    _w = FirstRunWizard(base=_b)
-    for _cb in _w._checks.values():
-        _cb.setChecked(True)
-    _w._goto(3)
-    check("★向导的 Ollama 行有「拉取推荐模型」按钮",
-          _w._svc_rows.get("ollama", {}).get("btn_pull") is not None)
-    check("★ComfyUI 行**没有**拉取按钮（本次只做语言模型）",
-          _w._svc_rows.get("comfyui", {}).get("btn_pull") is None)
+    _w_now = FirstRunWizard(base=_b)
+    _w_checks_now = set(_w_now._checks)
+    check("★★★引导的可选项里**没有 ollama**（用户要求：挪去设置窗口）",
+          "ollama" not in _w_checks_now, str(sorted(_w_checks_now)))
+    check("★★引导也**没有 _svc_rows / _on_pull_llm** 这种东西了（那套 UI 已删）",
+          not hasattr(_w_now, "_svc_rows")
+          and not hasattr(_w_now, "_on_pull_llm"))
 finally:
     import shutil as _sh
     _sh.rmtree(_b, ignore_errors=True)

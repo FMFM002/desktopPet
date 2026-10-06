@@ -39,6 +39,7 @@ _log = logging.getLogger("WhisperCLI")
 #   规范位置是 `data/models/whisper/`；**找不到就回落旧位置 `data/whisper/`** ——
 #   所以没搬的机器照常能用（迁移靠 `python tools/model_manager.py migrate`，是显式的）。
 from src.core.models import resolve as _resolve_model          # noqa: E402
+from src.utils.proc import no_window_kwargs as _nw
 
 _BASE = (_resolve_model("whisper")
          or (Path(__file__).parent.parent.parent / "data" / "whisper"))
@@ -207,7 +208,7 @@ class WhisperCLI:
                 timeout=120,  # 2 分钟超时
                 encoding="utf-8",
                 errors="replace",
-            )
+                **_nw())
 
             if result.returncode != 0:
                 _log.error(f"[WhisperCLI] 进程返回非零: {result.returncode}{hint}\n"

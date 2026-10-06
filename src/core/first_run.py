@@ -179,27 +179,44 @@ def _probe_python_deps() -> tuple[bool, str]:
 # ── 可选能力的登记表：(key, 标签, 怎么判断有没有配, 指引) ──
 #   顺序按"常见程度"排；UI 按这个顺序渲染勾选框。
 _OPTIONAL_SPECS = [
+    # ★★ 1.9.4 真机修复（用户 2026-10-06）：
+    #   原话："我的建议是**首次配置，不提及 comfyUI 和 Ollama**。
+    #         **ollama 在设置里面**检测，下载，扫描，选择。
+    #         **comfyUI 就完全从项目剥离**作为第三方功能，用户需要这个功能时，
+    #         桌宠再实现，你只需要写一份**施工说明书**，让桌宠少走错路就行了。"
+    #   ⇒ 这两个**不再出现在首次配置引导里**（见 detect(include_services=False)）。
+    #     · Ollama：功能保留，但入口挪到 **设置窗口**；
+    #     · ComfyUI：**从产品里剥离**为第三方功能，首次配置不提；
+    #       将来要做时按 `施工说明书_ComfyUI集成_1.9.4.md` 走。
+    #     `in_wizard=False` 标记它们不该进引导的那张勾选表。
     ("comfyui", "ComfyUI（本地画图）",
      lambda: bool(_env_val("COMFYUI_PATH")) and Path(_env_val("COMFYUI_PATH")).exists(),
-     "装好后在 .env 里填 COMFYUI_PATH，或直接启动 ComfyUI 服务"),
+     "装好后在 .env 里填 COMFYUI_PATH，或直接启动 ComfyUI 服务",
+     False),
     ("weather", "天气查询（和风天气）",
-     lambda: bool(_env_val("WEATHER_API_KEY")), "去和风天气控制台申请 KEY"),
+     lambda: bool(_env_val("WEATHER_API_KEY")), "去和风天气控制台申请 KEY", True),
     ("tavily", "联网搜索（Tavily）",
-     lambda: bool(_env_val("TAVILY_API_KEY")), "去 tavily.com 申请 KEY"),
+     lambda: bool(_env_val("TAVILY_API_KEY")), "去 tavily.com 申请 KEY", True),
     ("proxy", "代理（P站 / JM 需要）",
      lambda: any(_port_open("127.0.0.1", p) for p in (7890, 7897, 1080)),
-     "开着代理客户端即可；程序会自动探测端口"),
+     "开着代理客户端即可；程序会自动探测端口", True),
     ("endfield", "终末地（森空岛）",
-     lambda: bool(_env_val("ENDFIELD_API_KEY")), "需要 ENFIELD_API_KEY"),
+     lambda: bool(_env_val("ENDFIELD_API_KEY")), "需要 ENFIELD_API_KEY", True),
     ("pixiv", "Pixiv",
-     lambda: bool(_env_val("PIXIV_REFRESH_TOKEN")), "需要 PIXIV_REFRESH_TOKEN（会过期）"),
+     lambda: bool(_env_val("PIXIV_REFRESH_TOKEN")), "需要 PIXIV_REFRESH_TOKEN（会过期）",
+     True),
     ("ollama", "本地视觉（Ollama）",
-     lambda: _port_open("127.0.0.1", 11434), "装 Ollama 后它会开在 11434"),
+     lambda: _port_open("127.0.0.1", 11434), "装 Ollama 后它会开在 11434", False),
 ]
 
 
-def detect(base: Path | None = None) -> FirstRunReport:
-    """跑一遍全部探测，返回报告。**不修改任何东西。**"""
+def detect(base: Path | None = None, include_services: bool = True) -> FirstRunReport:
+    """跑一遍全部探测，返回报告。**不修改任何东西。**
+
+    `include_services=False` = **不进首次引导**的那种报告：
+    跳过 ComfyUI / Ollama（用户 2026-10-06 要求"首次配置不提及它们"），
+    但**其余探测照跑**。设置窗口用默认的 `True`（它需要看到这两项）。
+    """
     root = base or BASE
     r = FirstRunReport()
 
@@ -263,7 +280,12 @@ def detect(base: Path | None = None) -> FirstRunReport:
         + (" 等" if len(_miss) > 3 else ""), "env"))
 
     # ── 4. 可选能力（想用才问）──
-    for _k, _label, _probe, _hint in _OPTIONAL_SPECS:
+    for _k, _label, _probe, _hint, _in_wizard in _OPTIONAL_SPECS:
+        # ★★ 1.9.4 真机修复（用户 2026-10-06）：
+        #   "首次配置，**不提及 comfyUI 和 Ollama**" —— 它们仍然被探测（报告里留着，
+        #   设置窗口要用），但**不进引导的那张勾选表**。
+        if not include_services and not _in_wizard:
+            continue
         try:
             _has = bool(_probe())
         except Exception:

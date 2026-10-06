@@ -1,4 +1,4 @@
-"""
+﻿"""
 应用启动器 — ★ 1.9.2（用户要求，任务 7）
 
 ## 解决什么问题
@@ -482,6 +482,12 @@ def launch(name_or_path: str, args: list = None) -> tuple:
         cmd = [exe] + [str(a) for a in (args or [])]
         kwargs = {}
         if os.name == "nt":
+            # ★ 这里**故意**区分两种情形，别乱加 CREATE_NO_WINDOW：
+            #   · 带参数 = 我们在做探针/静默调用 → **隐藏**窗口
+            #   · 不带参数 = **真的替用户启动这个应用** → 窗口必须**看得见**
+            #     （1.9.4 我一度在调用处又补了个 **_nw()，把用户的 App 窗口
+            #      也藏了，且与这里的 creationflags 冲突报
+            #      "got multiple values for keyword argument"——已撤销。）
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0) \
                 if args else 0
         proc = subprocess.Popen(cmd, **kwargs)
