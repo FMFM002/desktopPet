@@ -48,7 +48,7 @@
     "enabled": true,
     "mode": "auto",
     "character": "feibi",
-    "provider": "genie",
+    "provider": "edge",
     "genie_data_dir": "",
     "genie_character_dir": "",
     "genie_idle_release_minutes": 15,

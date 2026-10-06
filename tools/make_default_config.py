@@ -56,6 +56,18 @@ FORCED = {
     "ui.user_avatar_path": (_USER_AVATAR_PRESET
                             if (ROOT / _USER_AVATAR_PRESET).exists() else ""),
     "ui.pet_position": [100, 100],
+    # ★★ 1.9.4 真机修复（用户 2026-10-06 拍板 **B**）：
+    #   "设置界面的预设就直接改成**线上合成**，用户想改其他模型，会自动检测然后
+    #    告诉用户能不能用。"
+    #   背景：出厂配置原来写 `provider=genie, character=feibi`，
+    #   而那套 GENIE 模型**1855MB 根本不随包**（发布包故意不带模型）——
+    #   于是设置界面显示 "genie/feibi"，实际日志却在跑：
+    #       [TTS] WARNING: GENIE 模型目录不存在
+    #       [TTS] INFO:    GENIE 未就绪，本句改走 edge-tts
+    #   这就是用户说的"**设置里面写的不一样**"，也是他说的"**虚空预设**"。
+    #   ⇒ 出厂预设改成**线上合成**（edge-tts）—— 那是**不依赖任何随包模型**、
+    #     开箱即用的那一个。用户想换成 GENIE，去设置里改了会自动检测并告诉他能不能用。
+    "tts.provider": "edge",
 }
 
 
