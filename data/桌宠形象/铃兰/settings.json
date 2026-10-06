@@ -1,8 +1,8 @@
 {
   "schema": 2,
   "name": "铃兰",
-  "avatar": "铃兰头像.jpg",
-  "icon": "图标.ico",
+  "avatar": "头像.jpg",
+  "icon": "ico.ico",
   "scale": 1.03,
   "model": {
     "temperature": 0.7,

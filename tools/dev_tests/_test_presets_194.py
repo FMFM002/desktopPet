@@ -131,6 +131,43 @@ check("★`provider=edge` → 一定合格（它不依赖任何随包模型）",
 check("★当前出厂配置在这条判据下**合格**",
       _engine_ok(_prov, _genie_shipped))
 
+print("\n== ⑧ ★★ 角色 settings.json 里的'名字型预设'："
+      "头像 / 图标 / 启动 GIF / 待机 GIF 名字都必须能落到真文件 ==")
+# 用户 2026-10-06："扩，做到全部自然最好。" —— 这就是"全部"的另一半：
+# 出厂配置之外，每个角色的 settings.json 里还有一堆**用名字指路**的预设。
+_chars = sorted(p for p in (ROOT / "data" / "桌宠形象").iterdir() if p.is_dir())
+check("★有角色目录可审", bool(_chars), f"{len(_chars)} 个")
+_bad_entries = []
+for _c in _chars:
+    _sp = _c / "settings.json"
+    if not _sp.is_file():
+        _bad_entries.append(f"{_c.name}: 没有 settings.json")
+        continue
+    _d = json.loads(_sp.read_text(encoding="utf-8-sig"))
+    # ① avatar / icon：setting 里写的是**文件名**，必须真的在角色目录里
+    for _fld in ("avatar", "icon"):
+        _v = (_d.get(_fld) or "").strip()
+        if _v and not (_c / _v).exists():
+            _bad_entries.append(f"{_c.name}.{_fld} = {_v!r}（文件不存在）")
+    # ② gif.startup / gif.idle：写的是**不带扩展名的名字**，要能落到 GIF/<名>.gif
+    _gif = _d.get("gif") or {}
+    _names = []
+    if (_gif.get("startup") or "").strip():
+        _names.append(("gif.startup", _gif["startup"].strip()))
+    for _n in (_gif.get("idle") or []):
+        _names.append(("gif.idle", str(_n).strip()))
+    for _where, _n in _names:
+        _cand = _c / "GIF" / f"{_n}.gif"
+        if not _cand.exists():
+            _bad_entries.append(f"{_c.name}.{_where} = {_n!r}（GIF 不存在）")
+
+check("★★每个角色的 头像/图标/启动GIF/待机GIF **名字都能落到真文件**"
+      "（虚空的会列在下面）",
+      not _bad_entries,
+      ("；".join(_bad_entries[:6]) + (" …" if len(_bad_entries) > 6 else "")))
+for _b in _bad_entries:
+    print(f"      ❌ {_b}")
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
