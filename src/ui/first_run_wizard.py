@@ -23,10 +23,13 @@
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import sys
+import threading
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from src.core import first_run as fr
@@ -53,6 +56,11 @@ class FirstRunWizard(QDialog):
             ...   # 它自己已经写完配置了
     """
 
+    # ★★ 1.9.4：下载跑在**后台线程**里，所以要靠信号把日志送回 GUI 线程
+    #   （Qt 规矩：控件只能在 GUI 线程碰；跨线程直接 appendPlainText 会崩或乱序）。
+    _sig_line = Signal(str)      # 下载日志的单行
+    _sig_done = Signal(str)      # 某个模型下载结束（key）
+
     def __init__(self, parent=None, base=None):
         super().__init__(parent)
         self.setWindowTitle("铃兰桌宠 · 首次配置")
@@ -62,8 +70,17 @@ class FirstRunWizard(QDialog):
         self._report = fr.detect(base=base)
         self._step = 0
         self._checks: dict[str, QCheckBox] = {}
+        self._model_rows: dict[str, dict] = {}
         self._build()
+        # 下载线程 → GUI：日志逐行进框、结束后恢复按钮
+        self._sig_line.connect(self._dl_log.appendPlainText)
+        self._sig_done.connect(self._on_download_done)
         self._goto(0)
+
+    def _on_download_done(self, key: str):
+        row = self._model_rows.get(key)
+        if row:
+            row["btn_dl"].setEnabled(True)
 
     # ══════════════════ 界面 ══════════════════
     def _build(self):
@@ -227,8 +244,115 @@ class FirstRunWizard(QDialog):
                 h.setWordWrap(True)
                 olay.addWidget(h)
         lay.addWidget(self._opt_host)
+
+        # ══════════════════════════════════════════════════════════
+        # ★★ 1.9.4 真机追加（用户 2026-10-06 要求）：
+        #   "下载之前希望先询问用户有没有所需文件，要求填写路径，
+        #    **扫描路径（深度为1）**，确认是正确的模型就把路径写到配置里面。"
+        #   "下载 log 希望显示在引导里面，让用户看见正在下载模型。"
+        #   ⇒ 每个"缺失的模型"给三样：① 路径输入（我本地已有 → 扫描并写入配置）
+        #        ② 下载按钮（真下）③ 日志框（看得见在动，而不是干等）
+        # ══════════════════════════════════════════════════════════
+        lay.addWidget(QLabel(""))
+        _mt = QLabel("<b>模型文件</b>（大文件，不随包）—— "
+                     "本地已有一份的话，<b>填路径让我扫描，别重复下载</b>")
+        _mt.setObjectName("sub")
+        _mt.setWordWrap(True)
+        lay.addWidget(_mt)
+
+        self._model_rows = {}
+        for _f in self._report.findings:
+            if _f.group != "models":
+                continue
+            _row = QWidget()
+            _rl = QVBoxLayout(_row)
+            _rl.setContentsMargins(0, 2, 0, 6)
+            _st = "✅ 已就位" if _f.ok else "❌ 缺失"
+            _lab = QLabel(f"{_st} &nbsp;<b>{_f.label}</b> &nbsp;"
+                          f"<span style='color:#6b7280'>{_f.detail}</span>")
+            _lab.setTextFormat(Qt.RichText)
+            _rl.addWidget(_lab)
+
+            _h = QHBoxLayout()
+            _edit = QLineEdit()
+            _edit.setPlaceholderText("本地已有的话，把路径粘这里（指它的上一级也行）")
+            _h.addWidget(_edit, 1)
+            _btn_scan = QPushButton("扫描并写入")
+            _btn_dl = QPushButton("下载")
+            _h.addWidget(_btn_scan)
+            _h.addWidget(_btn_dl)
+            _rl.addLayout(_h)
+
+            _res = QLabel("")
+            _res.setObjectName("hint")
+            _res.setWordWrap(True)
+            _rl.addWidget(_res)
+            lay.addWidget(self._card(_row))
+
+            self._model_rows[_f.key] = {"edit": _edit, "res": _res,
+                                        "btn_dl": _btn_dl, "key": _f.key}
+            _btn_scan.clicked.connect(lambda _c=False, k=_f.key: self._on_scan(k))
+            _btn_dl.clicked.connect(lambda _c=False, k=_f.key: self._on_download(k))
+
+        self._dl_log = QPlainTextEdit()
+        self._dl_log.setReadOnly(True)
+        self._dl_log.setMaximumHeight(110)
+        self._dl_log.setPlaceholderText("（下载时的输出会显示在这里）")
+        lay.addWidget(self._dl_log)
+
         lay.addStretch(1)
         return w
+
+    # ── 模型：扫路径 / 下载（★ 1.9.4 追加）──
+    def _on_scan(self, key: str):
+        """用户说"我本地已经有了" → 扫他给的路径（**深度 1**）→ 校验 → 写配置。"""
+        from src.core import models as _M
+        row = self._model_rows.get(key)
+        if not row:
+            return
+        p = row["edit"].text().strip()
+        if not p:
+            row["res"].setStyleSheet("color:#b91c1c")
+            row["res"].setText("请先填写路径")
+            return
+        ok, found, why = _M.probe_dir(key, p, depth=1)
+        if not ok:
+            row["res"].setStyleSheet("color:#b91c1c")
+            row["res"].setText(why)
+            return
+        ok2, msg = _M.bind_path(key, found)
+        row["res"].setStyleSheet("color:#15803d" if ok2 else "#b91c1c")
+        row["res"].setText(why + ("\n" + msg if ok2 else f"\n{msg}"))
+
+    def _on_download(self, key: str):
+        """★ 在**向导里**下载，输出**实时**写进日志框（用户要求"看得见在下载"）。"""
+        row = self._model_rows.get(key)
+        if not row:
+            return
+        row["btn_dl"].setEnabled(False)
+        self._dl_log.appendPlainText(f"── 开始获取 {key} ──")
+
+        def _work():
+            import subprocess
+            from pathlib import Path as _P
+            _root = _P(__file__).resolve().parents[2]
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, str(_root / "tools" / "model_manager.py"),
+                     "install", "--key", key, "--yes"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    encoding="utf-8", errors="replace", cwd=str(_root))
+                for line in proc.stdout:            # 逐行 → 日志框
+                    self._sig_line.emit(line.rstrip())
+                proc.wait()
+                self._sig_line.emit(f"── {key} 结束（返回码 {proc.returncode}）──")
+            except Exception as e:
+                self._sig_line.emit(f"[错误] {type(e).__name__}: {e}")
+            finally:
+                self._sig_done.emit(key)
+
+        # ★ 真的把线程启动起来（我第一版写了 _work 却忘了 start —— 那样按钮点了没反应）
+        threading.Thread(target=_work, daemon=True).start()
 
     # ── 第 4 步：完成 ──
     def _page_done(self) -> QWidget:

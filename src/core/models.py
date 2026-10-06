@@ -160,3 +160,140 @@ def ensure_models_root() -> Path:
     """把统一根目录建起来（先有地方放，才好往里搬）。"""
     MODELS_ROOT.mkdir(parents=True, exist_ok=True)
     return MODELS_ROOT
+
+
+# ══════════════════════════════════════════════════════════════
+# ★★ 1.9.4：**"我本地已经有这些文件了"** —— 扫他给的目录、校验、写进配置
+#
+#   用户要求（原话）："下载之前希望先询问用户有没有所需文件，**要求填写路径**，
+#   **扫描路径（深度为1）**，确认是正确的模型就把**路径写到配置里面**。"
+#   目的很实际：GENIE 那套 1855MB，谁本地已经有一份就不该再下一次。
+# ══════════════════════════════════════════════════════════════
+# 每个模型"长什么样"的判据（在**单个目录**层面判断，见 _looks_like）
+_SHAPE_DOC = {
+    "genie": "含 GenieData/ 或 CharacterModels/ 子目录（GENIE 的模型布局）",
+    "whisper": "含 ggml-*.bin 或 whisper-cli.exe",
+    "easyocr": "含 *.pth 模型文件",
+}
+
+
+def _looks_like(key: str, d: Path) -> bool:
+    """这个目录**本身**像不像某个模型的根（不往下递归）。"""
+    try:
+        if not d.is_dir():
+            return False
+        if key == "genie":
+            return (d / "GenieData").is_dir() or (d / "CharacterModels").is_dir()
+        if key == "whisper":
+            return (bool(list(d.glob("ggml-*.bin")))
+                    or (d / "whisper-cli.exe").is_file()
+                    or (d / "whisper-cli").is_file())
+        if key == "easyocr":
+            return bool(list(d.glob("*.pth")))
+    except Exception:
+        pass
+    return False
+
+
+def probe_dir(key: str, path: str, depth: int = 1) -> tuple:
+    """★ 扫用户给的目录，确认是不是我们要的模型。
+
+    `depth=1` = **看目录本身 + 它的一级子目录**（用户要求"深度为1"）——
+    因为用户习惯不同：有人直接指模型根目录，有人指它的上一级
+    （例如指 `assets` 而模型其实在 `assets/genie`）。
+
+    返回 `(是否可用, 可用路径 或 None, 给人看的说明)`。
+    """
+    spec = MODELS.get(key)
+    if spec is None:
+        return False, None, f"未知模型: {key}"
+    try:
+        root = Path(path).expanduser()
+    except Exception:
+        return False, None, "路径无法解析"
+    if not root.exists():
+        return False, None, f"路径不存在: {root}"
+    if not root.is_dir():
+        return False, None, f"不是一个目录: {root}"
+
+    tried = [root]
+    if depth >= 1:
+        try:
+            tried += [c for c in sorted(root.iterdir()) if c.is_dir()]
+        except Exception:
+            pass
+    for cand in tried:
+        if _looks_like(key, cand):
+            where = "（就是它）" if cand == root else f"（在它的子目录 {cand.name}）"
+            return True, cand, f"✅ 找到了 {spec.label} 的模型文件{where}"
+    return False, None, (f"❌ 在 {root} 及其一级子目录里没找到 {spec.label} 的特征：\n"
+                         f"     {_SHAPE_DOC.get(key, '（未定义判据）')}")
+
+
+def bind_path(key: str, found) -> tuple:
+    """把**已经找到的模型路径写进配置**（用现成的配置槽，**不新增键**）。
+
+    返回 `(成功?, 给人看的结果)`。
+      · genie   → `tts.genie_data_dir` / `tts.genie_character_dir`
+      · whisper → `stt.whisper_cli_path` / `stt.whisper_model_path`
+      · easyocr → **没有配置槽**（`ocr_engine._MODEL_DIR` 把目录写死在
+                  `data/models/easyocr`）→ 改为**把它复制过去**（约 100MB），
+                  这样"把路径写进配置"的意图仍然落实了。
+    """
+    spec = MODELS.get(key)
+    if spec is None:
+        return False, f"未知模型: {key}"
+    found = Path(found)
+    try:
+        from src.utils.config import get_config
+        cfg = get_config()
+    except Exception as e:
+        return False, f"读不到配置: {e}"
+
+    try:
+        if key == "genie":
+            gd, cm = found / "GenieData", found / "CharacterModels"
+            done = []
+            if gd.is_dir():
+                cfg.tts.genie_data_dir = str(gd)
+                done.append(f"genie_data_dir = {gd}")
+            if cm.is_dir():
+                cfg.tts.genie_character_dir = str(cm)
+                done.append(f"genie_character_dir = {cm}")
+            if not done:
+                return False, "这个目录里既没有 GenieData 也没有 CharacterModels"
+            cfg.save()
+            return True, "已写入配置：\n     " + "\n     ".join(done)
+
+        if key == "whisper":
+            done = []
+            cli = next((p for p in (found / "whisper-cli.exe", found / "whisper-cli")
+                        if p.is_file()), None)
+            bins = sorted(found.glob("ggml-*.bin"))
+            if cli:
+                cfg.stt.whisper_cli_path = str(cli)
+                done.append(f"whisper_cli_path = {cli.name}")
+            if bins:
+                cfg.stt.whisper_model_path = str(bins[0])
+                done.append(f"whisper_model_path = {bins[0].name}")
+            if not done:
+                return False, "这个目录里没有 whisper-cli / ggml-*.bin"
+            cfg.save()
+            return True, "已写入配置：\n     " + "\n     ".join(done)
+
+        if key == "easyocr":
+            import shutil
+            dst = ensure_models_root() / "easyocr"
+            dst.mkdir(parents=True, exist_ok=True)
+            n = 0
+            for p in found.glob("*.pth"):
+                shutil.copy2(p, dst / p.name)
+                n += 1
+            if not n:
+                return False, "没找到 *.pth"
+            return True, (f"已把 {n} 个模型文件复制到 {dst}"
+                          f"（easyocr 的目录是写死的，没有配置项）")
+
+    except Exception as e:
+        return False, f"写入失败: {type(e).__name__}: {e}"
+    return False, "未处理的模型"
