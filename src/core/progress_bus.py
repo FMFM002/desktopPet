@@ -97,8 +97,12 @@ def report(text: str, kind: str = "progress") -> bool:
                   f"按「一轮只放一条」的规矩**拒绝**这条: {text[:40]}")
         try:
             from src.utils import transcript as _T0
-            _T0.progress(text, delivered=False)
-            _T0.note("临时汇报/被限流", f"本轮第 {_count_this_turn + 1} 条被拒")
+            # ★ 1.9.4 修：原来这里也调 `_T0.progress(text, delivered=False)`，
+            #   而那个函数把 `False` 一律渲染成「**排队**」—— 于是**被拒的**在
+            #   transcript 里也写着"排队"，把排查的人（我）**误导**成"没有 sink、
+            #   全攒起来了一次性倒出"。实际 prts 日志证明限流是生效的。
+            #   ⇒ 拒绝用**专属标签**，别再和"排队"混。
+            _T0.note("临时汇报/被拒(一轮一条)", text)
         except Exception:
             pass
         return False
@@ -117,15 +121,26 @@ def report(text: str, kind: str = "progress") -> bool:
                 pass
             return True
         except Exception as e:
-            _log.warning(f"[临时汇报] 投递失败，改为排队: {e}")
-    _queue.append(text)
-    _log.info(f"[临时汇报] 已排队（{kind}）: {text[:60]}")
+            _log.warning(f"[临时汇报] 投递失败（不再排队，直接丢弃）: {e}")
+    # ★★★ 1.9.4 真机修复（用户 2026-10-06）—— **"语言混乱"的真凶**：
+    #   真机 transcript 里同一轮出现了 **6 组**这样的配对：
+    #       [T6] [临时汇报/排队] 正在翻素材，准备排个好看的PDF。
+    #       [T6] [临时汇报/被限流] 本轮第 2 条被拒
+    #   `排队` = **当时没有 sink（没人接收）** → 它们**全攒在 `_queue` 里**，
+    #   等有 sink 时**一次性倒出来** → 聊天窗口被一串过期废话刷屏。
+    #   ⇒ **临时汇报的意义就是「立刻让用户看到」**；攒起来以后一起倒
+    #     **完全违背初衷**，而且完全是噪音。
+    #   ⇒ 改为：**没有 sink 就丢弃**（并在全量记录里留一笔，便于日后核对）。
+    #     原来那句"没有 sink 才排队（不会丢）"是好意，但实测证明**有害**。
+    _log.info(f"[临时汇报] 当前没有接收方 → **丢弃**（不排队，避免攒批刷屏）: "
+              f"{text[:40]}")
     try:
         from src.utils import transcript as _T2
         _T2.progress(text, delivered=False)
+        _T2.note("临时汇报/丢弃", "当时没有 sink（接收方），按新规矩不再排队")
     except Exception:
         pass
-    return True
+    return False
 
 
 
