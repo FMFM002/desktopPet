@@ -855,14 +855,6 @@ class ChatWidget(QWidget):
         else:
             self._input_field.setPlaceholderText("输入消息...")
 
-    def set_input_blocked(self, blocked: bool):
-        """阻止/允许输入（上下文窗口满时）"""
-        self._input_field.setEnabled(not blocked)
-        if blocked:
-            self._input_field.setPlaceholderText("上下文窗口已满，正在总结旧话题...")
-        else:
-            self._input_field.setPlaceholderText("输入消息...")
-
     # ══════════════════════════════════════════
     # 焦点管理
     # ══════════════════════════════════════════
@@ -1876,6 +1868,22 @@ class ChatWidget(QWidget):
 
     def append_streaming_text(self, text: str):
         """流式文本（桌宠风格，无底色）"""
+        # ★★★ 1.9.4 真机修复（用户报告："聊天时，**终止对话/终止工具都失效，
+        #   都是灰色，无法交互，概率性触发**"）：
+        #   原来这两个按钮只在**"用户输入"的 4 条路径**里被放开
+        #   （`_on_send` / 上传图片 / 上传文本 / 上传其它文件），
+        #   而"关"在 `on_stream_done()`。
+        #   ⇒ 凡是**没走那 4 条路径**就发起的对话（待机主动说话、指令直传、
+        #     共享工作台、图片识别请求…）**按钮从初始化起就一直灰着** ——
+        #     这就是用户说的"概率性"：其实是**按发起方式必然发生**。
+        #   ⇒ 改到**"只要开始出字"**这一个单点来放开：它与"谁发起的"无关，
+        #     任何一轮只要桌宠开始说话，用户就该能中止它。
+        #   （"关"仍留在 `on_stream_done()` —— 那一轮真的结束了。）
+        try:
+            self._abort_chat_btn.setEnabled(True)
+            self._abort_tool_btn.setEnabled(True)
+        except Exception:
+            pass
         self._stream_buffer += text
         if self._last_role != "assistant":
             self._last_role = "assistant"

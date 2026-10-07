@@ -127,8 +127,10 @@ try:
     _r3 = P.report("新一轮第一条")
     check("★★**新一轮能重新发**（限流是按轮算的，不是全局只许一条）",
           _r3 is True and _sent[-1] == "新一轮第一条")
-    check("★★第二轮起会记一笔「被限流」到全量记录（方便日后核对）",
-          "被限流" in _p.read_text(encoding="utf-8"))
+    check("★★第二轮起会记一笔「被拒(一轮一条)」到全量记录（方便日后核对）"
+          "—— ★ 标签必须**专属**：原来复用 `progress(delivered=False)`，"
+          "而它渲染成「排队」，跟「丢弃」混在一起，**把排查的我误导过一次**",
+          "临时汇报/被拒(一轮一条)" in _p.read_text(encoding="utf-8"))
 finally:
     P._sink = _orig_sink
     P.reset_turn()
