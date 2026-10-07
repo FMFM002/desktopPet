@@ -394,6 +394,9 @@ class ChatSession:
         self._streaming = False
         self._abort_chat = False
         self._abort_tool = False
+        # ★★ 1.9.4：临时汇报的缓冲（落库是即时的；进上下文要攒到轮次边界，
+        #   见 `note_progress` / `_flush_progress_to_context`）
+        self._progress_buf: list = []
         self._input_blocked = False  # ★ Token 超限时阻止输入
         self._crawler_attempts = 0   # ★ 1.4.0+: 爬虫拦截计数
         self._consecutive_searches = 0  # ★ 1.4.0+: 连续搜索计数
@@ -1018,6 +1021,58 @@ class ChatSession:
         thread = threading.Thread(target=self._run_loop, daemon=True)
         thread.start()
 
+    def note_progress(self, text: str):
+        """★★ 1.9.4（用户 2026-10-06 要求）：临时汇报要**持久化 + 加入上下文**。
+
+        用户原话："**需要持久化并且加入上下文。**"
+        （背景：临时汇报原来只往聊天窗口弹一个**临时气泡** —— 重启就没了，
+          模型自己也不知道它刚才"对用户说过什么"。）
+
+        做两件事：
+          ① **落库**（`chat_records`）—— 重启后那条汇报还在聊天记录里；
+          ② **缓冲** —— 不当场塞进 `self.messages`，而是**攒着**，
+             等**下一轮开始前**再统一追加（见 `_flush_progress_to_context`）。
+
+        ★ 为什么必须"攒着、下一轮再放"（这是协议约束，不是偷懒）：
+          `progress_report` 是**在工具执行过程中**被调用的。那一刻
+          `self.messages` 末尾是**带 `tool_calls` 的 assistant 消息**，
+          而对应的 `tool` 结果还没追加 —— 此时插一条 assistant 消息进去，
+          会**打断 `tool_calls` → `tool` 的配对**，API 直接报 400。
+          ⇒ 所以攒到"这一轮的工具结果都追加完之后"再放。
+        """
+        text = (text or "").strip()
+        if not text:
+            return
+        try:
+            self.db.add_chat_history("assistant", text,
+                                     topic_id=self._topic_id,
+                                     speaker=self._character)
+        except Exception as e:
+            _log.debug(f"临时汇报落库失败（不影响对话）: {e}")
+        try:
+            self._progress_buf.append(text)
+        except Exception:
+            pass
+
+    def _flush_progress_to_context(self):
+        """把攒下的临时汇报**作为 assistant 消息**补进上下文（下一轮开始前调用）。
+
+        ★ 加个 `[我给用户的临时汇报]` 前缀：让模型**知道那是自己报过的**，
+          而不是用户说的话；否则它会把汇报当成用户的输入来回应。
+        """
+        try:
+            if not getattr(self, "_progress_buf", None):
+                return
+            with self._lock:
+                for _t in self._progress_buf:
+                    self.messages.append({
+                        "role": "assistant",
+                        "content": f"[我给用户的临时汇报] {_t}"})
+            _log.debug(f"临时汇报已进上下文: {len(self._progress_buf)} 条")
+            self._progress_buf = []
+        except Exception as e:
+            _log.debug(f"临时汇报进上下文失败: {e}")
+
     def abort_chat(self):
         _log.info("中止对话")
         self._abort_chat = True
@@ -1375,6 +1430,10 @@ class ChatSession:
         while round_count < self.MAX_ROUNDS and not self._abort_chat:
             round_count += 1
             _log.debug(f"第 {round_count} 轮对话")
+            # ★★ 1.9.4（用户要求：临时汇报"加入上下文"）：
+            #   放在**每一轮的开头** —— 这时上一轮的 `tool_calls → tool` 已经配对完整，
+            #   追加 assistant 消息**不会打断协议**（详见 `note_progress` 的说明）。
+            self._flush_progress_to_context()
             # ★★ 1.9.3 第 11 轮（用户要求：全局预算感知）：
             #   走到 75% 就先提醒模型"该收尾了" —— 让它自己规划，而不是闷头跑到撞墙。
             if round_count == max(1, int(self.MAX_ROUNDS * 0.75)):

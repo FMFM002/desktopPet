@@ -606,7 +606,22 @@ class MainWindow:
             #   这里复用 ChatWidget 已有的线程安全信号 `bot_text_in`
             #   —— 它的槽就是 `_append_message("assistant", t)`，正好是我们要的效果，
             #   而且 emit 跨线程会把槽排到 GUI 线程执行。
-            _pb.set_sink(lambda t: self.chat.bot_text_in.emit(t))
+            # ★★ 1.9.4（用户要求："临时汇报**需要持久化并且加入上下文**"）：
+            #   原来这里**只往聊天窗口弹一个临时气泡** —— 重启就没了，
+            #   模型自己也不知道它刚才"对用户说过什么"。
+            #   ⇒ 除了显示，还要走 `session.note_progress()`：
+            #       ① **落库**（重启后那条汇报还在聊天记录里）
+            #       ② **攒进上下文**（下一轮开始前作为 assistant 消息补进去，
+            #          让模型知道自己报过 —— 但不当场插，避免打断
+            #          `tool_calls → tool` 的配对协议）
+            def _on_progress(_t, _self=self):
+                _self.chat.bot_text_in.emit(_t)          # 线程安全：信号回 GUI 线程
+                try:
+                    _self.session.note_progress(_t)
+                except Exception as _e2:
+                    _log.debug(f"[临时汇报] 落库/入上下文失败: {_e2}")
+
+            _pb.set_sink(_on_progress)
         except Exception as _e:
             _log.debug(f"[临时汇报] 通道注册失败: {_e}")
         # ★ 1.9.3 第 59 轮（子代理）：子代理在 **worker 线程**里说话/跑完 →
