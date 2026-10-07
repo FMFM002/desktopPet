@@ -382,7 +382,13 @@ def ensure_runtime_dirs(base: Path | None = None) -> list[str]:
     root = base or BASE
     made = []
     for d in ("data/桌宠形象", "data/桌宠私有data", "data/cache",
-              "data/DBs", "data/downloads", "logs"):
+              "data/DBs", "data/downloads", "logs",
+              # ★★ 1.9.4（子代理查出的缺口，2026-10-06 补）：
+              #   **B站的 cookie 存在文件里**（`tools/bilibili_tool.py`），
+              #   不是 `.env` 键 —— 可这个目录**原来不会被创建**，
+              #   用户按说明书去放 cookie 时会发现"没这个目录"。
+              #   ⇒ 首次运行就把它建好，用户只管往里放文件。
+              "data/cookies"):
         p = root / d
         if not p.exists():
             try:
