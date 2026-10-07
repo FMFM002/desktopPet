@@ -172,15 +172,59 @@ def cmd_install(keys: list, yes: bool) -> int:
                 print("         可试: 设 HF_ENDPOINT=https://hf-mirror.com 再跑一次")
                 rc = 1
         elif k == "easyocr":
-            # easyocr 首次用时会自己下到我们指定的目录（ocr_engine 固定了路径）
-            (ensure_models_root() / "easyocr").mkdir(parents=True, exist_ok=True)
-            print("      ✅ 已建目录 —— easyocr 首次使用时会自动下到这里")
+            # ★★★ 1.9.4 真机修复（用户贴的 log 是铁证）：
+            #   原来这里**只 mkdir** 就打印"✅ 已建目录 —— easyocr 首次使用时会
+            #   自动下到这里"，然后 `rc = 0`（报成功）。用户看到的是：
+            #       ── 开始获取 easyocr ──
+            #           ✅ 已建目录 —— easyocr 首次使用时会自动下到这里
+            #       ── easyocr 结束（返回码 0）──
+            #   **什么都没下**，却告诉他成功了。用户的原话就是"首次使用OCR
+            #   也没有触发下载好像"。
+            #   ⇒ 改成**真的去下**：调用 `easyocr.Reader(...)` 并把模型目录指向
+            #     我们固定的 `data/models/easyocr`（那正是 `ocr_engine` 读的位置）。
+            #   ⇒ 下不了（没装 easyocr 包）就**如实说**，并给出装法，**不再是"成功"**。
+            dst = ensure_models_root() / "easyocr"
+            dst.mkdir(parents=True, exist_ok=True)
+            try:
+                import easyocr
+                print(f"      正在下载 easyocr 模型（约 100MB）→ {dst} …")
+                print("      （第一次会下；已存在的话它会直接用，不会重复下）")
+                # ★ 只为了触发下载：构造一次 Reader 即可。
+                #   gpu=False —— 下载与显卡无关，别在这里碰 CUDA。
+                easyocr.Reader(["ch_sim", "en"], model_storage_directory=str(dst),
+                               download_enabled=True, gpu=False, verbose=False)
+                _n = len(list(dst.glob("*.pth")))
+                print(f"      ✅ 完成：{dst}（{_n} 个模型文件）")
+                if _n == 0:
+                    print("      ⚠ 但目录里没看到 .pth 文件 —— 可能被下到了别处，"
+                          "请把文件放进上面那个目录")
+                    rc = 1
+            except ImportError:
+                print("      ❌ 下不了：这个包（easyocr）没装，所以没法自动下载。")
+                print("         装它：pip install easyocr")
+                print("         或者：把你已有的 *.pth 放进 "
+                      f"{dst}（引导里也可以填路径让我扫描）")
+                rc = 1
+            except Exception as e:
+                print(f"      ❌ 下载失败: {type(e).__name__}: {e}")
+                print("         或者：把你已有的 *.pth 放进 "
+                      f"{dst}（引导里也可以填路径让我扫描）")
+                rc = 1
         else:
-            print(f"      ⚠ 没有可靠的自动源，需要手动放：{spec.rel}")
+            # ★★★ 1.9.4：**不许再把"没做任何事"报成成功**。
+            #   原来这里是 `rc = 0`（"不当作错误"）—— 于是用户看到"返回码 0"，
+            #   以为装好了。可它**一个字节都没下**。
+            #   ⇒ 改成 rc=2（**既不是成功也不是崩溃**：是"需要人工"），
+            #     并把话说清楚：我们下不了，请你自己放，或者把路径填给我扫描。
+            print(f"      ⚠ **这个我下不了**（没有可靠的自动源）：{spec.rel}")
             if spec.key == "whisper":
-                print("         （whisper-cli.exe + ggml-small.bin；文件较大，"
-                      "从 whisper.cpp 的 release 取）")
-            rc = 0        # 不当作错误：这是"需要人工"，不是失败
+                print("         需要两个东西（从 whisper.cpp 的 release 取）：")
+                print("             · whisper-cli.exe")
+                print("             · ggml-*.bin（例如 ggml-small.bin，约 465MB）")
+            print("         放好之后有两条路：")
+            print("             ① 在**首次配置引导**里把路径填进去，我会扫描并写配置；")
+            print(f"             ② 或直接放到 {spec.rel}")
+            rc = 2        # ★ 2 = "需要人工"，区别于 0（成功）与 1（失败）
     return rc
 
 
