@@ -67,6 +67,13 @@ OPTIONAL_OK = {
     "pixivpy3": "已内置：tools/_vendor/pixivpy3 自带副本，无需 pip 装",
     "comtypes": "可选：Windows COM 辅助",
     "pywin32": "已声明；但 win32com/pythoncom 都是它的一部分",
+    # ★ 1.9.4：B站/P站「一键开通」（设置 → 账号开通）专用的两个包。
+    #   只有用户点「一键开通」时才需要；没装时**设置页会直接给出安装命令**，
+    #   不会崩，也不会影响其它功能。
+    "playwright": "可选：一键开通 B站（弹系统 Edge 让用户登录一次；"
+                  "没装时设置页给安装命令，不影响其它功能）",
+    "gppt": "可选：一键开通 P站（OAuth 拿 refresh_token；"
+            "没装时设置页给安装命令，不影响其它功能）",
 }
 
 # 标准库 / 项目内部

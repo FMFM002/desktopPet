@@ -34,9 +34,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import shutil
+import logging
 import sys
 from pathlib import Path
+
+_log = logging.getLogger("AccountLogin")
 
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR = ROOT / "tools" / "_vendor" / "bili_pixiv_toolkit.py"
@@ -98,6 +100,108 @@ def install_hint() -> str:
             f'playwright requests pixivpy3 gppt')
 
 
+def _bili_login_browser(timeout: float = 300.0, on_line=None) -> tuple:
+    """★★ 自己实现 B站登录：**轮询 cookie**，不再用工具包的 `bili_login()`。
+
+    ## 为什么不能直接用工具包的 `bili_login()`（真机踩到的坑）
+      它里面是：
+          print("请在弹出的 Edge 里登录 B站，登录完成后**回终端按回车**...")
+          input()          # ← ★★★
+      那是**给命令行用的**。而桌宠是 GUI 进程，**没有终端 stdin** ——
+      `input()` 永远等不到回车 → 工作线程**永久阻塞** →
+      设置页按钮永远停在"正在登录…"、状态永远"未开通"、也**不落任何日志**
+      （用户 2026-10-18 截图："我确实登陆了，但是刷新状态仍然显示正在登陆"）。
+
+    ## 现在的做法
+      打开 Edge（持久化 profile）→ 每 2 秒读一次 context 的 cookie →
+      **一旦出现 `SESSDATA` 就立刻导出并返回** → 关窗口。
+      整个过程有 `timeout` 上限（默认 5 分钟），**绝不会挂死**。
+
+    ## 顺带处理 412 风控
+      用户截图里 B站 返回了 `错误号 412 / 触发安全风控策略`。
+      加 `--disable-blink-features=AutomationControlled` 去掉最明显的自动化特征
+      （`navigator.webdriver`）；若页面确实是 412，就把这件事**明确报出来**，
+      而不是让他对着一个空白页干等。
+
+    返回 `(cookie dict 或 None, 给人看的话)`。
+    """
+    import time
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None, ("❌ 没装 playwright。\n"
+                      f"     在项目目录里跑：\n     {install_hint()}")
+
+    WORK.mkdir(parents=True, exist_ok=True)
+    _profile = WORK / "edge_bili_profile"
+    _say(on_line, "正在打开浏览器…")
+    try:
+        with sync_playwright() as p:
+            ctx = p.chromium.launch_persistent_context(
+                user_data_dir=str(_profile),
+                channel="msedge",
+                headless=False,
+                viewport={"width": 1280, "height": 900},
+                locale="zh-CN",
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            try:
+                page = ctx.new_page()
+                try:
+                    page.goto("https://www.bilibili.com",
+                              wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:
+                    _log.warning(f"打开 B站首页有问题（继续等登录）: {e}")
+
+                _say(on_line, "请在浏览器窗口里**登录 B站**；登录成功后我会自动完成，"
+                              "不需要你按任何键。")
+                _deadline = time.time() + max(30.0, timeout)
+                _saw_412 = False
+                while time.time() < _deadline:
+                    try:
+                        _cookies = {
+                            c["name"]: c["value"]
+                            for c in ctx.cookies("https://www.bilibili.com")
+                            if "bilibili.com" in c["domain"]
+                        }
+                    except Exception:
+                        _cookies = {}
+                    if _cookies.get("SESSDATA"):
+                        (WORK / "bili_cookies.json").write_text(
+                            json.dumps(_cookies, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+                        try:
+                            ctx.storage_state(path=str(WORK / "bili_state.json"))
+                        except Exception:
+                            pass
+                        _say(on_line, "已检测到登录成功，正在保存凭据…")
+                        return _cookies, "ok"
+                    # 412 检测（只在第一次报，别刷屏）
+                    if not _saw_412:
+                        try:
+                            _txt = page.content()[:4000]
+                            if "412" in _txt and ("风控" in _txt or "security control" in _txt):
+                                _saw_412 = True
+                                _say(on_line, "⚠ B站把这个浏览器判成自动化了（错误 412 风控）。"
+                                              "如果页面白屏，可以在窗口里手动点一下"
+                                              "「刷新」或重新打开 bilibili.com 再登录。")
+                        except Exception:
+                            pass
+                    time.sleep(2.0)
+                return None, ("❌ 等了一会儿还是没检测到登录（{:.0f} 秒）。\n"
+                              "     常见原因：\n"
+                              "       · 还没真的登进去（要点「登录」并完成扫码/密码）；\n"
+                              "       · B站 412 风控把自动化浏览器拦了 —— 在窗口里"
+                              "手动刷新一次 bilibili.com 再登录。").format(timeout)
+            finally:
+                try:
+                    ctx.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        return None, f"❌ 启动浏览器失败: {type(e).__name__}: {e}"
+
+
 def login_bilibili(on_line=None) -> tuple:
     """★ 引导用户**登录一次 B站**，然后把 cookie 搬到 `data/cookies/bilibili.json`。
 
@@ -108,32 +212,24 @@ def login_bilibili(on_line=None) -> tuple:
         return False, ("❌ 还没装依赖：" + "、".join(miss) + "\n"
                        "     在项目目录里跑这条就行：\n     " + install_hint())
     try:
-        mod = _toolkit()
+        _toolkit()          # 只为确认工具包在（顺便把目录准备好）
     except Exception as e:
         return False, f"❌ 加载工具包失败: {type(e).__name__}: {e}"
 
     _say(on_line, "正在打开浏览器，请在窗口里**登录 B站**（只需这一次）。")
-    try:
-        # ★ 它会**阻塞**直到用户登录完/关掉窗口 —— 所以调用方必须放在后台线程里。
-        r = mod.bili_login()
-    except Exception as e:
-        return False, f"❌ 登录流程出错: {type(e).__name__}: {e}"
-
-    src = Path(mod.BILI_COOKIE_FILE)
-    if not src.is_file():
-        return False, ("❌ 没拿到 cookie（可能登录没完成，或窗口被提前关掉）。\n"
-                       "     再点一次，等看到已登录的头像再关窗口。")
-    try:
-        data = json.loads(src.read_text(encoding="utf-8"))
-    except Exception as e:
-        return False, f"❌ cookie 文件读不出来: {type(e).__name__}: {e}"
+    # ★ 用自己实现的轮询版，**不用**工具包的 `bili_login()`（它里面 `input()` 会挂死）
+    cookies, why = _bili_login_browser(on_line=on_line)
+    if not cookies:
+        return False, why
+    data = cookies
     # ★ 和 bilibili_tool 的判据一致：**它只主动检查 SESSDATA**
     if not data.get("SESSDATA"):
         return False, ("❌ cookie 里没有 SESSDATA —— 说明**还没真的登录**。\n"
                        "     请再点一次，登录成功后**先看到自己的头像**再关窗口。")
     try:
         COOKIE_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, COOKIE_DST)
+        COOKIE_DST.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return False, f"❌ 复制 cookie 到项目失败: {type(e).__name__}: {e}"
     _say(on_line, f"✅ B站已开通（cookie 已写入 {COOKIE_DST.relative_to(ROOT)}）")

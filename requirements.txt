@@ -83,3 +83,10 @@ scipy>=1.11.0             # ★1.9.4补: stt_engine 用它做重采样
 # qrcode>=7.4.2           # 终末地工具生成二维码
 # certifi>=2024.0.0       # fetch_aria2 取 CA 证书
 # pixivpy3>=3.7.0         # P站；项目内已内置 tools/_vendor/pixivpy3，通常无需安装
+#
+# ★ 1.9.4：B站 / P站「一键开通」（桌宠右键 → 设置 → 账号开通）
+#   只有点「一键开通」时才需要；不装的话那两个按钮会**明确告诉你缺什么**。
+#   ★ 一定要装进**桌宠自己的 Python**（设置页会直接把命令给你）。
+#   ★ playwright 用的是**系统自带的 Edge**，所以**不需要**跑 `playwright install`。
+# playwright>=1.40.0      # 弹浏览器让用户登录一次（用系统 Edge）
+# gppt>=0.9.0             # P站 OAuth：拿 refresh_token

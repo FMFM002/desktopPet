@@ -118,6 +118,27 @@ print("\n== ★ 诚实声明：真流程必须在真机上验 ==")
 print("  ⚠ 本守卫**只验结构**。真正弹浏览器登录这件事，"
       "沙箱里起不了子进程/管道（WinError 5），**必须真机试**。")
 
+print("\n== I. ★★★ B站登录**不能再用工具包的 bili_login()**（真机挂死过）==")
+# 用户 2026-10-18 真机：登录了但状态一直"正在登录…"、没有 cookie、没有日志。
+# 根因：工具包的 `_run_browser(wait_login=True)` 里是
+#       print("...回终端按回车...") + `input()`
+#   那是给命令行用的；桌宠是 GUI，**没有终端 stdin** → `input()` 永远等不到
+#   → 工作线程永久阻塞。
+scan = _s   # account_login.py 的源码
+check("★★★**没有调用**工具包的 `bili_login()`（它内部 `input()` 会挂死）",
+      ".bili_login(" not in scan)
+check("★★改成自己实现的轮询版 `_bili_login_browser`", "_bili_login_browser" in scan)
+check("★★轮询判据是 **cookie 里出现 SESSDATA**（和 bilibili_tool 的判据一致）",
+      'get("SESSDATA")' in scan)
+check("★★有**硬超时**（`_deadline`）—— 保证按钮一定能恢复，绝不永久卡住",
+      "_deadline" in scan and "timeout" in scan)
+check("★去掉最明显的自动化特征（`AutomationControlled`），减少 412 风控",
+      "AutomationControlled" in scan)
+check("★★会检测并说明 **412 风控**（用户截图里就是 412）",
+      '"412"' in scan or "412 " in scan)
+check("★超时时给的是**可操作**的话（而不是干等）",
+      "没检测到登录" in scan)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
