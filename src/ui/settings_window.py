@@ -425,14 +425,26 @@ class SettingsWindow(QWidget):
         """)
         return box
 
+    @staticmethod
+    def _plain(text: str) -> str:
+        """★ 1.9.4：把 markdown 的 `**粗体**` 去掉。
+
+        设置页里的 `QLabel` **不认 HTML/不认 markdown**（没有 setTextFormat(RichText)），
+        所以 `**弹出的浏览器**` 会**原样显示成一堆星号** ——
+        用户真机截图里就是这样（"这是发布版，不可以这样写"）。
+        ⇒ 统一在显示层剥掉 `**`；`_lbl` / `_hint` 都过一遍。
+        （工具描述、给模型看的文案里保留 `**` 是没问题的 —— 那不走 QLabel。）
+        """
+        return (text or "").replace("**", "")
+
     def _lbl(self, text: str, color: str = "#444") -> QLabel:
-        lbl = QLabel(text)
+        lbl = QLabel(self._plain(text))
         lbl.setStyleSheet(f"color: {color}; font-size: 13px; background: transparent; font-weight: normal;")
         lbl.setWordWrap(True)
         return lbl
 
     def _hint(self, text: str) -> QLabel:
-        lbl = QLabel(text)
+        lbl = QLabel(self._plain(text))
         lbl.setStyleSheet("color: #999; font-size: 11px; background: transparent;")
         lbl.setWordWrap(True)
         return lbl
@@ -1734,7 +1746,7 @@ class SettingsWindow(QWidget):
         def _on_done(ok, msg):
             bridge.done.emit(bool(ok), str(msg))
 
-        bridge.line.connect(lambda t: res_label.setText(t))
+        bridge.line.connect(lambda t: res_label.setText(self._plain(t)))
         bridge.done.connect(
             lambda ok, msg: self._finish_account_login(key, ok, msg,
                                                        btn, res_label))
@@ -1756,7 +1768,7 @@ class SettingsWindow(QWidget):
         btn.setText("一键开通（登录一次）")
         res_label.setStyleSheet(
             "color: #15803d;" if ok else "color: #b91c1c;")
-        res_label.setText(msg.replace("\n", "\n"))
+        res_label.setText(self._plain(msg))
         # 状态标签同步刷新
         self._refresh_account_status()
 

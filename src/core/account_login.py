@@ -249,75 +249,69 @@ def login_bilibili(on_line=None) -> tuple:
                   f"     ★ 如果桌宠已经在运行，**重启一次**它才会读到（工具会缓存 cookie）。")
 
 
-def _existing_gppt_token() -> tuple:
-    """看 gppt 那边**已经有一份令牌没有**。返回 `(token 或 None, 创建时间文字)`。
+def _verify_pixiv_token(token: str) -> tuple:
+    """用**一次** Pixiv API 调用验证令牌到底能不能用。
 
-    ★★ 1.9.4（用户 2026-10-18 发现）：他说"开通 P站几乎一秒完成"，
-       怀疑是"令牌没删干净"。查证：`~/.config/gppt/default.token.json`
-       **创建于 2026-09-16**（早就有）→ 那个"一键开通"其实**只是把这个旧令牌
-       读出来又写了一遍**，**根本没登录**。
+    ★★ 1.9.4（用户 2026-10-18）：他说"不要读项目文件夹以外的文件，
+      别人电脑的情况不一样。**没有就是没有**"。
+      ⇒ 所以**不再去读** `~/.config/gppt/...` 那种开发者本机的文件；
+        改成**用它给的令牌真调一次 API** —— 这才是"这令牌到底能不能用"的
+        唯一可信判据，而且**只依赖我们自己的凭据**。
 
-    gppt 把令牌存在它自己的家目录里，所以只要以前登过一次，这文件就一直在。
-    我们**必须能看见它**，否则就会把"沿用旧令牌"谎报成"刚登录成功"。
+    返回 `(可用?, 说明)`。网络问题与令牌失效要区分开。
     """
     try:
-        p = Path.home() / ".config" / "gppt" / "default.token.json"
-        if not p.is_file():
-            return None, ""
-        d = json.loads(p.read_text(encoding="utf-8"))
-        t = (d.get("refresh_token") or "").strip()
-        if not t:
-            return None, ""
-        import datetime as _dt
-        _ts = _dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-        return t, _ts
-    except Exception:
-        return None, ""
+        from pixivpy3 import AppPixivAPI
+    except ImportError:
+        return None, "没装 pixivpy3，跳过验证"
+    api = AppPixivAPI()
+    try:
+        api.auth(refresh_token=token)
+    except Exception as e:
+        _m = str(e)
+        # 401/403 之类 = 令牌无效；网络类 = 没法判断
+        if any(k in _m for k in ("401", "403", "invalid_grant", "Unauthorized")):
+            return False, f"令牌无效（{_m[:80]}）"
+        return None, f"没能验证（网络/代理问题）：{_m[:80]}"
+    try:
+        api.illust_ranking(mode="day")
+        return True, "令牌可用"
+    except Exception as e:
+        _m = str(e)
+        if any(k in _m for k in ("401", "403", "invalid_grant")):
+            return False, f"令牌无效（{_m[:80]}）"
+        return None, f"令牌已保存，但验证时网络/代理有问题：{_m[:80]}"
 
 
 def login_pixiv(on_line=None, force: bool = False) -> tuple:
     """★ 引导用户**登录一次 P站**，把 `refresh_token` 写进 `.env`。
 
-    ★★ 1.9.4 修（"假登录"）：原实现直接调工具包的 `pixiv_login()`，而它
-       **失败时会静默回退**去读 gppt 已有的令牌文件 → 于是"1 秒完成"、
-       报"已开通"，**实际上一次登录都没做**（用户实测：那个令牌文件是 9 月建的）。
-    ⇒ 现在分两条路走，**每条都说实话**：
-       ① **已经有一份令牌**（gppt 家目录里）→ **明确告诉他"沿用了旧的、没有重新登录"**，
-          并给出"想换账号怎么办"（加 `force` / 删那个文件）；
-       ② **没有令牌** → **真的调 gppt 登录**；失败就报**真实错误**，不再静默回退。
+    ★★ 1.9.4 两条硬要求（用户 2026-10-18）：
+      ① "**不要读项目文件夹以外的文件**，别人电脑的情况不一样。**没有就是没有**"
+         ⇒ 不再去翻 `~/.config/gppt/` 那种本机文件；
+            不去猜"是不是沿用了旧令牌" —— **我们只管自己这一次的结果**。
+      ② **界面文字不能出现绝对路径 / 不能露原始 markdown**
+         ⇒ 本函数返回的文案是**纯文本**，不写任何本机绝对路径。
+            （gppt 自己的令牌存哪，是它的事，我们不提也不读。）
+
+    做法：真的调 gppt 登录 → 拿到令牌 → 写进 `.env` →
+          **用一次 API 调用验证它到底能不能用**（这是唯一可信的判据）。
     """
     miss = [m for m in missing_deps() if m in ("gppt", "pixivpy3")]
     if miss:
         return False, ("❌ 还没装依赖：" + "、".join(miss) + "\n"
                        "     在项目目录里跑这条就行：\n     " + install_hint())
 
-    _old, _when = _existing_gppt_token()
-    if _old and not force:
-        # ★ 老老实实说：**没有登录，只是沿用了已有的**
-        try:
-            _set_env("PIXIV_REFRESH_TOKEN", _old)
-        except Exception as e:
-            return False, f"❌ 写 .env 失败: {type(e).__name__}: {e}"
-        _say(on_line, "发现本机已有一份 P站令牌（沿用它，不重新登录）")
-        return True, (
-            f"✅ 你的电脑上**本来就有**一份 P站令牌（gppt 保存的，"
-            f"最后修改 {_when or '未知'}），**这次没有重新登录**，"
-            f"已经把它沿用并写进了 `.env` 的 PIXIV_REFRESH_TOKEN。\n"
-            f"     ★ 如果它还能用，你什么都不用做；\n"
-            f"     ★ 如果想**换账号**、或者这个令牌已经过期：\n"
-            f"       删掉 `{Path.home() / '.config' / 'gppt' / 'default.token.json'}` "
-            f"再点一次「一键开通」，就会真的弹出浏览器让你登录。")
-
-    # ② 没有旧令牌（或用户要求强制重登）→ 真的登录
-    _say(on_line, "正在打开浏览器，请在窗口里**登录 Pixiv**（只需这一次）。")
+    _say(on_line, "正在打开浏览器，请在窗口里登录 Pixiv（只需这一次）。")
     try:
         from gppt import GetPixivToken
     except ImportError:
         return False, ("❌ 没装 gppt。\n"
                        f"     在项目目录里跑：{install_hint()}")
+
     token = None
     try:
-        # ★ 直接调 gppt，**不经过**工具包那个会静默回退的封装
+        # ★ 直接调 gppt（**不经过**工具包那个会静默回退的封装）
         try:
             _g = GetPixivToken(headless=False)
         except TypeError:                     # 兼容不同 gppt 版本的签名
@@ -338,10 +332,24 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
         _set_env("PIXIV_REFRESH_TOKEN", token)
     except Exception as e:
         return False, f"❌ 写 .env 失败: {type(e).__name__}: {e}"
-    _say(on_line, "✅ P站已开通（refresh_token 已写入 .env）")
-    return True, ("✅ P站已开通！这次是**真的登录了**，"
-                  "refresh_token 已写进 .env（不进版本库）。\n"
-                  "     如果桌宠已经在运行，**重启一次**它才会读到。")
+
+    # ★ 验证：真调一次 API，不靠猜
+    _say(on_line, "令牌已保存，正在验证它能不能用…")
+    ok, why = _verify_pixiv_token(token)
+    if ok is True:
+        _say(on_line, "✅ P站已开通（令牌验证可用）")
+        return True, ("✅ P站已开通：令牌已写进 .env，并且验证可用。\n"
+                      "     如果桌宠正在运行，重启一次它才会读到。")
+    if ok is None:
+        _say(on_line, "令牌已保存，但没能验证（网络/代理）")
+        return True, ("⚠ 令牌已写进 .env，但没能验证它是否可用。\n"
+                      f"     原因：{why}\n"
+                      "     P站国内需要代理；确认代理开着之后，"
+                      "再在设置里点一次「刷新状态」即可。")
+    # ok is False → 令牌无效，不能说"已开通"
+    return False, ("❌ 拿到的令牌验证不通过，所以不算开通成功。\n"
+                   f"     原因：{why}\n"
+                   "     请再点一次「一键开通」，在浏览器里完整登录一遍。")
 
 
 def _say(on_line, text: str):

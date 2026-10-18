@@ -163,23 +163,50 @@ check("★★两条路径（DASH / durl）都做了区分"
       "（用共同子串「普通账号」计数 —— 两处措辞略有不同，别用整句匹配）",
       _s_bi.count("普通账号") >= 2)
 
-print("\n== L. ★★★ P站「1 秒完成」= 沿用了旧令牌，必须说清楚（真机发现）==")
-# 用户 2026-10-18："开通P站几乎一秒完成，看看是token没删干净还是一键登陆了"。
-# 查证：`~/.config/gppt/default.token.json` **创建于 2026-09-16**（早就有），
-#       所以那次"一键开通"只是**把旧令牌读出来又写了一遍**，**根本没登录**。
-# 而原实现却报"✅ P站已开通！"——**跟"假下载"同一类错：没做成的做成**。
-check("★★★能看见 gppt 已有的令牌（`_existing_gppt_token`）",
-      "_existing_gppt_token" in _s)
-check("★★★有令牌时**明确说「没有重新登录」**（不能报成刚登录成功）",
-      "这次没有重新登录" in _s or "没有重新登录" in _s)
-check("★★并告诉用户**怎么强制重登**（删掉那个令牌文件）",
-      "default.token.json" in _s and "再点一次" in _s)
-check("★★支持 `force` 强制重登（设置页/CLI 想换账号时用）",
-      "force: bool = False" in _s or "force=" in _s)
+# ★★★ 1.9.4（用户 2026-10-18 **明确否决**，这段做法整套撤掉）：
+#   这里原本钉的是"读 gppt 家目录里的令牌、识别是不是沿用了旧令牌"那套。
+#   用户原话："**不要读项目文件夹以外的文件**，别人电脑的情况不一样。
+#             **没有就是没有**。"
+#   ⇒ 那套做法连同断言一起删掉（**不留放行名单**）；
+#     改成 `_verify_pixiv_token()`：**用一次 API 调用**验证令牌能不能用。
+#     判据只看"我们自己的凭据能否使用"，不去看别人的机器上有什么。
+check("★★`_existing_gppt_token` 那套已**彻底移除**（用户否决：不读项目外文件）",
+      "_existing_gppt_token" not in _s)
+check("★★★`login_pixiv` 里**不再有**「沿用旧令牌」的分支",
+      "沿用它" not in _s and "本来就有" not in _s)
 check("★★★**不再走**工具包那个会静默回退的 `pixiv_login()`",
       ".pixiv_login(" not in _s)
 check("★★改成直接调 gppt，失败就报**真实错误**（不静默回退）",
       "GetPixivToken" in _s)
+
+print("\n== M. ★★★ 发布版硬要求：不读项目外的文件、界面不露 markdown / 绝对路径 ==")
+# 用户 2026-10-18："这是发布版，不可以这样写。还有，**不要读项目文件夹以外的文件**，
+#                 别人电脑的情况不一样。**没有就是没有**。"
+import re as _re                                          # noqa: E402
+_code = "\n".join(ln for ln in _s.splitlines()
+                  if not ln.strip().startswith("#"))
+check("★★★**不读用户家目录**（`Path.home()` 已移除 —— 别人电脑上没有那些文件）",
+      "Path.home()" not in _code)
+check("★★★不再去翻 gppt 的本机令牌目录（`_existing_gppt_token` 已删）",
+      "_existing_gppt_token" not in _code)
+check("★★返回给界面的文案里**没有绝对路径**（不泄露用户名/目录结构）",
+      not _re.search(r"[A-Za-z]:\\\\Users", _code)
+      and not _re.search(r"[A-Za-z]:\\\\D", _code))
+check("★★改成**用一次 API 验证令牌**（`_verify_pixiv_token`）——"
+      "这才是「这令牌能不能用」的唯一可信判据",
+      "_verify_pixiv_token" in _code and "auth(refresh_token=" in _code)
+check("★★令牌验证失败时**不算开通成功**（不能把无效令牌报成已开通）",
+      "不算开通成功" in _code)
+
+_ui = (ROOT / "src" / "ui" / "settings_window.py").read_text(encoding="utf-8")
+check("★★★设置页会**剥掉 markdown 的 `**`**（QLabel 不认它，会原样显示星号）",
+      "def _plain(" in _ui and '.replace("**", "")' in _ui)
+check("★★`_lbl` / `_hint` 都过 `_plain`（不只是某一个标签）",
+      "_plain(text)" in _ui and _ui.count("_plain(text)") >= 2)
+
+_cli = (ROOT / "tools" / "account_login.py").read_text(encoding="utf-8")
+check("★命令行输出也剥掉 `**`（终端里同样不该露）",
+      'replace("**", "")' in _cli)
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:

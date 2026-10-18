@@ -53,9 +53,10 @@ def main() -> int:
 
     fn = A.login_bilibili if a.action == "bilibili" else A.login_pixiv
     print(f"  ── 开始开通 {a.action} ──")
-    ok, msg = fn(on_line=lambda t: print(f"  · {t}"))
+    # ★ 1.9.4：终端里不显示 markdown 的 `**`（用户："这是发布版，不可以这样写"）
+    ok, msg = fn(on_line=lambda t: print(f"  · {str(t).replace('**', '')}"))
     print(f"\n  {'✅ 成功' if ok else '❌ 失败'}")
-    print("  " + msg.replace("\n", "\n  "))
+    print("  " + str(msg).replace("**", "").replace("\n", "\n  "))
     return 0 if ok else 1
 
 
