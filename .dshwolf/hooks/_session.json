@@ -313,6 +313,10 @@
     {
       "file": "临时文件/_scratch_dev/_commit_msg.txt",
       "at": "2026-10-18T11:34:55.602Z"
+    },
+    {
+      "file": "临时文件/_scratch_dev/fix_readme_refs.py",
+      "at": "2026-10-18T11:43:03.332Z"
     }
   ],
   "edit_counts": {
@@ -330,7 +334,8 @@
     "tools/pixiv_tool.py": 1,
     "src/core/llm_client.py": 2,
     "requirements.txt": 2,
-    "tools/dev_tests/_test_requirements_194.py": 1
+    "tools/dev_tests/_test_requirements_194.py": 1,
+    "临时文件/_scratch_dev/fix_readme_refs.py": 1
   },
   "anatomy_hits": 0,
   "anatomy_misses": 10,
