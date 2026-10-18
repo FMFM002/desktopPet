@@ -101,6 +101,22 @@ check("★★提示词里明确写了「一键开通（登录一次）」这个�
 check("★并说明「配好之后可能要重启桌宠才会生效」（工具会缓存凭据）",
       "重启桌宠" in _s_lc)
 
+print("\n== H. ★★ 下到低画质时必须解释「为什么」+「怎么开」（真机实测支撑）==")
+# 用户 2026-10-18：没开通账号也能下，但只有 852×480；参考项目能 1080P。
+# 实测（BV1CMnu6nEEY，无 cookie）：
+#     accept_quality = [120,116,80,64,32,16]   ← 视频本身支持到 4K
+#     实际 DASH 只有 [32,16]                    ← 没登录只放 480P
+# ⇒ **代码没错**（它 qn=127 + 按 (id,bandwidth) 取最大），缺的只是 cookie。
+#   但它原来**只报分辨率、不解释原因、不给路**，用户只会觉得"画质怎么这么差"。
+check("★★★`_get_video_playurl` 会带上 `quality_note`（低画质时解释原因）",
+      "quality_note" in _s_bi)
+check("★★说明里点明了**没登录**这个原因", "因为**没登录**" in _s_bi)
+check("★★并指路到「设置 → 账号开通 → 一键开通」", "设置 → 账号开通" in _s_bi)
+check("★★还区分了**登录**与**大会员**（1080P 只要登录；1080P60/4K 要大会员）",
+      "1080P 只要登录" in _s_bi and "需要大会员" in _s_bi)
+check("★DASH 与 durl 两条路径都带了（不能只改一条）",
+      _s_bi.count("quality_note") >= 2)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

@@ -407,8 +407,32 @@ async def _get_video_playurl(bvid: str, cid: int, quality: int = 127) -> Optiona
                 _log.info(f"[PlayURL] DASH 可用画质: {[v.get('id') for v in videos]}, "
                           f"选择: {qid} ({bv.get('width')}x{bv.get('height')}, "
                           f"bandwidth={bv.get('bandwidth', 0)})")
+                # ★★★ 1.9.4（用户 2026-10-18 真机反馈）：
+                #   他没开通账号就下到了 480P，而那条视频其实支持 4K —— 工具
+                #   **只报了"852×480"，没说为什么、也没说怎么办**，用户只会觉得
+                #   "画质怎么这么差"。
+                #   实测（BV1CMnu6nEEY，无 cookie）：
+                #       accept_quality = [120,116,80,64,32,16]  ← 视频本身支持到 4K
+                #       实际 DASH 只有 [32,16]                    ← 没登录只放 480P
+                #   ⇒ 所以这里加一句**能 actionable 的说明**：告诉他差在哪、怎么开。
+                _note = ""
+                try:
+                    _hi = max(accept_q) if accept_q else 0
+                    if _hi and qid < _hi:
+                        _desc = dict(zip(accept_q,
+                                         rd.get("accept_description") or []))
+                        _note = (
+                            f"这条视频本身支持到「{_desc.get(_hi, '更高画质')}」，"
+                            f"但**现在只拿到 {bv.get('height')}P** —— 因为**没登录**，"
+                            f"B站不给未登录用户放更高清的流。"
+                            f"想下高清：打开「桌宠右键 → 设置 → 账号开通」，"
+                            f"点「一键开通（登录一次）」，登录后再下同一个视频即可。"
+                            f"（1080P 只要登录；1080P60/4K 需要大会员。）")
+                except Exception:
+                    _note = ""
                 return {
                     "format": "dash",
+                    "quality_note": _note,
                     "video_urls": [bv.get("baseUrl", bv.get("base_url", ""))],
                     "video_backup_urls": bv.get("backupUrl", bv.get("backup_url", [])),
                     "audio_url": ba.get("baseUrl", ba.get("base_url", "")),
@@ -426,8 +450,21 @@ async def _get_video_playurl(bvid: str, cid: int, quality: int = 127) -> Optiona
             best = durl_list[0]
             qid = rd.get("quality", quality)
             _log.info(f"[PlayURL] durl 合并流，实际画质: {qid} ({best.get('width')}x{best.get('height')})")
+            # ★ 同 DASH 分支：低画质时要说明"为什么"和"怎么开"（见那边的长注释）
+            _dnote = ""
+            try:
+                _hi2 = max(accept_q) if accept_q else 0
+                if _hi2 and qid < _hi2:
+                    _desc2 = dict(zip(accept_q, rd.get("accept_description") or []))
+                    _dnote = (f"这条视频本身支持到「{_desc2.get(_hi2, '更高画质')}」，"
+                              f"但现在只拿到较低画质 —— 因为**没登录**。"
+                              f"想下高清：打开「桌宠右键 → 设置 → 账号开通」，"
+                              f"点「一键开通（登录一次）」，登录后再下。")
+            except Exception:
+                _dnote = ""
             return {
                 "format": "durl",
+                "quality_note": _dnote,
                 "video_urls": [best.get("url", "")],
                 "video_backup_urls": best.get("backup_url", []) if isinstance(best.get("backup_url"), list) else [],
                 "audio_url": "",
