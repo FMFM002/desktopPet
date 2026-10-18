@@ -88,6 +88,12 @@ CATEGORIES = [
     ("tts", "TTS 语音", "🔊"),
     ("monitor", "监控数据", "📊"),
     ("tools", "工具设置", "🔧"),
+    # ★★ 1.9.4（用户 2026-10-18）：B站 / P站 **登录一次就开通**。
+    #   用户原话："参考项目 bili_pixiv_toolkit 可以做到开通p站和B站的功能。
+    #   如果用户要开通这两个功能，就**引导用户登陆一次**就可以了。"
+    #   ⇒ 单独一页，两个按钮；登录完成后 cookie/token 落到项目该在的位置
+    #     （B站 → data/cookies/bilibili.json；P站 → .env 的 PIXIV_REFRESH_TOKEN）。
+    ("accounts", "账号开通", "🔑"),
     ("personalize", "个性化", "🎨"),
     ("usage", "使用方法", "📖"),
     # ★ 1.9.0（你的要求）：下载路径独立成一项，放最左栏最下面
@@ -551,6 +557,7 @@ class SettingsWindow(QWidget):
         self._category_pages["tts"] = self._create_tts_page()
         self._category_pages["monitor"] = self._create_monitor_page()
         self._category_pages["tools"] = self._create_tools_page()
+        self._category_pages["accounts"] = self._create_accounts_page()
         self._category_pages["download_path"] = self._create_download_path_page()
         self._category_pages["personalize"] = self._create_personalize_page()
         self._category_pages["usage"] = self._create_usage_page()
@@ -1600,6 +1607,158 @@ class SettingsWindow(QWidget):
     # ════════════════════════════════════════════════════════════
     # 待机说话页面
     # ════════════════════════════════════════════════════════════
+
+    # ══════════════════════════════════════════════════════════════
+    # ★★ 1.9.4（用户 2026-10-18）：**账号开通**页 —— B站 / P站 登录一次即可
+    #
+    #   用户原话："参考项目 bili_pixiv_toolkit 可以做到开通p站和B站的功能。
+    #             如果用户要开通这两个功能，就**引导用户登陆一次**就可以了。"
+    #
+    #   实现要点：
+    #     · 真正的登录**会弹浏览器并阻塞**（Playwright + gppt），
+    #       所以必须跑在**后台线程** —— 否则设置窗口会假死；
+    #     · 线程里**绝不能碰 Qt 控件**（1.9.2 那次硬崩的教训）→ 用 Signal 回主线程；
+    #     · 两个平台各自一个「一键开通」按钮 + 状态标签 + 结果说明。
+    # ══════════════════════════════════════════════════════════════
+    def _create_accounts_page(self) -> QWidget:
+        from PySide6.QtCore import QObject, Signal
+
+        # 跨线程桥：Worker 线程 emit → 主线程槽（Qt 会自动排队，安全）
+        class _Bridge(QObject):
+            line = Signal(str)          # 一行进度
+            done = Signal(bool, str)    # 结束：成功?, 结果说明
+
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(10)
+
+        # ── 依赖状态（缺了就先把话说清楚）──
+        g_dep = self._section("需要的依赖")
+        f_dep = QFormLayout(g_dep)
+        f_dep.setSpacing(8)
+        try:
+            from src.core import account_login as _al
+            _miss = _al.missing_deps()
+            _hint_cmd = _al.install_hint()
+        except Exception as _e:
+            _miss, _hint_cmd = ["（读取失败）"], f"（{_e}）"
+        self._acc_dep_label = self._lbl(
+            "✅ 都装好了" if not _miss else f"❌ 缺：{'、'.join(_miss)}")
+        f_dep.addRow(self._lbl("状态:"), self._acc_dep_label)
+        self._acc_dep_cmd = QLineEdit(_hint_cmd)
+        self._acc_dep_cmd.setReadOnly(True)
+        self._acc_dep_cmd.setPlaceholderText("在项目目录里粘贴这行命令安装")
+        f_dep.addRow(self._lbl("安装命令:"), self._acc_dep_cmd)
+        f_dep.addRow("", self._hint(
+            "这两个功能需要 playwright / requests / pixivpy3 / gppt。\n"
+            "★ 一定要装进**桌宠自己的 Python**（上面那条命令就是），"
+            "别用系统里另一个 Python 装 —— 那样桌宠 import 不到。\n"
+            "★ playwright 用的是**系统自带的 Edge**，所以**不需要**再跑 "
+            "`playwright install`。"))
+        layout.addWidget(g_dep)
+
+        # ── 两个平台 ──
+        for _key, _title, _desc in (
+                ("bilibili", "B站",
+                 "点一下会**弹出浏览器**，在里面登录一次 B站（登录成功后先看到自己的头像，"
+                 "再关掉那个窗口）。cookie 会自动存好，以后不用再登。"),
+                ("pixiv", "P站",
+                 "点一下会**弹出浏览器**，在里面登录一次 Pixiv。"
+                 "拿到的令牌会自动写进 .env，以后不用再登。\n"
+                 "★ P站国内需要代理；如果你开了代理客户端，它能自己走。"),
+        ):
+            g = self._section(f"{_title}")
+            f = QFormLayout(g)
+            f.setSpacing(8)
+            _st = QLabel("…")
+            f.addRow(self._lbl("状态:"), _st)
+            f.addRow("", self._hint(_desc))
+            _h = QHBoxLayout()
+            _b = QPushButton(f"一键开通（登录一次）")
+            _btn_ref = QPushButton("刷新状态")
+            _h.addWidget(_b)
+            _h.addWidget(_btn_ref)
+            _h.addStretch(1)
+            f.addRow("", _h)
+            _res = QLabel("")
+            _res.setWordWrap(True)
+            f.addRow("", _res)
+            layout.addWidget(g)
+
+            _bridge = _Bridge(self)
+            _b.clicked.connect(
+                lambda _c=False, k=_key, b=_b, r=_res, br=_bridge:
+                self._start_account_login(k, b, r, br))
+            _btn_ref.clicked.connect(
+                lambda _c=False, s=_st, r=_res: self._refresh_account_status(s, r))
+            # 首屏就把状态刷一次
+            self._refresh_account_status(_st, _res)
+            # 存起来，供 Worker 结果回填（避免闭包被回收）
+            if not hasattr(self, "_acc_refs"):
+                self._acc_refs = {}
+            self._acc_refs[_key] = {"status": _st, "res": _res, "btn": _b,
+                                    "bridge": _bridge}
+
+        layout.addStretch()
+        return w
+
+    def _refresh_account_status(self, status_label=None, res_label=None):
+        """刷新两个平台的开通状态（只读文件/环境变量，不起浏览器）。"""
+        try:
+            from src.core import account_login as _al
+            s = _al.status()
+        except Exception as e:
+            s = {"bilibili": False, "pixiv": False}
+            if res_label is not None:
+                res_label.setText(f"读取失败: {e}")
+        for k, ref in getattr(self, "_acc_refs", {}).items():
+            ok = bool(s.get(k))
+            ref["status"].setText("✅ 已开通" if ok else "❌ 未开通")
+            ref["status"].setStyleSheet(
+                "color: #15803d;" if ok else "color: #b91c1c;")
+
+    def _start_account_login(self, key: str, btn, res_label, bridge):
+        """★ 在**后台线程**里跑登录（会弹浏览器并阻塞），结果经 Signal 回主线程。"""
+        import threading
+        from PySide6.QtCore import Qt
+
+        btn.setEnabled(False)
+        btn.setText("正在登录…")
+        res_label.setStyleSheet("color: #6b7280;")
+        res_label.setText("正在打开浏览器，请在弹出的窗口里登录…")
+
+        def _on_line(t):
+            bridge.line.emit(str(t))
+
+        def _on_done(ok, msg):
+            bridge.done.emit(bool(ok), str(msg))
+
+        bridge.line.connect(lambda t: res_label.setText(t))
+        bridge.done.connect(
+            lambda ok, msg: self._finish_account_login(key, ok, msg,
+                                                       btn, res_label))
+
+        def _work():
+            try:
+                from src.core import account_login as _al
+                fn = (_al.login_bilibili if key == "bilibili"
+                      else _al.login_pixiv)
+                ok, msg = fn(on_line=_on_line)
+            except Exception as e:
+                ok, msg = False, f"出错: {type(e).__name__}: {e}"
+            _on_done(ok, msg)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _finish_account_login(self, key, ok, msg, btn, res_label):
+        btn.setEnabled(True)
+        btn.setText("一键开通（登录一次）")
+        res_label.setStyleSheet(
+            "color: #15803d;" if ok else "color: #b91c1c;")
+        res_label.setText(msg.replace("\n", "\n"))
+        # 状态标签同步刷新
+        self._refresh_account_status()
 
     def _create_download_path_page(self) -> QWidget:
         """★ 1.9.0（你的要求）：下载路径独立成一项，放最左栏最下面。
