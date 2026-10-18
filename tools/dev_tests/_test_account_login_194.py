@@ -104,6 +104,16 @@ for _rel in ("data/account_login/edge_bili_profile/Default/Cookies",
     _skip, _why = _br_mod._should_skip(_pl.Path(_rel), False)
     check(f"★★实测 `{_rel}` **被排除**", _skip, _why[:20])
 
+print("\n== ★★ H. 根目录的说明文档必须进包（否则用户拿到包却看不到说明）==")
+# ★ 收尾时发现的缺口：装配器的 INCLUDE 只认几个固定文件名，
+#   所以 `发布说明` / 凭据指南 / 施工说明书 **都没被打进 zip** —— 等于没写。
+_br_src = (ROOT / "tools" / "build_release.py").read_text(encoding="utf-8")
+for _doc in ("发布说明_1.9.4.txt",
+             "B站与P站凭据获取指南_1.9.4.md",
+             "施工说明书_ComfyUI集成_1.9.4.txt",
+             "评估_画图工具自部署_1.9.4.txt"):
+    check(f"★★装配器 INCLUDE 里有 `{_doc}`", f'"{_doc}"' in _br_src)
+
 print("\n== ★ 诚实声明：真流程必须在真机上验 ==")
 print("  ⚠ 本守卫**只验结构**。真正弹浏览器登录这件事，"
       "沙箱里起不了子进程/管道（WinError 5），**必须真机试**。")
