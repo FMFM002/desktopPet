@@ -83,8 +83,10 @@ check(f"★.iss 里的版本是 {__version__}",
 check("★★.iss 里的 exe 名与 B 的产物名一致（否则装完没有 exe）",
       f"{APP_ID}-{__version__}.exe" in _txt,
       f"期望 {APP_ID}-{__version__}.exe")
-check("★打包源目录指向 B 的产物 dist/<APP_ID>-<版本>",
-      f"dist\\{APP_ID}-{__version__}" in _txt or f"dist/{APP_ID}-{__version__}" in _txt)
+check("★★打包源目录指向 B 的产物 dist/<APP_ID>-<版本>-exe",
+      f"dist\\{APP_ID}-{__version__}-exe" in _txt
+      or f"dist/{APP_ID}-{__version__}-exe" in _txt,
+      "★ 1.9.4：B 的目录名带 -exe 后缀，不能与 A 的装配目录同名")
 
 print("\n== E. 安全默认 ==")
 check("★模型复选框**默认不勾**（2.4GB 不该默认让用户等）",

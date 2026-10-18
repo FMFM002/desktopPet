@@ -71,13 +71,20 @@ check("★★而且它们的状态确实是 **TODO**（不是被标成 OK）",
       len(_todos) >= 3, f"TODO 共 {len(_todos)} 条")
 
 print("\n== C. ★★ 没验证过的不许说成验证过了（诚实性）==")
-check("★★B 那条写了『未验证』", "未验证" in _txt)
-check("★★C 那条写了『未验证』", _txt.count("未验证") >= 2,
+# ★ 1.9.4 收尾：B 从"从未运行过"变成了"**已用 --selftest 跑到 ok=true**"，
+#   但"真 Key 聊天 / 图形桌面双击"仍然只有人能确认 —— 所以判据改成
+#   「既要写清验到哪一步，又要把没验的部分留在待办里」，而不是笼统的"未验证"。
+check("★★B 那条写明了「已用 --selftest 验到哪一步」",
+      "--selftest" in _txt)
+check("★★B 那条**仍如实列出没验的部分**（真 Key 聊天 / 双击），"
+      "不许因为自检过了就说成全验过",
+      ("真 Key" in _txt or "填 Key" in _txt) and "双击" in _txt)
+check("★★C 那条写了『未验证』", "未验证" in _txt,
       f"'未验证' 出现 {_txt.count('未验证')} 次")
 check("★★A 那条说明了『没真正填 Key 聊过天』（不能只说'已验证'）",
       "没有真正填 Key" in _txt or "没真正填 Key" in _txt)
-check("★明确说了沙箱里 B 测不了的原因（GUI 进程会挂住）",
-      "GUI" in _txt and "挂住" in _txt)
+check("★明确说了『自动自检代替不了人眼确认』",
+      "人眼" in _txt or "代替不了" in _txt)
 
 print("\n== D. 覆盖度：关键几块都要有条目 ==")
 for _kw in ("版本信息一致", "个人信息", "独立运行", "模型状态",

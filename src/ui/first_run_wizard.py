@@ -49,6 +49,53 @@ QFrame#card  { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8p
 """
 
 
+def _install_inprocess(key: str, emit) -> int:
+    """★★ 1.9.4 exe：**在本进程里**跑模型安装（冻结环境专用）。
+
+    ## 为什么不能像源码版那样 `subprocess.Popen([sys.executable, "tools/model_manager.py"])`
+    冻结后 `sys.executable` 是 **exe 自己** —— 拿它去跑 .py 脚本的后果是
+    **再启动一个桌宠**（而且那个实例没有 `install --key` 这种参数，只会静静起个形象），
+    向导的日志框里则一行输出都没有，用户以为"点了没反应"。
+
+    ## 做法
+    直接 `import tools.model_manager` 调它的 `cmd_install()`（就是 CLI 背后那个函数），
+    把它的 `print` 逐行接进向导的日志框。**不复制任何下载逻辑** ——
+    命令行版和 GUI 版永远是同一段代码，不会各自漂移。
+
+    ★ 改 `sys.stdout` 是有全局性的，但：① 只在下载期间；② 其它线程的日志走
+      `logging`（stderr/文件），不受影响；③ 结束后 `redirect_stdout` 自动还原。
+    """
+    import contextlib
+    import io
+
+    class _Sink(io.TextIOBase):
+        """把 write() 按行切开发给界面（cmd_install 用的是 print）。"""
+
+        def __init__(self, fn):
+            self._fn = fn
+            self._buf = ""
+
+        def write(self, s):                      # noqa: D102
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                self._fn(line)
+            return len(s)
+
+        def flush(self):                         # noqa: D102
+            if self._buf:
+                self._fn(self._buf)
+                self._buf = ""
+
+    with contextlib.redirect_stdout(_Sink(emit)):
+        try:
+            from tools import model_manager as _mm
+            return int(_mm.cmd_install([key], yes=True))
+        except Exception as e:                   # noqa: BLE001
+            print(f"[错误] {type(e).__name__}: {e}")
+            return 1
+
+
 class FirstRunWizard(QDialog):
     """首次配置向导。用法：
 
@@ -331,8 +378,15 @@ class FirstRunWizard(QDialog):
         def _work():
             import subprocess
             from pathlib import Path as _P
+            from src.utils.runtime import has_python
             _root = _P(__file__).resolve().parents[2]
             try:
+                if not has_python():
+                    # ★ exe：没有 python 可调 → 本进程内跑同一个安装器（见 _install_inprocess）
+                    self._sig_line.emit("（exe 版）在当前进程内获取，进度如下…")
+                    _rc = _install_inprocess(key, self._sig_line.emit)
+                    self._sig_line.emit(f"── {key} 结束（返回码 {_rc}）──")
+                    return
                 proc = subprocess.Popen(
                     [sys.executable, str(_root / "tools" / "model_manager.py"),
                      "install", "--key", key, "--yes"],

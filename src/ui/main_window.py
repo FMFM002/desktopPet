@@ -417,7 +417,9 @@ class MainWindow:
         self._gclk_timer.start(30)
 
         self._setup_pet()
+        _log.debug("Phase1: _setup_pet 完成")
         self._reposition_windows()
+        _log.debug("Phase1: _reposition_windows 完成")
         # ★ 1.9.1: 原来这里要通知聊天窗口"侧栏可以跟随显示了"（set_sidebar_ready）。
         #   侧栏已整个删除（用户方案 2），这步没了。
         # pet 进程自己 show()，无需主进程调用

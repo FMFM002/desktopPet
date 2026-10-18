@@ -583,10 +583,30 @@ python tools/preflight.py --json     # 给脚本/CI
 | 形态 | 体积（实测） | 用户需要什么 | 说明 |
 |---|---|---|---|
 | **A 便携 zip** | **76.9 MB** | 自己有 Python 3.10~3.12 | 最省事；解压双击 `启动.bat`，启动器会自己装依赖 |
-| **B exe** | **403.2 MB** | 什么都不用装 | 双击即用（自带 Python 运行时）。**代价**：体积大 + **杀软误报是常态**（PyInstaller 的固有现象，非代码问题） |
+| **B exe** | **447 MB** / 2238 文件 | 什么都不用装 | 双击即用（自带 Python 运行时）。**代价**：体积大 + **杀软误报是常态**（PyInstaller 的固有现象，非代码问题） |
 | **C 安装程序** | — | 双击安装 | 体验最好（开始菜单/卸载/可选组件）。需要 Inno Setup 编译，公开发布通常还要**代码签名**才不被拦 |
 
 **建议**：目标用户是自己或熟人 → **A 就够**。要发给不懂电脑的人 → B 或 C。
+
+### B（exe）的两个特别之处（1.9.4 打包时才定下来的）
+
+1. **数据就落在 exe 旁边**。`PRTS.spec` 用了 PyInstaller 6 的
+   `contents_directory="."`（legacy onedir 布局）→ `sys._MEIPASS` **就是** exe 所在目录。
+   于是 `config.json` / `.env` / `logs/` / `data/` 全部生成在 exe 旁边，
+   与便携 zip 版行为一致；**不会**写进 `_internal/`（默认布局会，升级时整目录替换
+   = 用户聊天记录没了）。代价是 exe 目录里有 2000 多个文件，看着乱。
+2. **`--selftest`：双击没反应时先跑它**。exe 是 `console=False`，看不到任何报错；
+   这个模式会把"窗口/形象/托盘/工具/`.env.preset` 合并"逐项检查写进
+   `logs/selftest_*.txt`，然后自己退出（**退出码 0 = 全过，3 = 有必检项没过**）：
+   ```powershell
+   .\PRTS-DesktopPet-1.9.4.exe --selftest
+   # 报告：logs\selftest_YYYYmmdd_HHMMSS.txt
+   ```
+   它**跳过**首次配置引导（否则模态框会挡住自检），所以"还没填 LLM Key"不算失败。
+
+> ★ **B 形态不支持「一键开通 B站/P站」**：那要 Playwright 的浏览器驱动（+107MB），
+> 打包时被排除了。设置页会**明确写"exe 版不支持"并把按钮置灰**，
+> 需要用便携 zip 版开通一次，再把 `.env` 与 `data/cookies/` 拷到 exe 旁边。
 
 ### 怎么构建
 
@@ -595,9 +615,13 @@ python tools/preflight.py --json     # 给脚本/CI
 python tools/build_release.py --zip
 #   → dist/PRTS-DesktopPet-1.9.4-portable.zip
 
-# B：PyInstaller exe（onetdir，配置见根目录 PRTS.spec）
+# B：PyInstaller exe（onedir，配置见根目录 PRTS.spec）
 python -m PyInstaller PRTS.spec --noconfirm
-#   → dist/PRTS-DesktopPet-1.9.4/PRTS-DesktopPet-1.9.4.exe
+#   → dist/PRTS-DesktopPet-1.9.4-exe/PRTS-DesktopPet-1.9.4.exe
+#   ★ 目录名带 -exe：绝不能与 A 的装配目录同名 ——
+#     `--noconfirm` 会**先删掉同名输出目录**，同名就等于打一次 exe 顺手删掉便携装配。
+#   分发给别人时把这一层目录压成 zip（顶层带目录名，解压不散）：
+#     → dist/PRTS-DesktopPet-1.9.4-exe.zip
 
 # C：安装程序（需先装 Inno Setup 6）
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\PRTS.iss

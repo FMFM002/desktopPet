@@ -134,6 +134,9 @@ HIDDEN = [
     "fitz", "pptx", "docx", "openpyxl",  # 文档读取（file_ops 里延迟导入）
     "win32gui", "win32process", "win32com.client", "pythoncom",   # Windows 能力
     "PIL._tkinter_finder",
+    # ★ exe 里的模型下载（向导里**在本进程内**跑 model_manager，见 first_run_wizard）：
+    #   huggingface_hub 1.x 的 xet 后端是**延迟导入**的，不登记会漏。
+    "huggingface_hub", "hf_xet", "filelock", "tqdm", "yaml",
 ]
 # ★★ 工具模块本身也要进 hiddenimports —— 不是为了让"导入它们"，
 #   而是为了让 PyInstaller **分析它们的依赖**（pptx / yt_dlp / jmcomic / aiohttp …）。
@@ -148,14 +151,24 @@ HIDDEN += [f"tools.{p.stem}" for p in TOOL_SRC if p.stem != "__init__"]
 #      （见 `_test_standalone_194.py` 的口径），所以不打进去没有功能性问题。
 EXCLUDES = [
     "tkinter", "matplotlib", "pandas", "IPython", "jupyter", "notebook",
-    "pytest", "setuptools", "pip",
+    "pytest", "pip",
+    # ★★ 1.9.4 真机踩坑（第一版 exe 双击后**弹一个空白错误框、什么都不发生**）：
+    #   我把 `setuptools` 也排除了。结果 PyInstaller 的运行时钩子
+    #   `pyi_rth_pkgres.py` 仍然被装上（有包在 import pkg_resources），
+    #   而 pkg_resources 需要 setuptools 里的 `jaraco.text` →
+    #        ModuleNotFoundError: No module named 'jaraco'
+    #   窗口版 bootloader 把这个异常显示成**模态错误框** → 进程既不退出也不启动，
+    #   在自动化里表现为"卡住"。所以 `setuptools` **绝不能排**。
     # ── 由 easyocr / 其它可选依赖带进来的重家伙（第一版就是被这些撑到 3.7GB） ──
     "easyocr", "torch", "torchvision", "torchaudio", "numba", "llvmlite",
     "sklearn", "scikit-image", "scipy", "spacy", "thinc", "transformers",
     "networkx", "sympy", "pyarrow", "fsspec", "nltk", "cv2", "shapely",
     "onnxruntime",          # ★ GENIE 走它 —— 但 TTS 模型按需，缺了就不启 TTS
     "fastapi", "uvicorn",   # src/genie_tts/Server.py 我们不跑
-    "datasets", "huggingface_hub",   # 只在下载模型时用；exe 里不需要
+    "datasets",             # 只在下载模型时用；exe 里不需要
+    # ★ 但 **huggingface_hub 要留着**：exe 里的「首次配置引导 → 获取语音模型」
+    #   走 `src/genie_tts/PredefinedCharacter.download_chara()` → `snapshot_download()`。
+    #   实测它 + hf_xet + 依赖一共约 20MB，换"exe 用户也能下 TTS 模型"，值。
     # ★★ 第二轮实测 3776→820MB，但最大的两块仍是内置 GENIE 的**多语言 G2P**带的：
     #    sudachidict_core 207MB（日语词典）+ paddle 195MB（PaddleOCR）。
     #    我们只用中文/英文 TTS（feibi 角色），日韩 G2P 用不上 → 一并排除。

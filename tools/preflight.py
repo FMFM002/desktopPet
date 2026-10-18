@@ -105,18 +105,50 @@ def collect() -> dict:
 
     # ── 5. 三种发布形态的产物 ──
     zipA = ROOT / "dist" / f"{APP_ID}-{__version__}-portable.zip"
-    dirB = ROOT / "dist" / f"{APP_ID}-{__version__}"
+    # ★★ B 的 COLLECT 目录名多一个 `-exe` 后缀：**绝不能**与 A 的装配目录同名 ——
+    #   PyInstaller 带 `--noconfirm` 会先删同名输出目录，同名就等于"打一次 exe
+    #   顺手删掉 77MB 便携装配目录"（这条真踩过，见 PRTS.spec 文件头）。
+    dirB = ROOT / "dist" / f"{APP_ID}-{__version__}-exe"
     exeB = dirB / f"{APP_ID}-{__version__}.exe"
     iss = ROOT / "installer" / "PRTS.iss"
     add(OK if zipA.is_file() else TODO, "A 便携 zip 已产出",
         f"{zipA.name}（{zipA.stat().st_size/1024/1024:.1f} MB）" if zipA.is_file() else "还没构建",
         f"python tools/build_release.py --zip")
     add(OK if exeB.is_file() else TODO, "B exe 已产出",
-        f"{exeB.name}" if exeB.is_file() else "还没构建",
+        f"{exeB.parent.name}/{exeB.name}" if exeB.is_file() else "还没构建",
         "python -m PyInstaller PRTS.spec --noconfirm")
     add(OK if iss.is_file() else TODO, "C 安装脚本已就绪",
         f"{iss.name}" if iss.is_file() else "缺 installer/PRTS.iss",
         "" if iss.is_file() else "需先有 installer/PRTS.iss")
+
+    # ── 5b. ★★ B 的**启动自检报告**（`<exe> --selftest` 写出来的 JSON）──
+    #   exe 是 console=False（没有黑窗口），"双击没反应"时外面看不到任何报错。
+    #   `--selftest` 会把每项检查写进 `logs/selftest_*.txt` 并给出退出码
+    #   （0=全过 / 3=有必检项没过），这是**唯一能自动化验证 B 真能起来**的手段。
+    #   ★ 报告可能在两处：① dist 里直接跑的；② 「拷到干净目录再跑」的
+    #     （开发时放在 `临时文件/_exe_smoke/`，这个目录不进发布包）。
+    _reps = sorted(ROOT.joinpath("dist").rglob("logs/selftest_*.txt"))
+    _reps += sorted(ROOT.joinpath("临时文件").rglob("logs/selftest_*.txt"))
+    _reps.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0)
+    if not _reps:
+        add(TODO, "B exe 启动自检（`--selftest`）",
+            "还没有自检报告 —— **没跑过就不算验证过**（上一阶段就是卡在这一步）",
+            r"把 dist\PRTS-DesktopPet-*-exe\ 整个拷到干净位置，"
+            r"再跑 <exe> --selftest，然后看 logs\selftest_*.txt")
+    else:
+        _last = _reps[-1]
+        try:
+            _rep = json.loads(_last.read_text(encoding="utf-8"))
+            _ok = bool(_rep.get("ok"))
+            _bad = _rep.get("failed_required") or []
+            _where = _last.parent.parent.name
+            add(OK if _ok else WARN, "B exe 启动自检（`--selftest`）",
+                f"{_where} / {_last.name} / v{_rep.get('version')} / "
+                + ("全部通过" if _ok else f"**没过**: {_bad}"),
+                "" if _ok else f"打开看详情: {_last}")
+        except Exception as e:                   # noqa: BLE001
+            add(WARN, "B exe 启动自检（`--selftest`）",
+                f"报告读不了: {type(e).__name__}: {e}", str(_last))
 
     # ── 6. ★★ 只有人能做的确认项（**不许当成已验证**）──
     add(TODO, "【人工】A 的真机启动演练",
@@ -124,9 +156,10 @@ def collect() -> dict:
         "填真 Key 后应能正常聊天。"
         "（开发机上已验证过'解压→启动→弹出引导'这一步，但**没有真正填 Key 聊过天**）",
         "解压 dist/*-portable.zip 到别处，双击 启动.bat")
-    add(TODO, "【人工】B 的 exe 双击",
-        "**未验证**：沙箱里启动 GUI 进程会挂住（试过两次），所以 B 从没被真跑过。"
-        "若双击无反应，把 PRTS.spec 的 console=False 改成 True 重打包即可看到报错",
+    add(TODO, "【人工】B 的 exe 双击（看形象/聊天）",
+        "自动自检能证明「窗口+形象+托盘+工具注册」都起来了，但**聊天要真 Key**、"
+        "「形象动起来」要人眼确认 —— 这一步自检代替不了。"
+        "自检本身：<exe> --selftest（报告在 logs/selftest_*.txt）",
         f"双击 {exeB.name if exeB.is_file() else '（先构建 B）'}")
     add(TODO, "【人工】C 的安装程序编译",
         "**未验证**：开发机没装 Inno Setup，.iss 只做过静态校验",

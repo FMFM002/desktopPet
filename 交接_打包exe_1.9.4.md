@@ -226,3 +226,73 @@ python -m compileall -q src tools
 > （`.env.preset`、`account_login`、`playwright/gppt` 的取舍），
 > 然后**在一台没装 Python 的机器上真的双击运行一次** ——
 > 那是上一阶段唯一没做到、也唯一不能靠推理补上的事。
+
+---
+
+# 十、★ 本阶段结果（2026-10-18 晚，已执行）
+
+> 结论：**B 形态真的跑起来了**，而且是**可复现地**跑起来（不是"我看了一眼"）。
+
+## 10.1 做了什么
+
+| # | 事情 | 结果 |
+|---|---|---|
+| 1 | 补 `DATAS`：`.env.preset` + 4 份文档 + `data/tools` | ✅ |
+| 2 | 补 `HIDDEN`：`src.core.account_login` | ✅ |
+| 3 | `playwright` / `gppt` / `pixivpy3` **排除**，界面**明说 exe 不支持**、按钮置灰 | ✅ |
+| 4 | ★ **工具/依赖**：`tools/*.py` 是**按文件路径**加载的 → 必须当**数据**复制进包，且必须进 HIDDEN（否则工具自己的依赖不会被分析） | ✅ 18 个工具全部可用 |
+| 5 | ★★ `contents_directory="."` → `_MEIPASS` **就是 exe 目录** → 数据写 exe 旁边（**一行配置**省掉 40 处路径改造） | ✅ |
+| 6 | ★★ 输出目录改名 `-exe`：`--noconfirm` **会先删同名目录**，同名会顺手删掉 A 的 77MB 装配 | ✅ |
+| 7 | `main.py --selftest` 自检（写 `logs/selftest_*.txt`，退出码 0/3） | ✅ |
+| 8 | 首次向导的模型下载在 exe 里改成**进程内**跑（冻结后 `sys.executable` 是 exe 自己） | ✅ |
+| 9 | `setuptools` 不许排除（排了 → `pyi_rth_pkgres` 缺 `jaraco` → 窗口版弹模态框卡死） | ✅ 真机踩到并修好 |
+| 10 | 窗口版 `sys.stdout/stderr` 是 `None` → 启动最早期兜成 devnull | ✅ |
+
+## 10.2 实测证据（可复现）
+
+```powershell
+# 1) 打包
+python -m PyInstaller PRTS.spec --noconfirm
+#   → dist/PRTS-DesktopPet-1.9.4-exe/  （2238 文件 / 447.5 MB，**没有 _internal/**）
+
+# 2) 拷到干净位置（不是仓库目录！）
+robocopy dist\PRTS-DesktopPet-1.9.4-exe 临时文件\_exe_smoke /E
+
+# 3) 自检
+临时文件\_exe_smoke\PRTS-DesktopPet-1.9.4.exe --selftest
+#   → 退出码 0；logs/selftest_*.txt: ok=true，27 项全过
+```
+
+两个场景都跑了：
+
+| 场景 | 结果 |
+|---|---|
+| **全新目录**（没有任何配置） | ✅ ok=true / 退出码 0；`.env` 从 `.env.preset` 自动生成（**天气/搜索/终末地 KEY 都在**，LLM Key 按设计留空）；`config.json` / `logs/` / `data/` 全在 **exe 旁边** |
+| **已配 Key**（把仓库 `.env` 拷进去） | ✅ ok=true / 退出码 0；`session_ready` = true（会话真的建起来了）；日志无 `[MainWindow] ERROR` |
+
+自检看的是这些（都过了）：`base_dir_is_exe_dir` / 15 项随包文件（含 `.env.preset`、
+`tools/_vendor/bili_pixiv_toolkit.py`）/ `env_preset_merged` / `logs_dir` /
+`characters`（2 个）/ `window_created` / `qt_platform`(windows) / `pet_ready`（形象）/
+`tray_ready`（托盘）/ `tools_registered`（**18 个**）/ `session_ready`（有 Key 时）/
+`chat_ready`。
+
+## 10.3 ★ 仍然没验证的（不许当成"已完成"）
+
+1. **图形桌面上双击**：沙箱里 `Start-Process` / `tasklist` 会被拒（"拒绝访问"），
+   所以只能用命令行等价方式验证（同样的 exe、同样的参数、`DEVNULL` 的标准输入输出）。
+   没验过的是"在资源管理器里双击"这一下本身。
+2. **真的填 Key 聊一轮**：那要真人交互 + 花 token。
+3. **桌宠子进程模式**：沙箱拒绝创建子进程（`WinError 5`）→ 每次都回退到
+   **主进程直接渲染**（已验证可用）。正常桌面上应当走子进程，但没在干净机器上验过。
+4. **C 安装程序**：本机仍无 Inno Setup，`.iss` 只做了静态校验。
+
+## 10.4 下次要改的话，从这三个地方下手
+
+* 想支持「一键开通」：删 `PRTS.spec` 里 `playwright/gppt/pixivpy3` 那行 exclude，
+  把 playwright 的驱动目录加进 `DATAS`（+107MB 起），并把 `account_login`
+  的 `is_frozen()` 分支去掉。
+* 想再瘦身：`yt_dlp` 的 hook 还拉进了 `google*` / `grpc` / `opentelemetry` / `flask`
+  / `pikepdf` / `cryptography`（约几十 MB）—— 这些是**可选能力**的传递依赖，
+  要逐个确认没有工具在启动路径上 import 才能排。
+* 想改"数据放哪"：只动 `PRTS.spec` 的 `contents_directory` 与 `src/utils/runtime.py`
+  两个地方，别去改那 40 处 `Path(__file__).parents[...]`。

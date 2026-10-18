@@ -13,6 +13,30 @@ import multiprocessing
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
+# ★★ 1.9.4 exe：**窗口版冻结程序没有控制台** → PyInstaller 会把
+#   `sys.stdout` / `sys.stderr` 设成 `None`。
+#   而 `src/utils/logger.setup_logging()` 会挂一个 `StreamHandler(sys.stdout)`；
+#   StreamHandler 在 `stream is None` 时会回落到 `sys.stderr`，**它也是 None** →
+#   每条日志都触发 `logging` 内部的 "Logging error"（在真机上表现为日志噪音，
+#   严重时在异常路径上抛 AttributeError）。
+#   所以这里在**最早时机**把两个流换成 devnull —— 只影响控制台输出，
+#   文件日志（logs/prts_*.log）完全不受影响。
+for _name in ("stdout", "stderr"):
+    if getattr(sys, _name, None) is None:
+        try:
+            setattr(sys, _name, open(os.devnull, "w", encoding="utf-8"))
+        except Exception:
+            pass
+
+# ★★ 1.9.4 exe：`--selftest` —— **启动自检**。
+#   为什么要有它：exe 是 `console=False`（没有黑窗口），双击没反应时
+#   **外面看不到任何报错**。这个模式会把"能不能起来"的结论写进
+#   `logs/selftest_*.txt`（含每项通过/失败与原因），然后自己退出：
+#       · 退出码 0 = 自检全过；3 = 有必检项没过（详见报告）
+#   它也是打包后**唯一能自动化验证**的手段 —— 不用盯着屏幕等形象出现。
+_SELFTEST = "--selftest" in sys.argv
+_SELFTEST_MS = int(os.environ.get("PRTS_SELFTEST_MS", "8000"))
+
 # ★★ 1.9.4：**在任何人 import 内置的 src.genie_tts 之前**先把模型目录告诉它。
 #   为什么必须这么早：`src/genie_tts/Resources.py` 发现 `GENIE_DATA_DIR` 没设时，
 #   会**弹交互式询问**"要不要从 HuggingFace 下载模型？"（打包时实测刷屏几十行，
@@ -220,6 +244,168 @@ def clear_cache():
 
 
 # ====== 启动主程序 ======
+def _selftest_checks(window) -> dict:
+    """自检要看的那些事。返回 `{名字: {ok, detail, required}}`。
+
+    ★ 分"必检"与"仅供参考"两类：**首启时 `.env` 里没有 LLM Key 是正常的**
+      （用户还没填），不能因此判自检失败。
+    """
+    from pathlib import Path
+    import re
+    # ★ 用**程序自己那套**路径解析（不是再从 __file__ 推一遍）——
+    #   这样自检同时验证了 `runtime.app_dir()`：exe 里它必须等于 exe 目录。
+    from src.utils.runtime import app_dir
+
+    out = {}
+
+    def chk(name, ok, detail="", required=True):
+        out[name] = {"ok": bool(ok), "detail": str(detail)[:400],
+                     "required": bool(required)}
+
+    base = app_dir()
+    frozen = bool(getattr(sys, "frozen", False))
+    # ★ frozen 只是"这条报告是从哪种形态出来的"，不是通过条件（源码运行应当是 False）
+    chk("frozen", frozen, f"exe={sys.executable}", required=False)
+    if frozen:
+        chk("base_dir_is_exe_dir",
+            base.resolve() == Path(sys.executable).resolve().parent, str(base))
+    # 随包的"数据类"文件（DATAS 里那些，缺了就是打包漏了）
+    for rel in (".env.example", ".env.preset", "config.default.json",
+                "README.md", "requirements.txt",
+                "data/China-City-List-latest.csv",
+                "data/桌宠形象", "data/memes", "data/assets",
+                "tools", "tools/model_manager.py",
+                "tools/_vendor/bili_pixiv_toolkit.py"):
+        p = base / rel
+        chk(f"exists:{rel}", p.exists(), p)
+    # 运行期自动生成的东西（首启会自己建）
+    env = base / ".env"
+    chk("env_created", env.is_file(), env)
+    _has_key = False
+    if env.is_file():
+        txt = env.read_text(encoding="utf-8", errors="replace")
+        # ★ 必须**按行首**匹配 `KEY=`：`.env.preset` 的注释里就出现了
+        #   "DEEPSEEK_API_KEY" 这个词，用 `in` 会把"注释里提过"误判成"已配置"。
+        _has_key = re.search(r"(?mi)^\s*DEEPSEEK_API_KEY\s*=\s*\S", txt) is not None
+        # ★ 这条专门验 `.env.preset` 有没有被打进包（交接文档缺口 1）
+        chk("env_preset_merged", "WEATHER_API_KEY" in txt and "TAVILY_API_KEY" in txt,
+            "天气/搜索的出厂 KEY 是否随包")
+        chk("env_has_llm_key", _has_key,
+            "首启还没填 Key 是正常的（向导会问）", required=False)
+    chk("logs_dir", (base / "logs").is_dir(), base / "logs")
+    chars = list((base / "data" / "桌宠形象").glob("*/settings.json"))
+    chk("characters", bool(chars), f"{len(chars)} 个角色")
+    chk("window_created", window is not None)
+    try:
+        from PySide6.QtWidgets import QApplication
+        chk("qt_platform", True, QApplication.platformName())
+        chk("top_level_widgets", len(QApplication.topLevelWidgets()) > 0,
+            len(QApplication.topLevelWidgets()))
+    except Exception as e:                       # noqa: BLE001
+        chk("qt_platform", False, f"{type(e).__name__}: {e}")
+    try:
+        # ★ 形象有两条路（pet_proxy.py）：子进程渲染 / 主进程直接渲染（fallback）。
+        #   两种都算"形象起来了"，别把 fallback 判成失败。
+        _pet = getattr(window, "pet", None)
+        _proc = getattr(_pet, "_proc", None)
+        _direct = getattr(_pet, "_direct_widget", None)
+        chk("pet_ready",
+            bool((_proc is not None and _proc.is_alive())
+                 or _direct is not None or getattr(_pet, "_ready", False)),
+            f"子进程={'alive' if (_proc is not None and _proc.is_alive()) else '无'}"
+            f" / 直接渲染={'有' if _direct is not None else '无'}")
+    except Exception as e:                       # noqa: BLE001
+        chk("pet_ready", False, f"{type(e).__name__}: {e}")
+    try:
+        chk("tray_ready", getattr(window, "_tray", None) is not None,
+            type(getattr(window, "_tray", None)).__name__)
+    except Exception as e:                       # noqa: BLE001
+        chk("tray_ready", False, f"{type(e).__name__}: {e}")
+    # ★ 工具是**按文件路径**扫出来的：`tools/*.py` 没进包 → 这里会是 0 个
+    try:
+        from src.core.tool_manager import get_tool_manager
+        _tm = get_tool_manager()
+        _n = len(getattr(_tm, "_tools", {}) or {})
+        chk("tools_registered", _n > 0, f"{_n} 个工具")
+    except Exception as e:                       # noqa: BLE001
+        chk("tools_registered", False, f"{type(e).__name__}: {e}")
+    # ★★ 「会话真的建起来了没」——**只有填了 LLM Key 才检**。
+    #   没填 Key 时 `session-create` 会按设计报 Missing credentials（首次配置引导的工作），
+    #   那不是 exe 的毛病，不该判失败；但填了 Key 还建不起来，就一定是坏的。
+    try:
+        chk("session_ready", hasattr(window, "session"),
+            "有 Key 时必须成功创建会话" if _has_key else "首启未填 Key → 按设计等向导",
+            required=_has_key)
+    except Exception as e:                       # noqa: BLE001
+        chk("session_ready", False, f"{type(e).__name__}: {e}")
+    try:
+        chk("chat_ready", getattr(window, "chat", None) is not None, "聊天窗口")
+    except Exception as e:                       # noqa: BLE001
+        chk("chat_ready", False, f"{type(e).__name__}: {e}")
+    return out
+
+
+def _arm_selftest(app, window) -> None:
+    """`--selftest`：等界面跑稳 → 检查 → 写 `logs/selftest_*.txt` → 自动退出。"""
+    import json
+    from datetime import datetime
+    from pathlib import Path
+    from PySide6.QtCore import QTimer
+
+    def _finish():
+        try:
+            checks = _selftest_checks(window)
+        except Exception as e:                   # noqa: BLE001
+            checks = {"selftest_crashed": {"ok": False, "required": True,
+                                           "detail": f"{type(e).__name__}: {e}"}}
+        bad = [k for k, v in checks.items() if v["required"] and not v["ok"]]
+        ok = not bad
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        try:
+            from src.version import __version__
+            _ver = __version__
+        except Exception:                        # noqa: BLE001
+            _ver = "?"
+        report = {
+            "version": _ver,
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "exe": sys.executable,
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "base_dir": BASE_DIR,
+            "python": sys.version,
+            "ok": ok,
+            "failed_required": bad,
+            "checks": checks,
+        }
+        path = Path(BASE_DIR) / "logs" / f"selftest_{ts}.txt"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        except Exception as e:                   # noqa: BLE001
+            log.error(f"SELFTEST: 写报告失败: {e}")
+        if ok:
+            log.info(f"SELFTEST: OK（{len(checks)} 项全过）→ {path}")
+        else:
+            log.error(f"SELFTEST: FAIL → {path}；没过的是: {bad}")
+        for k, v in checks.items():
+            if v["required"] and not v["ok"]:
+                log.error(f"SELFTEST FAIL: {k} = {v['detail']}")
+        # ★ 退出码：0 = 全过；3 = 必检项没过（自动化脚本据此判断）
+        app.exit(0 if ok else 3)
+
+    log.info(f"SELFTEST: 启动自检，{_SELFTEST_MS} ms 后出结论")
+    # ★★ 自检模式额外开一个**看门狗**：每 20 秒把所有线程的 C 级堆栈 dump 到
+    #   `logs/main_stderr.log`。用途是排查"exe 起来了但卡住不动"——
+    #   那种情况没有异常、日志也停在半句，只有线程堆栈能说清卡在哪。
+    try:
+        import faulthandler as _fh
+        _fh.dump_traceback_later(20, repeat=True)
+    except Exception:                            # noqa: BLE001
+        pass
+    QTimer.singleShot(max(1000, _SELFTEST_MS), _finish)
+
+
 def main():
     clear_cache()
     check_deps()
@@ -247,7 +433,10 @@ def main():
         #   · 整体 try 包住：引导本身出任何问题都**不许拖垮启动**（它只是"更好用"，不是"没它不行"）。
         try:
             from src.ui.first_run_wizard import FirstRunWizard, should_show
-            if should_show():
+            if _SELFTEST:
+                # ★ 自检不能卡在模态向导上（fresh 目录里 should_show() 一定是 True）
+                log.info("SELFTEST: 跳过首次配置引导")
+            elif should_show():
                 log.info("检测到尚未配置 LLM Key → 弹出首次配置引导")
                 FirstRunWizard().exec()
                 log.info("首次配置引导结束")
@@ -260,10 +449,16 @@ def main():
         window = MainWindow()
         log.info("MainWindow 创建完成")
 
+        if _SELFTEST:
+            _arm_selftest(app, window)
+
         window.run()
         log.info("主循环启动...")
 
-        sys.exit(app.exec())
+        _rc = app.exec()
+        if _SELFTEST:
+            log.info(f"SELFTEST: 界面已退出（返回码 {_rc}）")
+        sys.exit(_rc)
 
     except Exception as e:
         log.critical(f"启动失败: {e}")

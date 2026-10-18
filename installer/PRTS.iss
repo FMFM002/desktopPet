@@ -11,8 +11,11 @@
 ;    本机开发环境**没有装 Inno Setup**（实测），所以这个脚本**没有被编译验证过** ——
 ;    这点如实记录，第一次编译若报错请把输出给我。
 ;
-;  ★ 打包对象用 **B（PyInstaller onedir）的产物**：dist\PRTS-DesktopPet-1.9.4\
+;  ★ 打包对象用 **B（PyInstaller onedir）的产物**：dist\PRTS-DesktopPet-1.9.4-exe\
 ;    因为 C 面向的是"什么都不想装"的用户，B 已经把 Python 运行时带上了。
+;  ★ 1.9.4：B 的目录名带 `-exe` 后缀 —— 不能与 A 的装配目录
+;    `dist\PRTS-DesktopPet-1.9.4\` 同名，否则 `pyinstaller --noconfirm`
+;    会先删掉同名输出目录（= 顺手删掉 77MB 的便携装配）。
 ; ══════════════════════════════════════════════════════════════
 
 #define AppName "铃兰桌宠"
@@ -21,7 +24,7 @@
 #define AppPublisher "PRTS"
 #define AppExeName "PRTS-DesktopPet-1.9.4.exe"
 ; ★ 源目录：PyInstaller 的 onedir 产物（先跑 PRTS.spec 生成）
-#define SrcDir "..\dist\PRTS-DesktopPet-1.9.4"
+#define SrcDir "..\dist\PRTS-DesktopPet-1.9.4-exe"
 
 [Setup]
 AppId={{8E2B1C44-9F3A-4D77-9C21-PRTS19400000}
@@ -51,24 +54,23 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Name: "models"; Description: "同时下载模型（语音合成/识别/OCR，约 2.4 GB，需要联网）"; GroupDescription: "可选组件："; Flags: unchecked
 
 [Files]
-; 整个 onedir 产物（PRTS.exe + _internal）
+; 整个 onedir 产物（PRTS-*.exe + 运行时 + data/ + tools/）
+; ★ 1.9.4：spec 用了 contents_directory="." → 运行时**直接铺在** exe 旁边，
+;   没有 _internal/ 这一层。所以这里 `recursesubdirs` 就是全部。
 Source: "{#SrcDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
-; ★ 便携版的启动器与必读也一起带上（万一用户想直接看命令行输出）
-Source: "{#SrcDir}\启动.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
-Name: "{group}\首次使用必读"; Filename: "{app}\首次使用必读.txt"
 Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
-; ★ 装完立刻跑"首次配置引导"（用户第一次双击就能填 LLM Key）
+; ★ 装完立刻跑（用户第一次双击就能填 LLM Key —— 首次配置引导会自己弹）
 Filename: "{app}\{#AppExeName}"; Description: "立即启动 {#AppName}"; Flags: nowait postinstall skipifsilent
-; ★★ 只有在用户勾了 models 时才执行。
-;    用 B 产物里的 Python 运行时跑不了我们的 .py 脚本（脚本在源码树里），
-;    所以这里**调用户机器上的 python**；没有 python 就跳过并提示
-;    （B 形态本来就不需要 python，所以这条只是"能下就下"）。
-Filename: "python"; Parameters: """{app}\tools\model_manager.py"" install --all --yes"; \
-    WorkingDir: "{app}"; StatusMsg: "正在获取模型（可能较慢）…"; \
+; ★★ 模型：**不再在这里调 python**。
+;    1.9.4 起 exe 的「首次配置引导」自带下载（在进程内跑 tools/model_manager.py，
+;    见 src/ui/first_run_wizard.py 的 _install_inprocess），不需要用户机器上有 python。
+;    这里保留一个"可选"入口：如果你确实装了 python，也可以手动跑。
+Filename: "python"; Parameters: """{app}\tools\model_manager.py"" install --key genie --yes"; \
+    WorkingDir: "{app}"; StatusMsg: "正在获取语音模型（约 1.8GB，可能较慢）…"; \
     Flags: runhidden waituntilterminated skipifdoesntexist; Tasks: models

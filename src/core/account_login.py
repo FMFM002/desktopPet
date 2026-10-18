@@ -40,6 +40,8 @@ from pathlib import Path
 
 _log = logging.getLogger("AccountLogin")
 
+from src.utils.runtime import frozen_feature_hint, is_frozen   # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR = ROOT / "tools" / "_vendor" / "bili_pixiv_toolkit.py"
 WORK = ROOT / "data" / "account_login"        # profile + 临时产物
@@ -95,9 +97,22 @@ def missing_deps() -> list:
 
 
 def install_hint() -> str:
-    """给人看的安装命令（**装进桌宠自己的解释器**）。"""
+    """给人看的安装命令（**装进桌宠自己的解释器**）。
+
+    ★★ 1.9.4 exe：冻结环境里 `sys.executable` 是 **exe 自己**，`-m pip` 不可能成立
+       —— 所以这里不能再拼命令，否则界面会显示一条**照着做会再开一个桌宠**的假命令。
+    """
+    if is_frozen():
+        return frozen_feature_hint("一键开通 B站/P站")
     return (f'"{sys.executable}" -m pip install '
             f'playwright requests pixivpy3 gppt')
+
+
+def feature_available() -> tuple[bool, str]:
+    """这个功能在当前形态里能不能用；不能用时给一句**可操作**的话。"""
+    if is_frozen():
+        return False, frozen_feature_hint("一键开通 B站/P站")
+    return True, ""
 
 
 def _bili_login_browser(timeout: float = 300.0, on_line=None) -> tuple:
@@ -207,6 +222,9 @@ def login_bilibili(on_line=None) -> tuple:
 
     返回 `(成功?, 给人看的话)`。**不抛异常**（界面要能拿到结果）。
     """
+    ok, why = feature_available()
+    if not ok:
+        return False, why
     miss = [m for m in missing_deps() if m in ("playwright", "requests")]
     if miss:
         return False, ("❌ 还没装依赖：" + "、".join(miss) + "\n"
@@ -298,9 +316,13 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
           **用一次 API 调用验证它到底能不能用**（这是唯一可信的判据）。
     """
     miss = [m for m in missing_deps() if m in ("gppt", "pixivpy3")]
-    if miss:
+    if miss and not is_frozen():
         return False, ("❌ 还没装依赖：" + "、".join(miss) + "\n"
                        "     在项目目录里跑这条就行：\n     " + install_hint())
+    # ★ 冻结环境：先给"exe 不支持"的明确说法（而不是"没装 gppt"的假象）
+    _ok, _why = feature_available()
+    if not _ok:
+        return False, _why
 
     _say(on_line, "正在打开浏览器，请在窗口里登录 Pixiv（只需这一次）。")
     # ★★★ 1.9.4 真机修复（2026-10-18）：**gppt 5.x 换了 API**。
