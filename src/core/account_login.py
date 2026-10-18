@@ -249,31 +249,98 @@ def login_bilibili(on_line=None) -> tuple:
                   f"     ★ 如果桌宠已经在运行，**重启一次**它才会读到（工具会缓存 cookie）。")
 
 
-def login_pixiv(on_line=None) -> tuple:
-    """★ 引导用户**登录一次 P站**，把 `refresh_token` 写进 `.env`。"""
+def _existing_gppt_token() -> tuple:
+    """看 gppt 那边**已经有一份令牌没有**。返回 `(token 或 None, 创建时间文字)`。
+
+    ★★ 1.9.4（用户 2026-10-18 发现）：他说"开通 P站几乎一秒完成"，
+       怀疑是"令牌没删干净"。查证：`~/.config/gppt/default.token.json`
+       **创建于 2026-09-16**（早就有）→ 那个"一键开通"其实**只是把这个旧令牌
+       读出来又写了一遍**，**根本没登录**。
+
+    gppt 把令牌存在它自己的家目录里，所以只要以前登过一次，这文件就一直在。
+    我们**必须能看见它**，否则就会把"沿用旧令牌"谎报成"刚登录成功"。
+    """
+    try:
+        p = Path.home() / ".config" / "gppt" / "default.token.json"
+        if not p.is_file():
+            return None, ""
+        d = json.loads(p.read_text(encoding="utf-8"))
+        t = (d.get("refresh_token") or "").strip()
+        if not t:
+            return None, ""
+        import datetime as _dt
+        _ts = _dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        return t, _ts
+    except Exception:
+        return None, ""
+
+
+def login_pixiv(on_line=None, force: bool = False) -> tuple:
+    """★ 引导用户**登录一次 P站**，把 `refresh_token` 写进 `.env`。
+
+    ★★ 1.9.4 修（"假登录"）：原实现直接调工具包的 `pixiv_login()`，而它
+       **失败时会静默回退**去读 gppt 已有的令牌文件 → 于是"1 秒完成"、
+       报"已开通"，**实际上一次登录都没做**（用户实测：那个令牌文件是 9 月建的）。
+    ⇒ 现在分两条路走，**每条都说实话**：
+       ① **已经有一份令牌**（gppt 家目录里）→ **明确告诉他"沿用了旧的、没有重新登录"**，
+          并给出"想换账号怎么办"（加 `force` / 删那个文件）；
+       ② **没有令牌** → **真的调 gppt 登录**；失败就报**真实错误**，不再静默回退。
+    """
     miss = [m for m in missing_deps() if m in ("gppt", "pixivpy3")]
     if miss:
         return False, ("❌ 还没装依赖：" + "、".join(miss) + "\n"
                        "     在项目目录里跑这条就行：\n     " + install_hint())
-    try:
-        mod = _toolkit()
-    except Exception as e:
-        return False, f"❌ 加载工具包失败: {type(e).__name__}: {e}"
 
+    _old, _when = _existing_gppt_token()
+    if _old and not force:
+        # ★ 老老实实说：**没有登录，只是沿用了已有的**
+        try:
+            _set_env("PIXIV_REFRESH_TOKEN", _old)
+        except Exception as e:
+            return False, f"❌ 写 .env 失败: {type(e).__name__}: {e}"
+        _say(on_line, "发现本机已有一份 P站令牌（沿用它，不重新登录）")
+        return True, (
+            f"✅ 你的电脑上**本来就有**一份 P站令牌（gppt 保存的，"
+            f"最后修改 {_when or '未知'}），**这次没有重新登录**，"
+            f"已经把它沿用并写进了 `.env` 的 PIXIV_REFRESH_TOKEN。\n"
+            f"     ★ 如果它还能用，你什么都不用做；\n"
+            f"     ★ 如果想**换账号**、或者这个令牌已经过期：\n"
+            f"       删掉 `{Path.home() / '.config' / 'gppt' / 'default.token.json'}` "
+            f"再点一次「一键开通」，就会真的弹出浏览器让你登录。")
+
+    # ② 没有旧令牌（或用户要求强制重登）→ 真的登录
     _say(on_line, "正在打开浏览器，请在窗口里**登录 Pixiv**（只需这一次）。")
     try:
-        token = mod.pixiv_login()
+        from gppt import GetPixivToken
+    except ImportError:
+        return False, ("❌ 没装 gppt。\n"
+                       f"     在项目目录里跑：{install_hint()}")
+    token = None
+    try:
+        # ★ 直接调 gppt，**不经过**工具包那个会静默回退的封装
+        try:
+            _g = GetPixivToken(headless=False)
+        except TypeError:                     # 兼容不同 gppt 版本的签名
+            _g = GetPixivToken()
+        _res = _g.login()
+        if isinstance(_res, dict):
+            token = (_res.get("refresh_token") or "").strip()
+        elif isinstance(_res, str):
+            token = _res.strip()
     except Exception as e:
-        return False, f"❌ 登录流程出错: {type(e).__name__}: {e}"
+        return False, (f"❌ Pixiv 登录失败: {type(e).__name__}: {e}\n"
+                       f"     常见原因：网络需要代理（P站国内要代理）；"
+                       f"或浏览器窗口被提前关掉了。")
     if not token:
-        return False, ("❌ 没拿到 refresh_token。\n"
-                       "     常见原因：登录没完成 / 网络需要代理（P站国内要代理）。")
+        return False, ("❌ 没拿到 refresh_token（登录可能没完成）。\n"
+                       "     再点一次，在浏览器里完成登录再关窗口。")
     try:
         _set_env("PIXIV_REFRESH_TOKEN", token)
     except Exception as e:
         return False, f"❌ 写 .env 失败: {type(e).__name__}: {e}"
     _say(on_line, "✅ P站已开通（refresh_token 已写入 .env）")
-    return True, ("✅ P站已开通！refresh_token 已写进 .env（不进版本库）。\n"
+    return True, ("✅ P站已开通！这次是**真的登录了**，"
+                  "refresh_token 已写进 .env（不进版本库）。\n"
                   "     如果桌宠已经在运行，**重启一次**它才会读到。")
 
 

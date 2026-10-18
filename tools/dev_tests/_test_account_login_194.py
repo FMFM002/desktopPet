@@ -163,6 +163,24 @@ check("★★两条路径（DASH / durl）都做了区分"
       "（用共同子串「普通账号」计数 —— 两处措辞略有不同，别用整句匹配）",
       _s_bi.count("普通账号") >= 2)
 
+print("\n== L. ★★★ P站「1 秒完成」= 沿用了旧令牌，必须说清楚（真机发现）==")
+# 用户 2026-10-18："开通P站几乎一秒完成，看看是token没删干净还是一键登陆了"。
+# 查证：`~/.config/gppt/default.token.json` **创建于 2026-09-16**（早就有），
+#       所以那次"一键开通"只是**把旧令牌读出来又写了一遍**，**根本没登录**。
+# 而原实现却报"✅ P站已开通！"——**跟"假下载"同一类错：没做成的做成**。
+check("★★★能看见 gppt 已有的令牌（`_existing_gppt_token`）",
+      "_existing_gppt_token" in _s)
+check("★★★有令牌时**明确说「没有重新登录」**（不能报成刚登录成功）",
+      "这次没有重新登录" in _s or "没有重新登录" in _s)
+check("★★并告诉用户**怎么强制重登**（删掉那个令牌文件）",
+      "default.token.json" in _s and "再点一次" in _s)
+check("★★支持 `force` 强制重登（设置页/CLI 想换账号时用）",
+      "force: bool = False" in _s or "force=" in _s)
+check("★★★**不再走**工具包那个会静默回退的 `pixiv_login()`",
+      ".pixiv_login(" not in _s)
+check("★★改成直接调 gppt，失败就报**真实错误**（不静默回退）",
+      "GetPixivToken" in _s)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
