@@ -146,3 +146,8 @@ tools/dev_tests/_gifsrc_193/
 #   （我一次 git add -A 就把 289 个 profile 文件收进去了，随即 amend 清掉。）
 data/account_login/
 data/cookies/
+
+# ★★ 1.9.4（推 GitHub 后发现）：agent 工具的工作笔记目录，**不属于产品**。
+#   我一次推送把 8 个文件带上去了（已核实无凭据）；
+#   它们是我这边的会话记录/记忆/令牌账本，公开仓库里没有意义。
+.dshwolf/
