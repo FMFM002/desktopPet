@@ -82,6 +82,25 @@ _refs = getattr(_w, "_acc_refs", {})
 check("★两个平台各有状态引用（bilibili / pixiv）",
       {"bilibili", "pixiv"} <= set(_refs), str(sorted(_refs)))
 
+print("\n== G. ★★★ 模型必须**知道**这个功能（真机截图暴露的坑）==")
+# 用户 2026-10-18 截图：他问"开通B站功能"，模型回
+#   "绑定账号、开通大会员之类的账号权限那铃兰这边做不到" —— **错**。
+# 根因：功能做了，但**工具描述和系统提示词里都没写** → 模型不知道自己有。
+#   ⇒ 教训：**能力做了不等于模型会用**，必须在它看得见的地方写明。
+_s_bi = (ROOT / "tools" / "bilibili_tool.py").read_text(encoding="utf-8")
+_s_px = (ROOT / "tools" / "pixiv_tool.py").read_text(encoding="utf-8")
+_s_lc = (ROOT / "src" / "core" / "llm_client.py").read_text(encoding="utf-8")
+check("★★★B站工具描述里写了「不要说做不到」+ 指路到设置→账号开通",
+      "不要说做不到" in _s_bi and "设置 → 账号开通" in _s_bi)
+check("★★★P站工具描述里也写了（原来只写'需要先配置'，没说怎么配）",
+      "不要说做不到" in _s_px and "设置 → 账号开通" in _s_px)
+check("★★★系统提示词里**单独有一段** —— 因为模型可能**不调工具**就凭常识回答",
+      "B站 / P站 的账号权限" in _s_lc)
+check("★★提示词里明确写了「一键开通（登录一次）」这个入口名",
+      "一键开通（登录一次）" in _s_lc)
+check("★并说明「配好之后可能要重启桌宠才会生效」（工具会缓存凭据）",
+      "重启桌宠" in _s_lc)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
