@@ -303,28 +303,52 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
                        "     在项目目录里跑这条就行：\n     " + install_hint())
 
     _say(on_line, "正在打开浏览器，请在窗口里登录 Pixiv（只需这一次）。")
-    try:
-        from gppt import GetPixivToken
-    except ImportError:
-        return False, ("❌ 没装 gppt。\n"
-                       f"     在项目目录里跑：{install_hint()}")
-
+    # ★★★ 1.9.4 真机修复（2026-10-18）：**gppt 5.x 换了 API**。
+    #   参考项目那套 `from gppt import GetPixivToken` 是 **gppt 0.9.x** 的写法；
+    #   用户机器上装的是 **gppt 5.1.0**，`GetPixivToken` **已经不存在**了
+    #   （实测：`ImportError: cannot import name 'GetPixivToken'`）。
+    #   而我原来把那个 ImportError 当成"没装 gppt"来报 —— **误导用户**。
+    #   ⇒ 5.x 的正确用法是 `gppt.login(headless=False)`，官方文档说它
+    #     "is the **direct replacement** for the v4 `GetPixivToken().login()`"，
+    #     而且**不读也不写磁盘**（正好符合用户"不读项目外文件"的要求）。
+    #   ⇒ 老版本（0.9.x）保留为回退，两边都试。
     token = None
+    tok_obj = None
     try:
-        # ★ 直接调 gppt（**不经过**工具包那个会静默回退的封装）
-        try:
-            _g = GetPixivToken(headless=False)
-        except TypeError:                     # 兼容不同 gppt 版本的签名
-            _g = GetPixivToken()
-        _res = _g.login()
-        if isinstance(_res, dict):
-            token = (_res.get("refresh_token") or "").strip()
-        elif isinstance(_res, str):
-            token = _res.strip()
+        import gppt as _gppt
+    except ImportError as e:
+        return False, ("❌ 没装 gppt。\n"
+                       f"     在项目目录里跑：{install_hint()}\n"
+                       f"     （底层错误：{e}）")
+    _api = None
+    try:
+        if hasattr(_gppt, "login"):                     # gppt 5.x
+            _api = "gppt5:login"
+            tok_obj = _gppt.login(headless=False)
+        elif hasattr(_gppt, "GetPixivToken"):           # gppt 0.9.x（老写法）
+            _api = "gppt0:GetPixivToken"
+            try:
+                tok_obj = _gppt.GetPixivToken(headless=False).login()
+            except TypeError:
+                tok_obj = _gppt.GetPixivToken().login()
+        else:
+            return False, ("❌ 装的是 gppt，但**这个版本没有可用的登录接口**。\n"
+                           f"     这个 gppt 版本导出的东西："
+                           f"{[x for x in dir(_gppt) if not x.startswith('_')][:12]}\n"
+                           "     请升级或降级到一个带 login / GetPixivToken 的版本：\n"
+                           f"     {install_hint()}")
     except Exception as e:
-        return False, (f"❌ Pixiv 登录失败: {type(e).__name__}: {e}\n"
+        return False, (f"❌ Pixiv 登录失败（{_api}）: {type(e).__name__}: {e}\n"
                        f"     常见原因：网络需要代理（P站国内要代理）；"
                        f"或浏览器窗口被提前关掉了。")
+
+    # 从返回对象里取 refresh_token：5.x 是 Token 对象，老版是 dict / str
+    if isinstance(tok_obj, dict):
+        token = (tok_obj.get("refresh_token") or "").strip()
+    elif isinstance(tok_obj, str):
+        token = tok_obj.strip()
+    else:
+        token = (getattr(tok_obj, "refresh_token", "") or "").strip()
     if not token:
         return False, ("❌ 没拿到 refresh_token（登录可能没完成）。\n"
                        "     再点一次，在浏览器里完成登录再关窗口。")

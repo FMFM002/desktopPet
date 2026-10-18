@@ -208,6 +208,28 @@ _cli = (ROOT / "tools" / "account_login.py").read_text(encoding="utf-8")
 check("★命令行输出也剥掉 `**`（终端里同样不该露）",
       'replace("**", "")' in _cli)
 
+print("\n== N. ★★★ gppt 5.x 换了 API（真机：'没装 gppt' 是误报）==")
+# 用户 2026-10-18 截图：P站页报"❌ 没装 gppt"，可命令行 `deps` 明明四个都 ✅。
+# 根因：`from gppt import GetPixivToken` 是 **gppt 0.9.x** 的老 API；
+#       他装的是 **gppt 5.1.0**，`GetPixivToken` **已不存在**
+#       （实测 ImportError: cannot import name 'GetPixivToken'），
+#       而我把它当成"没装"来报 → **误导**。
+# 5.x 的正确入口是 `gppt.login(headless=False)`（官方文档：v4
+# `GetPixivToken().login()` 的 **direct replacement**，且**不读写磁盘**）。
+check("★★★支持 **gppt 5.x** 的 `gppt.login(...)`",
+      'hasattr(_gppt, "login")' in _s and "_gppt.login(" in _s)
+check("★★保留 **gppt 0.9.x** 的 `GetPixivToken` 回退（别把老用户弄坏）",
+      'hasattr(_gppt, "GetPixivToken")' in _s)
+check("★★能从 **Token 对象**取 `refresh_token`（5.x 返回的是对象，不是 dict）",
+      'getattr(tok_obj, "refresh_token"' in _s)
+check("★★★**区分**「没装」与「装了但没这个接口」（不能都报成没装）",
+      "这个版本没有可用的登录接口" in _s)
+check("★★用 `login` 而不是 `get_token` —— 后者会**读写磁盘**上的 gppt profile，"
+      "违反用户「不读项目外文件」的要求",
+      "_gppt.get_token(" not in _s)
+check("★报「没装」时附带**底层错误**（便于日后判断到底是哪种）",
+      "底层错误" in _s)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
