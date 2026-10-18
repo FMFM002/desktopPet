@@ -3,35 +3,58 @@
 
 ## B 形态是什么
 A（便携 zip）要求用户**自己有 Python**；B 把这个前提去掉 ——
-打出一个 `PRTS.exe`，**双击就能跑**（内部自带 Python 运行时与依赖）。
+打出一个 `PRTS-DesktopPet-1.9.4.exe`，**双击就能跑**（内部自带 Python 运行时与依赖）。
 
 ## 构建
-    python tools/build_release.py                      # 先装配出干净目录（可选）
-    python -m PyInstaller PRTS.spec --noconfirm        # 再打包
-    产物: dist/PRTS/PRTS.exe
+    python -m PyInstaller PRTS.spec --noconfirm
+    产物: dist/PRTS-DesktopPet-1.9.4-exe/PRTS-DesktopPet-1.9.4.exe
 
-## ★★ 三条硬约束（都在下面落实了）
+## ★★ 四条硬约束（都在下面落实了）
   1. **绝不把 1.8 GB 的 TTS 模型打进去**。
      模型是 `data`，不是被 import 的模块 —— 所以**只要不写进 `datas` 就不会进去**。
      它走 `src/core/models.py` 的集中管理，按需获取（`tools/model_manager.py`）。
      同理排除 `data/whisper`、`data/models`。
   2. **不带用户数据**：`.env`、`config.json`、`data/DBs`、`data/cache`、`logs/`、
      `data/桌宠私有data` 一律不进包（发布了就收不回来）。
-  3. **exe 不需要 `data/桌宠形象` 之外的东西也能启动** —— 缺模型只是少功能，不是崩
+  3. **exe 不需要模型也能启动** —— 缺模型只是少功能，不是崩
      （这条由 `_test_standalone_194.py` 盯着）。
+  4. **不与 A 形态撞目录**：A 的装配目录是 `dist/PRTS-DesktopPet-1.9.4/`，
+     所以 B 的 COLLECT 目录名多一个 `-exe` 后缀。
+     ★ 这一条是**真踩过的坑**：PyInstaller 带 `--noconfirm` 时会**先删掉同名输出目录**，
+       以前两边同名 → 打一次 exe 就把 77MB 的便携装配目录整锅端掉。
+
+## ★★★ `contents_directory="."` —— 让 exe 目录就是"项目根"
+PyInstaller 6 默认把运行时塞进 `_internal/`，于是 `sys._MEIPASS` 指向 `_internal`。
+而本项目**所有模块**都用 `Path(__file__).resolve().parents[...]` 找根目录
+（`main.py` / `src/utils/config.py` / `src/core/tool_manager.py` … 共 40 余处），
+冻结后 `__file__` 落在 `_MEIPASS` 下 —— 也就是说：
+
+    · 默认布局 → 用户数据（config.json / .env / logs / data/DBs）会写进 `_internal/`
+      （混在 DLL 里、升级时会被整目录替换掉，用户的聊天记录就没了）；
+    · `contents_directory="."`（PyInstaller 的 legacy onedir 布局）→ `_MEIPASS` **就是**
+      exe 所在目录 → 数据就落在 exe 旁边，与便携 zip 版行为一致。
+
+**一行配置换掉 40 处路径改动**，这是这一版选它的唯一理由。
 
 ## 需要显式 `datas` 的东西（它们不是 Python 模块，PyInstaller 猜不到）
     data/桌宠形象  —— 角色（GIF / settings.json / 头像）：**产品本体**
     data/memes     —— 表情包库
     data/assets    —— 程序内用到的图片
+    data/tools     —— aria2c.exe（磁力下载引擎，按文件路径找）
     data/China-City-List-latest.csv —— 天气工具要的城市表
     config.default.json —— 首次运行据此生成用户配置
-    .env.example   —— 告诉用户要填哪些密钥
+    .env.example / .env.preset —— 密钥模板 / **出厂预设密钥**
+    tools/*.py     —— ★ 工具是 `importlib.util.spec_from_file_location()` **按文件路径**
+                      加载的（见 `src/core/tool_manager.py`），静态分析**完全看不见**；
+                      不复制进包 → exe 里一个工具都没有
+    tools/_vendor  —— 账号开通工具包（同样是按文件路径 exec_module 加载）
 
 ## 关于体积与杀软（如实说）
-  · 带上 Python 运行时 + PySide6 + onnxruntime + scipy… 通常在 **300~600 MB**；
+  · 带上 Python 运行时 + PySide6 + onnxruntime… 实测约 **400 MB**；
   · `console=False` 的单文件 exe **常被杀软误报**（PyInstaller 的固有现象）。
     所以这里用 **onedir（默认）而不是 onefile** —— 误报更少、启动更快。
+  · 排查"双击没反应"的正确姿势：`PRTS-DesktopPet-1.9.4.exe --selftest`
+    （把启动过程写进 `logs/selftest_*.txt`，不需要改 console）。
 """
 import os
 import sys
@@ -56,32 +79,66 @@ os.environ.setdefault("NLTK_DATA", str(_FROZEN_ROOT / "data" / "nltk_data"))
 
 from src.version import APP_ID, __version__              # noqa: E402
 
+# ── 输出名 ──
+EXE_NAME = f"{APP_ID}-{__version__}"
+# ★ 目录名带 -exe：**绝不能**等于 A 形态的装配目录（--noconfirm 会先删同名目录）
+COLLECT_NAME = f"{APP_ID}-{__version__}-exe"
+
 # ── 要随包的数据（**注意：这里没有 models**）──
 DATAS = []
 for rel in (
     "data/桌宠形象",                      # 角色本体
     "data/memes",                        # 表情包
     "data/assets",                       # 程序图片
+    "data/tools",                        # aria2c.exe（磁力下载引擎，按文件路径找）
     "data/China-City-List-latest.csv",   # 天气城市表
     "config.default.json",               # 出厂配置（首启据此生成 config.json）
     ".env.example",                      # 密钥模板
+    # ★★ 缺口 1（交接文档第三节）：**出厂预设密钥**。
+    #   漏了它 → main.py 首启复制不出 .env → 天气 / Tavily 搜索 / 终末地**全部没配**。
+    ".env.preset",
     "requirements.txt",                  # 让用户看得见依赖
     "README.md",
+    # 与便携 zip 保持一致的 4 份文档
+    "发布说明_1.9.4.txt",
+    "B站与P站凭据获取指南_1.9.4.md",
+    "施工说明书_ComfyUI集成_1.9.4.txt",
+    "评估_画图工具自部署_1.9.4.txt",
 ):
     p = ROOT / rel
     if p.exists():
         # 目录 → 连目录名一起带；文件 → 放到同名位置
         DATAS.append((str(p), rel if p.is_dir() else str(Path(rel).parent)))
+    else:
+        print(f"[spec][warn] DATAS 缺文件，已跳过: {rel}")
 
-# ── 隐藏导入：这些是"运行时才 import"或"被别的库间接用"的 ──
+# ── ★★ tools/*.py：工具是**按文件路径**加载的，必须复制进包 ──
+TOOL_SRC = sorted(p for p in (ROOT / "tools").glob("*.py"))
+for _p in TOOL_SRC:
+    DATAS.append((str(_p), "tools"))
+print(f"[spec] tools/*.py: {len(TOOL_SRC)} 个")
+
+# 账号开通的第三方工具包（account_login.py 用 exec_module 按路径加载）
+_VENDOR = ROOT / "tools" / "_vendor"
+if _VENDOR.is_dir():
+    DATAS.append((str(_VENDOR), "tools/_vendor"))
+
+# ── 隐藏导入：这些是"运行时才 import"或"按路径 import"的 ──
 HIDDEN = [
     "src.core.models",                   # 模型集中管理（运行时被解析）
     "src.core.first_run",
     "src.ui.first_run_wizard",
+    # ★★ 缺口 2（交接文档第三节）：设置页里 `from src.core import account_login`
+    #   是**运行时** import → 静态分析扫不到 → 冻结后一进「账号开通」页就 ModuleNotFoundError
+    "src.core.account_login",
     "fitz", "pptx", "docx", "openpyxl",  # 文档读取（file_ops 里延迟导入）
     "win32gui", "win32process", "win32com.client", "pythoncom",   # Windows 能力
     "PIL._tkinter_finder",
 ]
+# ★★ 工具模块本身也要进 hiddenimports —— 不是为了让"导入它们"，
+#   而是为了让 PyInstaller **分析它们的依赖**（pptx / yt_dlp / jmcomic / aiohttp …）。
+#   不登记 → 工具代码在包里，但它 import 的库不在包里 → 调用即 ModuleNotFoundError。
+HIDDEN += [f"tools.{p.stem}" for p in TOOL_SRC if p.stem != "__init__"]
 
 # ── 明确排除：装了大但用不到的东西，能显著减小体积 ──
 # ★★ 第一版实测产物 **3776 MB / 7479 文件** —— 比便携 zip（77MB）大 49 倍！
@@ -105,6 +162,12 @@ EXCLUDES = [
     "sudachidict_core", "sudachipy", "paddle", "paddleocr", "paddlex",
     "pyopenjtalk", "g2pk2", "eunjeon", "jamo", "ko_pron", "mecab",
     "pycld2", "polyglot", "icu",
+    # ★★ 1.9.4 缺口 3 的取舍（交接文档第三节，按"建议方案"执行）：
+    #    「一键开通 B站/P站」要 playwright（含 107MB 浏览器驱动）+ gppt。
+    #    exe 里把这三个排掉 → 该功能在界面上**明确提示改用便携 zip 版**，
+    #    而不是崩、也不是假报"没装"（见 src/core/account_login.py 的 frozen 分支）。
+    #    ★ 想改成支持：删掉这行，并把 playwright 的驱动目录加进 DATAS（+150MB 起）。
+    "playwright", "gppt", "pixivpy3",
 ]
 
 a = Analysis(
@@ -125,15 +188,20 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
-    name=f"{APP_ID}-{__version__}",
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,               # ★ UPX 压缩会被更多杀软盯上，关掉
-    console=False,           # 图形程序；日志走 logs/ 文件，不弹黑窗
+    # ★ console=False 是给用户的；要排查启动失败就设环境变量 PRTS_SPEC_CONSOLE=1 重打包
+    console=bool(os.environ.get("PRTS_SPEC_CONSOLE")),
     disable_windowed_traceback=False,
+    # ★★★ 关键：把运行时直接铺在 exe 旁边（不建 _internal/），
+    #   这样 sys._MEIPASS == exe 目录，用户数据（config.json/.env/logs/data）
+    #   全部落在 exe 旁边 —— 与便携 zip 版行为一致。原因见文件头。
+    contents_directory=".",
 )
 coll = COLLECT(
     exe, a.binaries, a.datas,
-    strip=False, upx=False, name=f"{APP_ID}-{__version__}",
+    strip=False, upx=False, name=COLLECT_NAME,
 )
