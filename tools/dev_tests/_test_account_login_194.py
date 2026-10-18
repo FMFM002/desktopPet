@@ -1,0 +1,96 @@
+# -*- coding: utf-8 -*-
+"""★ 1.9.4：**一键开通 B站 / P站** 守卫（**静态**，因为沙箱里跑不了）。
+
+## 用户的要求
+  "参考项目 bili_pixiv_toolkit 可以做到开通 P站 和 B站 的功能。
+   如果用户要开通这两个功能，就**引导用户登陆一次**就可以了。"
+
+## ★ 为什么这个守卫是**静态**的
+  本模块最终会起 Playwright 浏览器（子进程 + 管道）。而 DSH 沙箱**不允许创建管道**
+  （`PermissionError: [WinError 5]`，实测过），所以**在沙箱里跑不了真流程**。
+  ⇒ 守卫只钉"结构对不对、关键判据在不在"，**真流程必须真机验证**。
+    这一点必须写清楚，**不能假装测过了**。
+
+## 钉什么
+  A. 工具包**已原样并入** `tools/_vendor/`（第三方代码，不该改它的业务逻辑）；
+  B. ★★ 产出的东西**搬到项目该在的位置**：
+       B站 → `data/cookies/bilibili.json`（`bilibili_tool` 读这里；
+              **B站凭据是文件，不是 .env 键**）
+       P站 → `.env` 的 `PIXIV_REFRESH_TOKEN`
+  C. ★★ **改写工具包的输出目录** —— 别让它把浏览器 profile / 下载物吐进
+     `tools/_vendor/`（那里是第三方代码区，写脏了很乱）；
+  D. ★★ B站成功后**必须校验 SESSDATA**（`bilibili_tool` 只认这一个字段）
+     —— 没登录成功就不能报"已开通"；
+  E. ★★ 依赖缺失或流程出错时，**给可操作的安装命令**（`sys.executable -m pip install ...`），
+     且**装进本项目自己的解释器**（参考项目用的是它那台机器的 `py`，混用会 import 不到）；
+  F. ★ **不抛异常**（界面要能拿到 `(ok, msg)`），且 `deps()` 单项失败不能带崩。
+"""
+import os
+import sys
+from pathlib import Path
+
+os.environ.setdefault("PRTS_NO_COMFY_START", "1")
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+PASS, FAIL = [], []
+
+
+def check(name, ok, detail=""):
+    (PASS if ok else FAIL).append(name)
+    print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"   {detail}" if detail else ""))
+
+
+print("== A. 工具包已原样并入 _vendor ==")
+_v = ROOT / "tools" / "_vendor" / "bili_pixiv_toolkit.py"
+check("★★第三方工具包在 `tools/_vendor/bili_pixiv_toolkit.py`", _v.is_file(),
+      f"{_v.stat().st_size} 字节" if _v.is_file() else "缺失")
+_vs = _v.read_text(encoding="utf-8") if _v.is_file() else ""
+check("★它里面那两个关键登录函数还在（我们只调这两个）",
+      "def bili_login(" in _vs and "def pixiv_login(" in _vs)
+
+_s = (ROOT / "src" / "core" / "account_login.py").read_text(encoding="utf-8")
+
+print("\n== B. 产物搬到项目该在的位置 ==")
+check("★★B站 cookie 落到 `data/cookies/bilibili.json`"
+      "（bilibili_tool 从这儿读；**B站凭据是文件，不是 .env 键**）",
+      'COOKIE_DST = COOKIE_DIR / "bilibili.json"' in _s)
+check("★★P站写 `.env` 的 `PIXIV_REFRESH_TOKEN`（pixiv_tool 从这儿读）",
+      '_set_env("PIXIV_REFRESH_TOKEN"' in _s)
+
+print("\n== C. 改写工具包的输出目录（别写进 _vendor）==")
+for _const in ("BILI_PROFILE", "BILI_COOKIE_FILE", "BILI_STATE_FILE"):
+    check(f"★改写 `{_const}` 指向 `data/account_login`",
+          f"mod.{_const} = WORK" in _s)
+
+print("\n== D. B站必须校验 SESSDATA 才能报成功 ==")
+check("★★校验 `SESSDATA`（bilibili_tool 只认这一个字段）",
+      'data.get("SESSDATA")' in _s)
+check("★★没拿到/没 SESSDATA 时返回**失败**并有可操作的话",
+      "说明**还没真的登录**" in _s or "还没真的登录" in _s)
+
+print("\n== E. 依赖缺失给可操作的安装命令 ==")
+check("★★install_hint 用 **sys.executable**（本项目解释器），"
+      "不是参考项目那台机器的 `py`（混用会 import 不到）",
+      "sys.executable" in _s and "pip install" in _s)
+check("★四个依赖都点名了", all(d in _s for d in
+                              ("playwright", "requests", "pixivpy3", "gppt")))
+
+print("\n== F. 不抛异常 / 探测不自崩 ==")
+check("★★两个登录函数都用 try 包住流程（界面要能拿到 (ok, msg)）",
+      _s.count("except Exception as e:") >= 4)
+check("★★`deps()` 每一项**单独 try** —— 探测函数不能把整个界面带崩"
+      "（沙箱里 `find_spec` 都可能抛 PermissionError）",
+      "except Exception:" in _s.split("def deps()")[1].split("def missing_deps")[0])
+check("★没有任何 `raise` 直接往上抛（只允许 FileNotFoundError 在 _toolkit 里"
+      "由调用方 try 住）",
+      "raise " not in _s.split("def login_bilibili")[0].split("def _toolkit")[0])
+
+print("\n== ★ 诚实声明：真流程必须在真机上验 ==")
+print("  ⚠ 本守卫**只验结构**。真正弹浏览器登录这件事，"
+      "沙箱里起不了子进程/管道（WinError 5），**必须真机试**。")
+
+print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
+for f in FAIL:
+    print("  FAIL:", f)
+sys.exit(1 if FAIL else 0)
