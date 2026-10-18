@@ -86,6 +86,24 @@ check("★没有任何 `raise` 直接往上抛（只允许 FileNotFoundError 在
       "由调用方 try 住）",
       "raise " not in _s.split("def login_bilibili")[0].split("def _toolkit")[0])
 
+print("\n== ★★ G. 防泄露：一键开通产生的凭据**绝不能**进发布包 ==")
+# ★ 这是我这轮差点漏掉的：新建的 `data/account_login/` 会装
+#   **整个 Edge 浏览器 profile + 真实 cookie**，而装配器原来**没排除它**。
+_br = (ROOT / "tools" / "build_release.py").read_text(encoding="utf-8")
+check("★★★装配器排除了 `data/account_login`"
+      "（里面有浏览器 profile + 真实登录凭据，绝不能随包发）",
+      '"data/account_login"' in _br)
+import importlib.util as _u                                  # noqa: E402
+import pathlib as _pl                                        # noqa: E402
+_sp = _u.spec_from_file_location("_br", ROOT / "tools" / "build_release.py")
+_br_mod = _u.module_from_spec(_sp)
+_sp.loader.exec_module(_br_mod)
+for _rel in ("data/account_login/edge_bili_profile/Default/Cookies",
+             "data/account_login/bili_cookies.json",
+             "data/cookies/bilibili.json"):
+    _skip, _why = _br_mod._should_skip(_pl.Path(_rel), False)
+    check(f"★★实测 `{_rel}` **被排除**", _skip, _why[:20])
+
 print("\n== ★ 诚实声明：真流程必须在真机上验 ==")
 print("  ⚠ 本守卫**只验结构**。真正弹浏览器登录这件事，"
       "沙箱里起不了子进程/管道（WinError 5），**必须真机试**。")

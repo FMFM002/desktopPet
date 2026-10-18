@@ -46,6 +46,11 @@ EXCLUDE_DIRS = {
     "data/DBs": "★★你的聊天记录与长期记忆（数据库）",
     "data/cache": "★运行时缓存（含聊天图片预览）",
     "data/cookies": "★你的登录 cookie",
+    # ★★ 1.9.4（我差点漏掉的**泄露点**）：一键开通 B站/P站 时，
+    #   Playwright 会把**整个 Edge 浏览器 profile** 和导出的
+    #   `bili_cookies.json` 写在这里 —— 那是**真实登录凭据 + 浏览器数据**，
+    #   而且体积可能是几十上百 MB。**绝不能随包发出去。**
+    "data/account_login": "★★浏览器 profile 与真实登录凭据（一键开通 B站/P站 时产生）",
     "data/downloads": "★你下载的文件",
     "data/桌宠私有data": "★★你的私有文件夹（工具能读写的地方）",
     "data/chat_clips": "★粘贴图的磁盘缓存",
