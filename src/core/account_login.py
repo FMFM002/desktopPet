@@ -228,10 +228,21 @@ def login_bilibili(on_line=None) -> tuple:
                        "     请再点一次，登录成功后**先看到自己的头像**再关窗口。")
     try:
         COOKIE_DIR.mkdir(parents=True, exist_ok=True)
+        # ★★★ 1.9.4 真机修复（2026-10-18）：**格式必须和 bilibili_tool 对齐**。
+        #   `bilibili_tool._parse_json()` 的读法是：
+        #       items = data.get("cookies", []) if isinstance(data, dict) else data
+        #       for c in items: c.get("name") / c.get("value")
+        #   —— 它要的是 **`[{"name","value"}, ...]`**（或 `{"cookies":[...]}`）。
+        #   而我之前写的是**扁平字典** `{"SESSDATA": "...", ...}` →
+        #   `data.get("cookies", [])` 直接是 `[]` → **工具读到 0 条 cookie**
+        #   → 下载仍然只有 480P。用户真机实测：文件 26 条、`_get_cookie_string()`
+        #   返回长度 **0**。这就是"登录成功了但还是低画质"的真因。
         COOKIE_DST.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            json.dumps([{"name": k, "value": v} for k, v in data.items()],
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8")
     except Exception as e:
-        return False, f"❌ 复制 cookie 到项目失败: {type(e).__name__}: {e}"
+        return False, f"❌ 写入 cookie 到项目失败: {type(e).__name__}: {e}"
     _say(on_line, f"✅ B站已开通（cookie 已写入 {COOKIE_DST.relative_to(ROOT)}）")
     return True, (f"✅ B站已开通！拿到了 {len(data)} 个 cookie（含 SESSDATA）。\n"
                   f"     文件位置：{COOKIE_DST.relative_to(ROOT)}\n"
@@ -298,8 +309,18 @@ def status() -> dict:
     bili_ok = False
     try:
         if COOKIE_DST.is_file():
-            bili_ok = bool(json.loads(COOKIE_DST.read_text(encoding="utf-8"))
-                           .get("SESSDATA"))
+            _d = json.loads(COOKIE_DST.read_text(encoding="utf-8"))
+            # ★ 兼容两种格式：`[{"name","value"}]`（我们写的、工具认的）
+            #   和老的扁平 `{"SESSDATA": "..."}`
+            if isinstance(_d, dict):
+                _flat = _d.get("cookies") if isinstance(_d.get("cookies"), list) else _d
+                if isinstance(_flat, list):
+                    _flat = {c.get("name"): c.get("value") for c in _flat
+                             if isinstance(c, dict)}
+                bili_ok = bool((_flat or {}).get("SESSDATA"))
+            elif isinstance(_d, list):
+                bili_ok = any(isinstance(c, dict) and c.get("name") == "SESSDATA"
+                              and c.get("value") for c in _d)
     except Exception:
         pass
     pixiv_ok = False

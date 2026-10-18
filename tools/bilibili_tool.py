@@ -421,13 +421,23 @@ async def _get_video_playurl(bvid: str, cid: int, quality: int = 127) -> Optiona
                     if _hi and qid < _hi:
                         _desc = dict(zip(accept_q,
                                          rd.get("accept_description") or []))
-                        _note = (
-                            f"这条视频本身支持到「{_desc.get(_hi, '更高画质')}」，"
-                            f"但**现在只拿到 {bv.get('height')}P** —— 因为**没登录**，"
-                            f"B站不给未登录用户放更高清的流。"
-                            f"想下高清：打开「桌宠右键 → 设置 → 账号开通」，"
-                            f"点「一键开通（登录一次）」，登录后再下同一个视频即可。"
-                            f"（1080P 只要登录；1080P60/4K 需要大会员。）")
+                        _want = _desc.get(_hi, "更高画质")
+                        # ★★ 1.9.4 修：**必须区分"没登录"和"要大会员"**。
+                        #   加了 cookie 之后这里还写"因为没登录"就是**说假话**
+                        #   （实测：登录后拿到 1080P，但 4K 仍需大会员）。
+                        if (cookie or "").strip():
+                            _note = (
+                                f"这条视频本身支持到「{_want}」，你现在拿到的是 "
+                                f"{bv.get('height')}P —— **这已经是普通账号的上限**。"
+                                f"再往上（1080P60 / 4K）需要 **B站大会员**。")
+                        else:
+                            _note = (
+                                f"这条视频本身支持到「{_want}」，"
+                                f"但**现在只拿到 {bv.get('height')}P** —— 因为**没登录**，"
+                                f"B站不给未登录用户放更高清的流。"
+                                f"想下高清：打开「桌宠右键 → 设置 → 账号开通」，"
+                                f"点「一键开通（登录一次）」，登录后再下同一个视频即可。"
+                                f"（1080P 只要登录；1080P60/4K 需要大会员。）")
                 except Exception:
                     _note = ""
                 return {
@@ -456,10 +466,15 @@ async def _get_video_playurl(bvid: str, cid: int, quality: int = 127) -> Optiona
                 _hi2 = max(accept_q) if accept_q else 0
                 if _hi2 and qid < _hi2:
                     _desc2 = dict(zip(accept_q, rd.get("accept_description") or []))
-                    _dnote = (f"这条视频本身支持到「{_desc2.get(_hi2, '更高画质')}」，"
-                              f"但现在只拿到较低画质 —— 因为**没登录**。"
-                              f"想下高清：打开「桌宠右键 → 设置 → 账号开通」，"
-                              f"点「一键开通（登录一次）」，登录后再下。")
+                    if (cookie or "").strip():
+                        _dnote = (f"这条视频本身支持到「{_desc2.get(_hi2, '更高画质')}」，"
+                                  f"你现在拿到的已是**普通账号上限**；"
+                                  f"再往上（1080P60/4K）需要 **B站大会员**。")
+                    else:
+                        _dnote = (f"这条视频本身支持到「{_desc2.get(_hi2, '更高画质')}」，"
+                                  f"但**现在只拿到较低画质** —— 因为**没登录**。"
+                                  f"想下高清：打开「桌宠右键 → 设置 → 账号开通」，"
+                                  f"点「一键开通（登录一次）」，登录后再下。")
             except Exception:
                 _dnote = ""
             return {

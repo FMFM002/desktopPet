@@ -139,6 +139,30 @@ check("★★会检测并说明 **412 风控**（用户截图里就是 412）",
 check("★超时时给的是**可操作**的话（而不是干等）",
       "没检测到登录" in scan)
 
+print("\n== J. ★★★ cookie 文件格式必须和 bilibili_tool 对齐（真机踩过）==")
+# 真机证据（2026-10-18）：登录成功、文件里 26 条 cookie、含 SESSDATA，
+# 但 `bilibili_tool._get_cookie_string()` 返回长度 **0** → 下载仍 480P。
+# 根因：`_parse_json()` 要的是 **`[{"name","value"}, ...]`**（或 `{"cookies":[...]}`），
+#       而我写的是**扁平字典** `{"SESSDATA": "..."}` →
+#       `data.get("cookies", [])` 直接得 `[]` → 0 条。
+# 修完实测：cookie 串 0 → **1874**，画质 **480P → 1080P（quality=80）**。
+check("★★★`account_login` 写的是**列表**格式（`[{'name':…,'value':…}]`），"
+      "不是扁平字典 —— 否则工具读到 0 条",
+      '[{"name": k, "value": v}' in _s or "[{'name': k, 'value': v}" in _s)
+check("★★`status()` 能认两种格式（新的列表 + 老的扁平），"
+      "否则升级后会把已开通误报成未开通",
+      "isinstance(_d, list)" in _s and "isinstance(_d, dict)" in _s)
+
+print("\n== K. ★★ 低画质提示必须区分「没登录」和「要大会员」==")
+_s_bi = (ROOT / "tools" / "bilibili_tool.py").read_text(encoding="utf-8")
+# 加了 cookie 之后还写"因为没登录"就是说假话（实测登录后拿到 1080P，4K 才需要大会员）。
+check("★★有 cookie 时提示改成「已是普通账号上限 / 再往上要大会员」",
+      "已经是普通账号的上限" in _s_bi or "普通账号上限" in _s_bi)
+check("★★没 cookie 时才说「因为没登录」", "因为**没登录**" in _s_bi)
+check("★★两条路径（DASH / durl）都做了区分"
+      "（用共同子串「普通账号」计数 —— 两处措辞略有不同，别用整句匹配）",
+      _s_bi.count("普通账号") >= 2)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
