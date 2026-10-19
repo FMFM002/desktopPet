@@ -644,6 +644,24 @@ class ChatClient:
             _log.debug(f"拼装输出/行为控制失败: {e}")
             return ""
 
+    def _self_manual_section(self) -> str:
+        """★ 1.9.4：告诉"我自己"有一份运行手册，**别靠猜**。
+
+        为什么写进系统提示词：用户会问"你怎么工作的 / 这个功能为什么用不了 /
+        文件在哪 / 要不要装模型"。模型没有这份知识时**会编**（真机上就出现过
+        "我已经帮你装好了"这种没发生过的承诺）。
+        手册是仓库里真实存在的 `桌宠自述.md`，exe 版随包（在 exe 旁边），
+        我可以用 `file_view` 自己读 —— 所以这里只需要**指个路 + 立个规矩**。
+        """
+        return ("\n\n## 关于你自己的系统（需要时查，不要猜）\n"
+                "- 你的运行方式、目录结构、工具清单、模型依赖、常见故障、日志在哪，"
+                "都写在**项目根目录的 `桌宠自述.md`**（exe 版在 exe 旁边）。\n"
+                "- 当用户问「你怎么工作的 / 这个功能为什么用不了 / 文件或日志在哪 / "
+                "要不要装模型」，或你要判断「这件事我到底能不能做」时，"
+                "**先用 file_view 读它**，再回答。\n"
+                "- 手册里没有的，就直说查不到；**不要编**，也不要凭空承诺"
+                "「已经装好了 / 已经帮你打开了」。")
+
     def _progress_prompt_section(self) -> str:
         """★ 1.9.2（R71，用户设计）：长任务中途汇报一次，别让人干等。
 
@@ -749,6 +767,7 @@ class ChatClient:
             prompt += rules
             prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
             prompt += self._delegation_prompt_section()
+            prompt += self._self_manual_section()
             self._cached_prompt = prompt
             self._cached_prompt_hash = cache_key
             return prompt
@@ -777,6 +796,7 @@ class ChatClient:
         prompt += "\n\n══════════════════════════════════════\n" + self._SHARED_CONTEXT_NOTE + "\n"
         prompt += self._gif_prompt_section() + self._meme_prompt_section() + self._progress_prompt_section()
         prompt += self._delegation_prompt_section()
+        prompt += self._self_manual_section()
         self._cached_prompt = prompt
         self._cached_prompt_hash = cache_key
         return prompt

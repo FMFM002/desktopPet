@@ -80,6 +80,9 @@ EXCLUDE_FILES = {
 # 顶层要带的（文件/目录）
 INCLUDE = [
     "main.py", "requirements.txt", "README.md",
+    # ★★ 1.9.4：给"桌宠自己"看的运行手册 —— 系统提示词会指路，桌宠用 file_view 读它。
+    #   便携版/exe 版都要带，否则模型回答"我怎么工作"时只能编。
+    "桌宠自述.md",
     # ★ `.env.example` = 给用户看的模板；`.env.preset` = **出厂预设密钥**
     #   （用户 2026-10-05 拍板选 C，**故意随包**，让熟人直接用天气/搜索/终末地）
     ".env.example", ".env.preset", "config.default.json",
