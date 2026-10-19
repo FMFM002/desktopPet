@@ -324,6 +324,53 @@ def _verify_pixiv_token(token: str) -> tuple:
         return None, f"令牌已保存，但验证时网络/代理有问题：{_m[:80]}"
 
 
+def _wait_for_redirect_tolerant(page, timeout_ms: int) -> None:
+    """等"登录完成"—— **不再依赖 networkidle**（1.9.4 真机第二轮修复）。
+
+    ## 真机现象（用户 2026-10-20 00:2x）
+        P站点了「一键开通」→ Edge 打开了 → **登录成功了** →
+        但界面一直转圈，随后浏览器自己关掉，报「等太久没有结果（超时）」；
+        再点一次、同样的操作**又成功了**。日志里能看到 Edge 标题从
+        「登录 | pixiv」变成「Online community for artists | pixiv」——
+        说明**登录本身早就完成了**，是我们这边没识别出来。
+
+    ## 根因：gppt 原来的等待条件太苛刻
+        gppt/browser.py 的 `_wait_for_redirect()`：
+            page.wait_for_url(pixiv://..., wait_until="networkidle", timeout=...)
+        ① **`networkidle`**：pixiv 首页会一直挂着长连接/轮询/广告请求，
+           可能**永远到不了 networkidle** → 明明登录完了还在等；
+        ② **`wait_for_url` 要求 URL 变成 `pixiv://`**：那是自定义协议，
+           Edge 没有注册处理器 → 要么被拦、要么整页跳到 pixiv 首页
+           （用户日志里就是后一种）→ URL 永远不匹配 → 一直等到超时。
+
+    ## 现在的判据（只看"人到底登进去了没"）
+        每 250ms 看一次 `page.url`：
+          · 变成 `pixiv://…`（或带 `code=`）→ 直接返回；
+          · **离开登录页**（URL 里不再有 login）→ 也返回（说明跳走了）；
+        剩下"code 到底抓没抓到"交给 gppt 自己判断 —— 它抓不到会抛
+        `Did not capture an authorization code`，比"等超时"精确得多。
+
+    ★ 这样最坏情况仍然是 timeout_ms（`LOGIN_WAIT_S` = 500 秒），
+      但**正常登录会在跳转的那一瞬间返回**，不会再"一直转圈"。
+    """
+    import time as _t                                      # noqa: PLC0415
+
+    deadline = _t.time() + max(5.0, timeout_ms / 1000.0)
+    while _t.time() < deadline:
+        try:
+            url = page.url or ""
+        except Exception:                                  # noqa: BLE001
+            return                                         # 页面被关了：交给上层报错
+        if url.startswith("pixiv://") or "code=" in url:
+            return
+        if "login" not in url.lower():
+            return                                         # 跳走了 = 登录动作完成
+        try:
+            page.wait_for_timeout(250)
+        except Exception:                                  # noqa: BLE001
+            return
+
+
 def _login_gppt_with_system_edge(headless: bool = False):
     """★ 1.9.4 真机修复（2026-10-19）：让 **gppt 5.x 用系统自带的 Edge** 登录。
 
@@ -349,15 +396,22 @@ def _login_gppt_with_system_edge(headless: bool = False):
       ② 给 `BrowserType.launch` 补一个 `channel="msedge"` —— 用**系统 Edge**，
          和 B站那条路（`_bili_login_browser`）用的是同一个浏览器；
       ③ 把 gppt 的 `MANUAL_TIMEOUT_MS`（等人登录）改成 `LOGIN_WAIT_S` ——
-         它写死 300 秒，用户实测不够（见文件头 `LOGIN_WAIT_S` 的注释）。
-      ★ 三处只在这一个调用期间生效，`finally` 里还原，绝不影响别的功能。
+         它写死 300 秒；
+      ④ **换掉它的 `_wait_for_redirect`** —— 原来靠 networkidle + URL 匹配，
+         pixiv 首页永远不 idle，登录完成了也会等成超时（见上面那个函数的注释）；
+      ⑤ 新开的页面把**导航超时**放宽到 120 秒 —— 走 VPN 时 pixiv 首次加载很慢，
+         playwright 默认 30 秒会把还在下载的页面判死。
+      ★ 五处只在这一个调用期间生效，`finally` 里还原，绝不影响别的功能。
     """
     import gppt.browser as _gb                              # noqa: PLC0415
+    from playwright.sync_api import BrowserContext as _BC   # noqa: PLC0415
     from playwright.sync_api import BrowserType as _BT      # noqa: PLC0415
 
     _orig_install = _gb.install
     _orig_launch = _BT.launch
     _orig_manual_ms = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
+    _orig_wait_redirect = getattr(_gb, "_wait_for_redirect", None)
+    _orig_new_page = _BC.new_page
 
     def _no_install(*_a, **_k):
         # gppt 想装它自带的 Chromium —— 我们不用它，直接用系统 Edge
@@ -367,17 +421,32 @@ def _login_gppt_with_system_edge(headless: bool = False):
         kwargs.setdefault("channel", "msedge")
         return _orig_launch(self, **kwargs)
 
+    def _new_page_slow_ok(self, **kwargs):
+        pg = _orig_new_page(self, **kwargs)
+        try:
+            # 走 VPN 时 pixiv 首次加载可能远超 playwright 默认的 30 秒
+            pg.set_default_navigation_timeout(120_000)
+        except Exception:                                   # noqa: BLE001
+            pass
+        return pg
+
     try:
         _gb.install = _no_install
         _BT.launch = _launch_edge
+        _BC.new_page = _new_page_slow_ok
         if _orig_manual_ms is not None:
             _gb.MANUAL_TIMEOUT_MS = int(LOGIN_WAIT_S * 1000)
+        if _orig_wait_redirect is not None:
+            _gb._wait_for_redirect = _wait_for_redirect_tolerant
         return _gppt_login(headless)
     finally:
         _gb.install = _orig_install
         _BT.launch = _orig_launch
+        _BC.new_page = _orig_new_page
         if _orig_manual_ms is not None:
             _gb.MANUAL_TIMEOUT_MS = _orig_manual_ms
+        if _orig_wait_redirect is not None:
+            _gb._wait_for_redirect = _orig_wait_redirect
 
 
 def _gppt_login(headless: bool):
@@ -454,6 +523,12 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
                        f"     在项目目录里跑：{install_hint()}\n"
                        f"     （底层错误：{e}）")
     _api = None
+    # ★★ 1.9.4：把"开始 / 用了多久 / 原始异常"写进日志。
+    #   用户真机报"2 分钟就超时"，但界面只给了翻译后的中文、日志里什么都没有
+    #   —— 没有原始异常名和耗时，根本没法判断是哪一个等待超的时。补上。
+    import time as _time
+    _t0 = _time.time()
+    _log.info("[Pixiv] 开始登录（系统 Edge，等人上限 %.0f 秒）", LOGIN_WAIT_S)
     try:
         if hasattr(_gppt, "login"):                     # gppt 5.x
             _api = "gppt5:login"
@@ -473,8 +548,11 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
                            "     请升级或降级到一个带 login / GetPixivToken 的版本：\n"
                            f"     {install_hint()}")
     except Exception as e:
+        _log.warning("[Pixiv] 登录失败（%s），用时 %.1f 秒；原始异常：%s: %s",
+                     _api, _time.time() - _t0, type(e).__name__, e, exc_info=True)
         return False, (f"❌ Pixiv 登录失败（{_api}）\n"
                        f"     {_humanize_pixiv_error(e)}")
+    _log.info("[Pixiv] 登录返回，用时 %.1f 秒", _time.time() - _t0)
 
     # 从返回对象里取 refresh_token：5.x 是 Token 对象，老版是 dict / str
     if isinstance(tok_obj, dict):

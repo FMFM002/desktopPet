@@ -259,6 +259,7 @@ sys.path.insert(0, str(ROOT))
 import src.core.account_login as _AL                    # noqa: E402
 import gppt.browser as _gb                              # noqa: E402
 from playwright.sync_api import BrowserType as _BT      # noqa: E402
+from playwright.sync_api import BrowserContext as _BC   # noqa: E402
 
 print("\n== P. ★★ 等登录的时间：5 分钟 → 8 分 20 秒（用户 2026-10-19 要求 +200s）==")
 check("★★存在统一常量 `LOGIN_WAIT_S = 500`（= 300 + 200）",
@@ -271,11 +272,32 @@ check("★★P站（gppt）的 `MANUAL_TIMEOUT_MS` 也要被放宽到同一个�
 check("★★放宽只在这一个调用期间，结束后还原（别污染全局）",
       "_gb.MANUAL_TIMEOUT_MS = _orig_manual_ms" in _s)
 
+print("\n== Q. ★★★ 真机：登录成功却「一直转圈到超时」==")
+# 用户 2026-10-20 00:2x：Edge 打开了、登录成功了、页面都跳到 pixiv 首页了，
+# 界面却一直转圈，随后浏览器自己关掉 + 报「超时」；再点一次又成功。
+# 根因：gppt 的 _wait_for_redirect 用 page.wait_for_url(pixiv://…, wait_until="networkidle")
+#   ① pixiv 首页永远到不了 networkidle；② pixiv:// 是自定义协议，Edge 不会真的跳过去。
+check("★★★存在 `_wait_for_redirect_tolerant`（不再等 networkidle）",
+      "def _wait_for_redirect_tolerant" in _s)
+check("★★新判据是**轮询 URL**（250ms 一次），而不是靠 networkidle 事件",
+      "while _t.time() < deadline" in _s and "page.wait_for_timeout(250)" in _s)
+check("★★判据是「URL 变成 pixiv:// 或**离开登录页**」",
+      'url.startswith("pixiv://")' in _s and '"login" not in url.lower()' in _s)
+check("★★导航超时放宽到 120 秒（VPN 下 pixiv 首次加载经常 >30 秒）",
+      "set_default_navigation_timeout(120_000)" in _s)
+check("★★替换 gppt 的等待函数，且调用结束还原",
+      "_gb._wait_for_redirect = _wait_for_redirect_tolerant" in _s
+      and "_gb._wait_for_redirect = _orig_wait_redirect" in _s)
+check("★★失败时把**原始异常 + 耗时**写进日志（下次不用猜是哪一个超时）",
+      "[Pixiv] 登录失败" in _s and "用时 %.1f 秒" in _s and "exc_info=True" in _s)
+
 _seen = {}
 _orig_login = _AL._gppt_login
 _orig_install_name = getattr(_gb.install, "__name__", "?")
 _orig_launch_name = getattr(_BT.launch, "__name__", "?")
 _orig_manual = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
+_orig_redirect = getattr(_gb, "_wait_for_redirect", None)
+_orig_new_page = _BC.new_page
 
 
 def _fake_gppt_login(headless):
@@ -284,6 +306,8 @@ def _fake_gppt_login(headless):
     _seen["headless"] = headless
     # ★ 调用期间 gppt 看到的是不是 500 秒
     _seen["manual_ms"] = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
+    # ★ 等待函数是不是被换成了"宽容版"
+    _seen["redirect"] = getattr(_gb, "_wait_for_redirect", None) is _AL._wait_for_redirect_tolerant
     return "FAKE_TOKEN"
 
 
@@ -301,13 +325,18 @@ check("★headless=False 原样传下去（P站要人手动登录，不能开无
       _seen.get("headless") is False)
 check("★★调用期间 gppt 的等人登录上限 = 500 秒（原来 300）",
       _seen.get("manual_ms") == 500_000, str(_seen.get("manual_ms")))
-check("★★调用结束后**三处**都还原（install / launch / 超时）",
+check("★★调用期间等待函数确实换成了**宽容版**", _seen.get("redirect") is True)
+check("★★调用结束后**五处**都还原（install / launch / 超时 / 等待 / new_page）",
       getattr(_gb.install, "__name__", "?") == _orig_install_name
       and getattr(_BT.launch, "__name__", "?") == _orig_launch_name
-      and getattr(_gb, "MANUAL_TIMEOUT_MS", None) == _orig_manual,
+      and getattr(_gb, "MANUAL_TIMEOUT_MS", None) == _orig_manual
+      and getattr(_gb, "_wait_for_redirect", None) is _orig_redirect
+      and _BC.new_page is _orig_new_page,
       f"install={getattr(_gb.install, '__name__', '?')} "
       f"launch={getattr(_BT.launch, '__name__', '?')} "
-      f"manual={getattr(_gb, 'MANUAL_TIMEOUT_MS', None)}")
+      f"manual={getattr(_gb, 'MANUAL_TIMEOUT_MS', None)} "
+      f"redirect_restored={getattr(_gb, '_wait_for_redirect', None) is _orig_redirect} "
+      f"new_page_restored={_BC.new_page is _orig_new_page}")
 check("★假的登录结果被原样返回（说明包装层没吞掉返回值）", _tok == "FAKE_TOKEN")
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
