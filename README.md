@@ -614,12 +614,13 @@ python tools/preflight.py --json     # 给脚本/CI
    **exe 文件图标**（`PRTS.spec` 的 `EXE(icon=...)` 嵌进去）、
    **任务栏/窗口图标**（`main.py` 在 QApplication 建好就 `setWindowIcon`，
    所以**首次配置引导**那个窗口也是它）、**托盘图标**（托盘第一候选就是这个文件）。
-   生成命令（取自出厂形象 铃兰 的 `ico.ico`，含 16/24/32/48/64）：
+   生成命令（**用角色立绘 550×474 重采样**，含 16/24/32/48/64/128/256）：
    ```powershell
    python tools/make_app_icon.py           # 生成 data/icon.ico
    python tools/make_app_icon.py --check   # 只检查
    ```
-   ★ 只做 64 及以下：源图最大就 64，**放大只会变糊**，所以不假装有 256。
+   ★ 抠白底 → 按 `CROP` 裁构图（照旧托盘图标选的）→ 逐尺寸重采样 → **逐帧**写 ico。
+   所以 256 是**真清晰**的，不是把 64 放大；16 也不会出现白框。
 
 > ★ **B 形态支持「一键开通 B站/P站」**（1.9.4 第一版曾为了省 107MB 排除过它）。
 > 现在 playwright 的浏览器驱动（`playwright/driver/node.exe` + `cli.js`）**作为数据随包**，
