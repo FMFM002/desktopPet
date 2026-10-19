@@ -25,7 +25,7 @@ os.environ.setdefault("PRTS_NO_COMFY_START", "1")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.version import APP_ID, __version__          # noqa: E402
+from src.version import __version__                  # noqa: E402
 
 PASS, FAIL = [], []
 
