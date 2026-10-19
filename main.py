@@ -444,6 +444,25 @@ def main():
         app.setQuitOnLastWindowClosed(False)
         app.setApplicationName("铃兰桌宠")
         app.setOrganizationName("PRTS")
+        # ★★ 1.9.4（用户 2026-10-19）：**应用图标 = 托盘图标**。
+        #   为什么必须在这里设、不能等 MainWindow：
+        #     · 首次配置引导（FirstRunWizard）是在 MainWindow **之前**弹出的，
+        #       那时还没 `setWindowIcon` → 引导窗口的任务栏图标是 Qt 默认的（难看）；
+        #     · 托盘那边虽然也会 `app.setWindowIcon(...)`，但那是"主窗口建好之后"。
+        #   ⇒ 在 QApplication 一建好就设，之后所有窗口/对话框自动继承。
+        #   ★ 图标文件是 `data/icon.ico`（由 `tools/make_app_icon.py` 生成，
+        #     与 exe 里嵌的是**同一份**，见 PRTS.spec 的 `EXE(icon=...)`）。
+        try:
+            from pathlib import Path as _P
+            from PySide6.QtGui import QIcon
+            _icon_path = _P(BASE_DIR) / "data" / "icon.ico"
+            if _icon_path.is_file():
+                app.setWindowIcon(QIcon(str(_icon_path)))
+                log.info("应用图标已设置: data/icon.ico")
+            else:
+                log.warning("找不到 data/icon.ico（任务栏图标会用系统默认）")
+        except Exception as _e:
+            log.warning(f"设置应用图标失败（不影响使用）: {_e}")
         log.info("QApplication 初始化完成")
 
         # ★★ 1.9.4：**首次运行**弹一次「首次配置引导」。

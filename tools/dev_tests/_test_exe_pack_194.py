@@ -222,6 +222,41 @@ finally:
     except AttributeError:
         pass
 
+print("\n== J. ★★ 图标：exe / 任务栏 / 引导窗口 / 托盘**必须是同一张** ==")
+# 用户 2026-10-19："启动 exe 的图标换成托盘一致的图标，引导程序任务栏图标一样，
+#              py 原本的图标太难看了……增加辨识度。"
+_icon = ROOT / "data" / "icon.ico"
+check("★★data/icon.ico 存在（由 tools/make_app_icon.py 生成）", _icon.is_file())
+if _icon.is_file():
+    try:
+        from PIL import Image as _Im
+        _im = _Im.open(_icon)
+        _raw = (getattr(_im, "info", {}) or {}).get("sizes") or {_im.size}
+        _sz = sorted(s[0] if isinstance(s, (tuple, list)) else int(s) for s in _raw)
+        check("★图标含任务栏要用的尺寸（16/24/32/48）",
+              {16, 24, 32, 48}.issubset(set(_sz)), str(_sz))
+        check("★图标是带透明的 RGBA（托盘背景才不会出现白方块）",
+              _im.convert("RGBA").getchannel("A").getextrema()[0] == 0,
+              str(_im.mode))
+    except Exception as e:                           # noqa: BLE001
+        check("★能读出图标尺寸", False, f"{type(e).__name__}: {e}")
+check("★★spec 把图标嵌进 exe（EXE(icon=...)）—— 否则资源管理器里还是 PyInstaller 默认图标",
+      "icon=str(_ICON)" in spec_text)
+check("★★spec 同时把 data/icon.ico 作为**数据**随包（运行时托盘/任务栏要按路径读）",
+      '"data/icon.ico"' in spec_text)
+_main = MAIN.read_text(encoding="utf-8")
+check("★★main.py 在 QApplication 之后**立刻**设窗口图标",
+      "app.setWindowIcon(QIcon(str(_icon_path)))" in _main)
+# ★ 顺序：必须先 setWindowIcon，再弹 FirstRunWizard —— 否则引导窗口还是默认图标
+_i_icon = _main.find("app.setWindowIcon")
+_i_wiz = _main.find("FirstRunWizard().exec()")
+check("★★设置图标的代码在**首次配置引导之前**（引导窗口的任务栏图标就是它）",
+      -1 < _i_icon < _i_wiz, f"setWindowIcon@{_i_icon} / wizard@{_i_wiz}")
+_tray = (ROOT / "src" / "ui" / "tray_icon.py").read_text(encoding="utf-8")
+check("★托盘的第一候选是 data/icon.ico（三处天然同一个文件）",
+      _tray.index('BASE_DIR / "data" / "icon.ico"')
+      < _tray.index('d / "ico.ico"'))
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

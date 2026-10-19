@@ -26,6 +26,7 @@
   F. ★ **不抛异常**（界面要能拿到 `(ok, msg)`），且 `deps()` 单项失败不能带崩。
 """
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -259,16 +260,30 @@ import src.core.account_login as _AL                    # noqa: E402
 import gppt.browser as _gb                              # noqa: E402
 from playwright.sync_api import BrowserType as _BT      # noqa: E402
 
+print("\n== P. ★★ 等登录的时间：5 分钟 → 8 分 20 秒（用户 2026-10-19 要求 +200s）==")
+check("★★存在统一常量 `LOGIN_WAIT_S = 500`（= 300 + 200）",
+      re.search(r"^LOGIN_WAIT_S\s*=\s*500\.0", _s, re.M) is not None,
+      "期望 LOGIN_WAIT_S = 500.0")
+check("★★B站登录默认用这个常量（不是写死 300）",
+      "def _bili_login_browser(timeout: float = LOGIN_WAIT_S" in _s)
+check("★★P站（gppt）的 `MANUAL_TIMEOUT_MS` 也要被放宽到同一个值",
+      "_gb.MANUAL_TIMEOUT_MS = int(LOGIN_WAIT_S * 1000)" in _s)
+check("★★放宽只在这一个调用期间，结束后还原（别污染全局）",
+      "_gb.MANUAL_TIMEOUT_MS = _orig_manual_ms" in _s)
+
 _seen = {}
 _orig_login = _AL._gppt_login
 _orig_install_name = getattr(_gb.install, "__name__", "?")
 _orig_launch_name = getattr(_BT.launch, "__name__", "?")
+_orig_manual = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
 
 
 def _fake_gppt_login(headless):
     _seen["install"] = getattr(_gb.install, "__name__", "?")
     _seen["launch"] = getattr(_BT.launch, "__name__", "?")
     _seen["headless"] = headless
+    # ★ 调用期间 gppt 看到的是不是 500 秒
+    _seen["manual_ms"] = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
     return "FAKE_TOKEN"
 
 
@@ -284,11 +299,15 @@ check("★★调用期间 BrowserType.launch 确实换成了 Edge 版",
       _seen.get("launch") == "_launch_edge", str(_seen.get("launch")))
 check("★headless=False 原样传下去（P站要人手动登录，不能开无头）",
       _seen.get("headless") is False)
-check("★★调用结束后两处**都还原**（别污染 B站那条路）",
+check("★★调用期间 gppt 的等人登录上限 = 500 秒（原来 300）",
+      _seen.get("manual_ms") == 500_000, str(_seen.get("manual_ms")))
+check("★★调用结束后**三处**都还原（install / launch / 超时）",
       getattr(_gb.install, "__name__", "?") == _orig_install_name
-      and getattr(_BT.launch, "__name__", "?") == _orig_launch_name,
+      and getattr(_BT.launch, "__name__", "?") == _orig_launch_name
+      and getattr(_gb, "MANUAL_TIMEOUT_MS", None) == _orig_manual,
       f"install={getattr(_gb.install, '__name__', '?')} "
-      f"launch={getattr(_BT.launch, '__name__', '?')}")
+      f"launch={getattr(_BT.launch, '__name__', '?')} "
+      f"manual={getattr(_gb, 'MANUAL_TIMEOUT_MS', None)}")
 check("★假的登录结果被原样返回（说明包装层没吞掉返回值）", _tok == "FAKE_TOKEN")
 
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")

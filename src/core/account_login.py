@@ -42,6 +42,12 @@ _log = logging.getLogger("AccountLogin")
 
 from src.utils.runtime import frozen_feature_hint, is_frozen   # noqa: E402
 
+# ★★ 1.9.4（用户 2026-10-19）：**等你登录的上限，5 分钟 → 8 分 20 秒**。
+#   原来两条路各是 300 秒；用户实测"扫码/输密码 + 代理慢"时 5 分钟不够
+#   （尤其 P站还要过一遍人机验证）。按用户要求**再宽 200 秒**。
+#   ★ 只放宽"等人登录"这一段 —— 页面加载、跳转等待都没动，失败报错不会更慢太多。
+LOGIN_WAIT_S = 500.0
+
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR = ROOT / "tools" / "_vendor" / "bili_pixiv_toolkit.py"
 WORK = ROOT / "data" / "account_login"        # profile + 临时产物
@@ -132,7 +138,7 @@ def feature_available() -> tuple[bool, str]:
                    "     在项目目录里跑这条就行：\n     " + install_hint())
 
 
-def _bili_login_browser(timeout: float = 300.0, on_line=None) -> tuple:
+def _bili_login_browser(timeout: float = LOGIN_WAIT_S, on_line=None) -> tuple:
     """★★ 自己实现 B站登录：**轮询 cookie**，不再用工具包的 `bili_login()`。
 
     ## 为什么不能直接用工具包的 `bili_login()`（真机踩到的坑）
@@ -147,7 +153,7 @@ def _bili_login_browser(timeout: float = 300.0, on_line=None) -> tuple:
     ## 现在的做法
       打开 Edge（持久化 profile）→ 每 2 秒读一次 context 的 cookie →
       **一旦出现 `SESSDATA` 就立刻导出并返回** → 关窗口。
-      整个过程有 `timeout` 上限（默认 5 分钟），**绝不会挂死**。
+      整个过程有 `timeout` 上限（默认 `LOGIN_WAIT_S` = 8 分 20 秒），**绝不会挂死**。
 
     ## 顺带处理 412 风控
       用户截图里 B站 返回了 `错误号 412 / 触发安全风控策略`。
@@ -341,14 +347,17 @@ def _login_gppt_with_system_edge(headless: bool = False):
     ## 做法（最小、且不改第三方代码）
       ① `gppt.browser.install` 换成 no-op —— 别再去下 Chromium（也顺手消掉黑窗）；
       ② 给 `BrowserType.launch` 补一个 `channel="msedge"` —— 用**系统 Edge**，
-         和 B站那条路（`_bili_login_browser`）用的是同一个浏览器。
-      ★ 两处只在这一个调用期间生效，`finally` 里还原，绝不影响别的功能。
+         和 B站那条路（`_bili_login_browser`）用的是同一个浏览器；
+      ③ 把 gppt 的 `MANUAL_TIMEOUT_MS`（等人登录）改成 `LOGIN_WAIT_S` ——
+         它写死 300 秒，用户实测不够（见文件头 `LOGIN_WAIT_S` 的注释）。
+      ★ 三处只在这一个调用期间生效，`finally` 里还原，绝不影响别的功能。
     """
     import gppt.browser as _gb                              # noqa: PLC0415
     from playwright.sync_api import BrowserType as _BT      # noqa: PLC0415
 
     _orig_install = _gb.install
     _orig_launch = _BT.launch
+    _orig_manual_ms = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
 
     def _no_install(*_a, **_k):
         # gppt 想装它自带的 Chromium —— 我们不用它，直接用系统 Edge
@@ -361,10 +370,14 @@ def _login_gppt_with_system_edge(headless: bool = False):
     try:
         _gb.install = _no_install
         _BT.launch = _launch_edge
+        if _orig_manual_ms is not None:
+            _gb.MANUAL_TIMEOUT_MS = int(LOGIN_WAIT_S * 1000)
         return _gppt_login(headless)
     finally:
         _gb.install = _orig_install
         _BT.launch = _orig_launch
+        if _orig_manual_ms is not None:
+            _gb.MANUAL_TIMEOUT_MS = _orig_manual_ms
 
 
 def _gppt_login(headless: bool):

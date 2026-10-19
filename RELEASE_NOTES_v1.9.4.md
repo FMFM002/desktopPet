@@ -84,7 +84,7 @@ python tools\model_manager.py install --all
 
 ## 质量数据
 
-- **87 个测试套件 = 86 真跑 + 1 既定 SKIP**，断言累计 **2630**，**FAIL 0**
+- **87 个测试套件 = 86 真跑 + 1 既定 SKIP**，断言累计 **2643**，**FAIL 0**
   （其中 `_test_exe_pack_194.py` 46 条专门盯着 exe 打包：spec 缺口 / 工具随包 /
   数据落点 / 目录不撞名 / 冻结降级 / `--selftest`）
 - 唯一的 SKIP 是长期记忆真机端到端（要真调 LLM 花 token），

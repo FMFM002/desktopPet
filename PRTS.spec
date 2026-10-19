@@ -98,6 +98,10 @@ for rel in (
     #   ★ A 形态的 zip 是整棵 data/ 一起装，所以只有 exe 会踩这个坑。
     "data/avatars",
     "data/自建工具模板",                   # 自建工具模板（只有 README，与 zip 一致）
+    # ★★ 1.9.4：**程序图标**。exe 里已经嵌了一份（见下面的 EXE(icon=...)），
+    #   但运行时 `main.py` / 托盘还要按路径读它 → 必须同时作为数据随包，
+    #   否则任务栏/托盘会退回系统默认图标。
+    "data/icon.ico",
     "data/China-City-List-latest.csv",   # 天气城市表
     "config.default.json",               # 出厂配置（首启据此生成 config.json）
     ".env.example",                      # 密钥模板
@@ -230,6 +234,17 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# ★★ 1.9.4（用户 2026-10-19）：**exe 的文件图标**。
+#   以前没写这一行 → PyInstaller 用它自己的默认图标（那个白色小方块），
+#   资源管理器/开始菜单/任务栏全是它，用户的原话是"太难看了"。
+#   现在用 `data/icon.ico`（由 `tools/make_app_icon.py` 生成，取自出厂形象 铃兰），
+#   与托盘 / 任务栏 / 引导窗口用的是**同一份图**（运行时那份见 DATAS 里的 data/icon.ico）。
+_ICON = ROOT / "data" / "icon.ico"
+if not _ICON.is_file():
+    print("[spec][warn] data/icon.ico 不存在 → 先跑 python tools/make_app_icon.py；"
+          "本次会用 PyInstaller 默认图标")
+    _ICON = None
+
 # ★ onedir（不是 onefile）：启动更快、杀软误报更少。
 #   名称里带版本，方便与旧包区分。
 exe = EXE(
@@ -243,6 +258,7 @@ exe = EXE(
     # ★ console=False 是给用户的；要排查启动失败就设环境变量 PRTS_SPEC_CONSOLE=1 重打包
     console=bool(os.environ.get("PRTS_SPEC_CONSOLE")),
     disable_windowed_traceback=False,
+    icon=str(_ICON) if _ICON else None,
     # ★★★ 关键：把运行时直接铺在 exe 旁边（不建 _internal/），
     #   这样 sys._MEIPASS == exe 目录，用户数据（config.json/.env/logs/data）
     #   全部落在 exe 旁边 —— 与便携 zip 版行为一致。原因见文件头。
