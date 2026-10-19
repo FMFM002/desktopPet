@@ -358,3 +358,65 @@ playwright_driver = true  →  <exe目录>\playwright\driver\node.exe + package\
 
 **仍没验的**（只有人能做的）：图形桌面真双击、真填 Key 聊一轮、
 真点一次「一键开通」走完登录（沙箱里起不了浏览器）。
+
+---
+
+# 十二、★ 第三轮：P站一键开通失败（2026-10-19 晚，已修）
+
+## 12.1 真机现象
+
+* **B站成功**：26 个 cookie（含 SESSDATA）→ 说明 playwright + 驱动 + 系统 Edge 在 exe 里**都正常**；
+* **P站失败**，并且**闪了一个终端黑窗**、**浏览器根本没出现**（开 VPN 也一样）：
+
+```
+Pixiv 登录失败（gppt5:login）: Error: BrowserType.launch: Executable doesn't exist at
+D:\Download\...\playwright\driver\package\.local-browsers\chromium-1223\chrome-win64\chrome.exe
+Looks like Playwright was just installed or updated.
+Please run the following command to download new browsers: playwright install
+```
+
+## 12.2 根因（gppt 5.x 的默认行为）
+
+`gppt/browser.py` 的 `fetch_authorization()` 里写死了两行：
+
+```python
+install([pw.chromium], with_deps=True)                       # ← 去下它自带的 Chromium
+browser = pw.chromium.launch(headless=headless, args=BROWSER_ARGS)
+```
+
+也就是说 **gppt 默认用 playwright 自带的 Chromium**（不是系统浏览器）：
+
+1. `install(...)` 会跑 `node cli.js install chromium` 去下 ~150MB ——
+   在 exe 里**下不成**（而且 `install_playwright` 用的是裸 `subprocess.run`，
+   **没有隐藏窗口** → 这就是那个"闪一下的黑窗"）；
+2. 下不来 → `launch()` 找不到 `chrome.exe` → 报上面那条。
+
+**与网络/VPN 无关**（用户开 VPN 也一样），所以之前那句"常见原因：网络需要代理"是**误导**。
+
+## 12.3 修法（不改第三方代码，只接管它的启动参数）
+
+`src/core/account_login.py` 新增 `_login_gppt_with_system_edge()`：
+
+```python
+_gb.install = _no_install          # ① 不下 Chromium（顺手消掉黑窗）
+_BT.launch  = _launch_edge        # ② 给 launch 补 channel="msedge"（用系统 Edge）
+try:    return _gppt_login(headless)
+finally: 两处还原                  # ★ 只在这一个调用期间生效
+```
+
+于是 **B站与P站用的是同一个系统 Edge**（B站那条本来就是
+`launch_persistent_context(channel="msedge")`，已验证）。
+
+另外把报错也**翻成了人话**（`_humanize_pixiv_error`）：
+"找不到浏览器 → 确认装了 Edge / 或先用 zip 版"、
+"登录没完成 → 代理/验证码/窗口被关"、"超时"。
+
+## 12.4 验证到哪一步（如实）
+
+* **能自动验的**：守卫 `_test_account_login_194.py` 加了 12 条（含**行为自证**：
+  调用期间 `install` 确实是 no-op、`launch` 确实是 Edge 版、调用完**两处都还原**）；
+* **不能验的**：沙箱**不允许创建进程管道**（`WinError 5`），
+  连 `sync_playwright()` 都起不来 → **真弹 Edge 这一步只能你点**。
+
+★ 如果这次点 P站**仍然失败**，请把界面上那三行错误原文发我（现在应该是中文提示了），
+  我按新的那三行定位；不要自己反复重装。

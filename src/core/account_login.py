@@ -318,6 +318,87 @@ def _verify_pixiv_token(token: str) -> tuple:
         return None, f"令牌已保存，但验证时网络/代理有问题：{_m[:80]}"
 
 
+def _login_gppt_with_system_edge(headless: bool = False):
+    """★ 1.9.4 真机修复（2026-10-19）：让 **gppt 5.x 用系统自带的 Edge** 登录。
+
+    ## 真机现象（用户截图，P站失败 / B站成功）
+        Pixiv 登录失败（gppt5:login）: Error: BrowserType.launch:
+        Executable doesn't exist at
+        ...\\playwright\\driver\\package\\.local-browsers\\chromium-1223\\chrome-win64\\chrome.exe
+        Looks like Playwright was just installed or updated.
+        Please run the following command to download new browsers: playwright install
+    而且**闪了一下终端黑窗**、浏览器**根本没出现**。开了 VPN 也一样（跟网络无关）。
+
+    ## 根因
+    gppt 5.x 的 `fetch_authorization()` 里有这两行（`gppt/browser.py`）：
+        install([pw.chromium], with_deps=True)      # ← 去下 ~150MB 的 Chromium
+        browser = pw.chromium.launch(headless=headless, args=BROWSER_ARGS)
+    也就是说它**默认用 playwright 自带的 Chromium**，而不是系统浏览器。
+    我们的 exe 只带了驱动（node.exe），**没有也不该带** Chromium（+150MB 起），
+    于是：它先去"安装"（在 exe 里表现为**闪一个终端黑窗**，而且装不成）→
+    launch 找不到 chrome.exe → 报上面那条。
+
+    ## 做法（最小、且不改第三方代码）
+      ① `gppt.browser.install` 换成 no-op —— 别再去下 Chromium（也顺手消掉黑窗）；
+      ② 给 `BrowserType.launch` 补一个 `channel="msedge"` —— 用**系统 Edge**，
+         和 B站那条路（`_bili_login_browser`）用的是同一个浏览器。
+      ★ 两处只在这一个调用期间生效，`finally` 里还原，绝不影响别的功能。
+    """
+    import gppt.browser as _gb                              # noqa: PLC0415
+    from playwright.sync_api import BrowserType as _BT      # noqa: PLC0415
+
+    _orig_install = _gb.install
+    _orig_launch = _BT.launch
+
+    def _no_install(*_a, **_k):
+        # gppt 想装它自带的 Chromium —— 我们不用它，直接用系统 Edge
+        return None
+
+    def _launch_edge(self, **kwargs):
+        kwargs.setdefault("channel", "msedge")
+        return _orig_launch(self, **kwargs)
+
+    try:
+        _gb.install = _no_install
+        _BT.launch = _launch_edge
+        return _gppt_login(headless)
+    finally:
+        _gb.install = _orig_install
+        _BT.launch = _orig_launch
+
+
+def _gppt_login(headless: bool):
+    """真正调 gppt 的登录（抽出来只是为了让上面的 monkeypatch 有 finally）。"""
+    import gppt as _gppt
+    return _gppt.login(headless=headless)
+
+
+def _humanize_pixiv_error(err) -> str:
+    """把 playwright / gppt 的英文长报错翻成**用户能照做**的话。
+
+    ★ 用户反馈（2026-10-19）："有模糊不清的信息，有歧义的地方"。
+      原始报错里有一整段
+          Looks like Playwright was just installed or updated. ...
+      但真正的结论只有一句 —— 所以这里按"看得懂 + 下一步做什么"重写。
+    """
+    s = f"{type(err).__name__}: {err}"
+    low = s.lower()
+    if "executable doesn't exist" in low or "playwright install" in low:
+        return ("❌ 找不到浏览器！\n"
+                "     这个版本应该用**系统自带的 Edge**，但没能启动它。\n"
+                "     请确认：① 机器上装了 Microsoft Edge；② 不是精简版 exe。\n"
+                "     ★ 不想折腾的话：先用**便携 zip 版**开通 P站，"
+                "再把 .env 拷到 exe 旁边。")
+    if "failed to login" in low or "authorization code" in low:
+        return ("❌ 登录没有完成（浏览器里可能没登进去，或被 pixiv 拦了）。\n"
+                "     常见原因：代理没生效 / 页面停在验证码 / 窗口被提前关掉。\n"
+                "     建议：先确认浏览器里能正常打开 pixiv.net，再点一次。")
+    if "timeout" in low:
+        return ("❌ 等太久没有结果（超时）。\n"
+                "     常见原因：代理不通、pixiv 加载很慢，或者登录窗口被关掉了。")
+    return s[:400]
+
+
 def login_pixiv(on_line=None, force: bool = False) -> tuple:
     """★ 引导用户**登录一次 P站**，把 `refresh_token` 写进 `.env`。
 
@@ -363,7 +444,9 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
     try:
         if hasattr(_gppt, "login"):                     # gppt 5.x
             _api = "gppt5:login"
-            tok_obj = _gppt.login(headless=False)
+            # ★ 真机修复（2026-10-19）：**必须用系统 Edge**，
+            #   不能让 gppt 去下它自带的 Chromium（exe 里没有，见上面的长注释）。
+            tok_obj = _login_gppt_with_system_edge(headless=False)
         elif hasattr(_gppt, "GetPixivToken"):           # gppt 0.9.x（老写法）
             _api = "gppt0:GetPixivToken"
             try:
@@ -377,9 +460,8 @@ def login_pixiv(on_line=None, force: bool = False) -> tuple:
                            "     请升级或降级到一个带 login / GetPixivToken 的版本：\n"
                            f"     {install_hint()}")
     except Exception as e:
-        return False, (f"❌ Pixiv 登录失败（{_api}）: {type(e).__name__}: {e}\n"
-                       f"     常见原因：网络需要代理（P站国内要代理）；"
-                       f"或浏览器窗口被提前关掉了。")
+        return False, (f"❌ Pixiv 登录失败（{_api}）\n"
+                       f"     {_humanize_pixiv_error(e)}")
 
     # 从返回对象里取 refresh_token：5.x 是 Token 对象，老版是 dict / str
     if isinstance(tok_obj, dict):

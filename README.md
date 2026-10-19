@@ -614,6 +614,10 @@ python tools/preflight.py --json     # 给脚本/CI
 > ★ **B 形态支持「一键开通 B站/P站」**（1.9.4 第一版曾为了省 107MB 排除过它）。
 > 现在 playwright 的浏览器驱动（`playwright/driver/node.exe` + `cli.js`）**作为数据随包**，
 > 用的是**系统自带的 Edge**（`channel="msedge"`），所以**不需要**再下 Chromium。
+> ★ P站那条特别处理过：gppt 5.x 默认会**自己下载 Chromium**（npm 版）——exe 里既下不了、
+> 还会闪一个终端黑窗。`account_login._login_gppt_with_system_edge()` 把它的
+> `install()` 换成 no-op、并给 `BrowserType.launch` 补上 `channel="msedge"`，
+> 于是 P站和 B站用的是**同一个系统 Edge**。
 > ★ 如果要发"精简版 exe"：把 `PRTS.spec` 里 `# "playwright", "gppt", "pixivpy3",`
 > 那行取消注释重打包即可（**约 −107MB**，界面会自动降级成"不可用，用 zip 版"，
 > 不会崩）。

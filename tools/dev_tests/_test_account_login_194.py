@@ -230,6 +230,67 @@ check("★★用 `login` 而不是 `get_token` —— 后者会**读写磁盘**�
 check("★报「没装」时附带**底层错误**（便于日后判断到底是哪种）",
       "底层错误" in _s)
 
+print("\n== O. ★★★ 真机：P站登录失败 —— gppt 默认去下它自带的 Chromium ==")
+# 用户 2026-10-19 截图：B站成功（26 个 cookie），P站报
+#   "Executable doesn't exist at ...\playwright\driver\package\.local-browsers\
+#    chromium-1223\chrome-win64\chrome.exe"，还**闪了一下终端黑窗**、浏览器没出现。
+# 根因：gppt 5.x 的 fetch_authorization() 里写死了
+#   install([pw.chromium], with_deps=True) + pw.chromium.launch(...)
+#   —— 它要的是 **playwright 自带 Chromium**；我们 exe 只带驱动，没有也不该有 Chromium。
+check("★★★存在 `_login_gppt_with_system_edge`（强制用系统 Edge）",
+      "def _login_gppt_with_system_edge" in _s)
+check("★★把 gppt 的 `install(...)` 换成 no-op"
+      "（不再下 Chromium，也就不再闪那个黑窗）",
+      "_gb.install = _no_install" in _s and "def _no_install" in _s)
+check('★★给 `BrowserType.launch` 补 `channel="msedge"`（和 B站用同一个浏览器）',
+      'kwargs.setdefault("channel", "msedge")' in _s)
+check("★★patch 只在这一次调用期间生效，finally 里还原",
+      "_BT.launch = _orig_launch" in _s and "_gb.install = _orig_install" in _s)
+check("★★报错必须翻成**人话**（原始那段 Playwright 英文长文对用户没用）",
+      "def _humanize_pixiv_error" in _s and "找不到浏览器" in _s)
+check("★★pixiv 失败分支走 `_humanize_pixiv_error(e)`，不再整段抛原始异常",
+      "_humanize_pixiv_error(e)" in _s)
+check("★「找不到浏览器」的说明里给了**下一步**（确认 Edge / 用 zip 版）",
+      "Microsoft Edge" in _s and "便携 zip 版" in _s)
+
+# —— 行为自证：patch 真的挂上去了、也真的还原了 ——
+sys.path.insert(0, str(ROOT))
+import src.core.account_login as _AL                    # noqa: E402
+import gppt.browser as _gb                              # noqa: E402
+from playwright.sync_api import BrowserType as _BT      # noqa: E402
+
+_seen = {}
+_orig_login = _AL._gppt_login
+_orig_install_name = getattr(_gb.install, "__name__", "?")
+_orig_launch_name = getattr(_BT.launch, "__name__", "?")
+
+
+def _fake_gppt_login(headless):
+    _seen["install"] = getattr(_gb.install, "__name__", "?")
+    _seen["launch"] = getattr(_BT.launch, "__name__", "?")
+    _seen["headless"] = headless
+    return "FAKE_TOKEN"
+
+
+_AL._gppt_login = _fake_gppt_login
+try:
+    _tok = _AL._login_gppt_with_system_edge(headless=False)
+finally:
+    _AL._gppt_login = _orig_login
+
+check("★★调用期间 gppt 的 install 确实变成了 no-op",
+      _seen.get("install") == "_no_install", str(_seen.get("install")))
+check("★★调用期间 BrowserType.launch 确实换成了 Edge 版",
+      _seen.get("launch") == "_launch_edge", str(_seen.get("launch")))
+check("★headless=False 原样传下去（P站要人手动登录，不能开无头）",
+      _seen.get("headless") is False)
+check("★★调用结束后两处**都还原**（别污染 B站那条路）",
+      getattr(_gb.install, "__name__", "?") == _orig_install_name
+      and getattr(_BT.launch, "__name__", "?") == _orig_launch_name,
+      f"install={getattr(_gb.install, '__name__', '?')} "
+      f"launch={getattr(_BT.launch, '__name__', '?')}")
+check("★假的登录结果被原样返回（说明包装层没吞掉返回值）", _tok == "FAKE_TOKEN")
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)
