@@ -274,6 +274,9 @@ def _selftest_checks(window) -> dict:
                 "README.md", "requirements.txt",
                 "data/China-City-List-latest.csv",
                 "data/桌宠形象", "data/memes", "data/assets",
+                # ★★ 1.9.4：出厂预设的"我的头像"。漏了 → 用户看到的是"文档"占位图
+                "data/avatars", "data/avatars/user_avatar.jpg",
+                "data/自建工具模板",
                 "tools", "tools/model_manager.py",
                 "tools/_vendor/bili_pixiv_toolkit.py"):
         p = base / rel
@@ -342,6 +345,22 @@ def _selftest_checks(window) -> dict:
         chk("chat_ready", getattr(window, "chat", None) is not None, "聊天窗口")
     except Exception as e:                       # noqa: BLE001
         chk("chat_ready", False, f"{type(e).__name__}: {e}")
+    # ★★ 1.9.4：「一键开通 B站/P站」= playwright + 它的**浏览器驱动**
+    #   （`driver/node.exe` + `driver/package/cli.js`）。这两个是**数据文件**，
+    #   PyInstaller 不会自动带 —— 所以这里必须验它们真的在 exe 目录里。
+    try:
+        import playwright                                   # noqa: F401
+        from playwright._impl._driver import compute_driver_executable
+        _node, _cli = compute_driver_executable()
+        chk("playwright_driver",
+            Path(_node).is_file() and Path(_cli).is_file(),
+            f"node={_node} / cli={_cli}")
+    except ImportError:
+        # 精简版 exe 会把 playwright 排掉 —— 那不算失败，但要**说清楚**
+        chk("playwright_driver", False,
+            "playwright 未随包（精简版），「一键开通」不可用", required=False)
+    except Exception as e:                       # noqa: BLE001
+        chk("playwright_driver", False, f"{type(e).__name__}: {e}")
     return out
 
 

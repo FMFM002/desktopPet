@@ -9,14 +9,16 @@
 - SHA256：`3FB40E2A233B029BD36F77C3550AA98B6798EE74B3CBA7E7EB47E1B0DB26CD4F`
 - 需要你机器上**已有 Python 3.10~3.12**（首次启动会自动装依赖，需联网）
 
-**`PRTS-DesktopPet-1.9.4-exe.zip`** —— 249.1 MB（解压后 447.5 MB）★ 1.9.4 收尾新增
+**`PRTS-DesktopPet-1.9.4-exe.zip`** —— 285.7 MB（解压后 551.8 MB / 2360 文件）★ 1.9.4 收尾新增
 
 - **什么都不用装**：解压 → 双击 `PRTS-DesktopPet-1.9.4.exe`
 - 你的配置/聊天记录/日志会生成在 **exe 旁边**（`config.json` / `.env` / `logs\` / `data\`）
 - 双击没反应？跑一次 `PRTS-DesktopPet-1.9.4.exe --selftest`，
   它会把每项检查写进 `logs\selftest_*.txt`（退出码 0=全过 / 3=有问题）
-- ★ 限制：exe 版**不支持「一键开通 B站/P站」**（浏览器驱动未随包），
-  需要用便携版开通一次后，把 `.env` 与 `data\cookies\` 拷到 exe 旁边
+- **一键开通 B站/P站 照常可用**：包里已带 Playwright 的 Edge 驱动（用系统自带 Edge，
+  不需要再下 Chromium）
+- 为什么比便携版大 470MB：exe 把 Python 运行时 + PySide6 + 全部依赖都**装进去了**；
+  便携版用的是你机器上已装好的 Python（PySide6 一个就 634MB 装好）
 
 ## 怎么用
 
@@ -82,7 +84,7 @@ python tools\model_manager.py install --all
 
 ## 质量数据
 
-- **87 个测试套件 = 86 真跑 + 1 既定 SKIP**，断言累计 **2608**，**FAIL 0**
+- **87 个测试套件 = 86 真跑 + 1 既定 SKIP**，断言累计 **2618**，**FAIL 0**
   （其中 `_test_exe_pack_194.py` 46 条专门盯着 exe 打包：spec 缺口 / 工具随包 /
   数据落点 / 目录不撞名 / 冻结降级 / `--selftest`）
 - 唯一的 SKIP 是长期记忆真机端到端（要真调 LLM 花 token），

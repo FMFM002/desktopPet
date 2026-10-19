@@ -296,3 +296,65 @@ robocopy dist\PRTS-DesktopPet-1.9.4-exe 临时文件\_exe_smoke /E
   要逐个确认没有工具在启动路径上 import 才能排。
 * 想改"数据放哪"：只动 `PRTS.spec` 的 `contents_directory` 与 `src/utils/runtime.py`
   两个地方，别去改那 40 处 `Path(__file__).parents[...]`。
+
+---
+
+# 十一、★ 真机反馈后的第二轮（2026-10-19，已执行）
+
+> 用户真机跑第一版 exe，报了两件事：**"用户预设头像没了"**、**"为什么不支持开通功能？"**
+> 两条都确认是**打包漏的**，已修好并重新打包。
+
+## 11.1 头像：`PRTS.spec` 的 DATAS 漏了 `data/avatars`
+
+`config.default.json` 里写着 `ui.user_avatar_path = "data/avatars/user_avatar.jpg"`，
+而 exe 的 DATAS 只带了 `桌宠形象 / memes / assets / tools` —— **没有 avatars**
+→ 文件不存在 → 聊天里显示"文档"占位图。
+
+* **为什么 A 形态没这个问题**：A 是整棵 `data/` 一起装（只按排除表剔掉 DB/凭据等），
+  avatars 自然在里面。**只有手写 DATAS 的 exe 会漏**。
+* 修：DATAS 加 `data/avatars`、`data/自建工具模板`；`--selftest` 加两项检查；
+  `_test_exe_pack_194.py` 加反向守卫（仓库里得有这张图 + 出厂配置得指向它）。
+
+## 11.2 一键开通：把 1.9.4 的"建议方案"反转
+
+第一版按交接文档第三节的**建议**把 `playwright/gppt/pixivpy3` 排除了（省 107MB）。
+用户真机一问，说明这个取舍不对 —— 改成**支持**：
+
+| 改动 | 说明 |
+|---|---|
+| `EXCLUDES` | 三个包不再排除（那行改成注释，留作"精简版"开关） |
+| `HIDDEN` | 加 `playwright / playwright.sync_api / playwright.async_api / gppt / pixivpy3`（都是**运行时才 import**） |
+| `DATAS` | 加 `playwright/driver`（**node.exe 91MB + cli.js**）—— PyInstaller **没有** playwright 的 hook，驱动是数据，必须显式带 |
+| `account_login` | 判据从"**是不是 exe**"改成"**依赖在不在**"：完整版 exe 可用；精简版才降级并说清补救 |
+| `settings_window` | 按钮置灰条件改成 `feature_available()`，并写明原因 |
+| `--selftest` | 加 `playwright_driver` 检查（用 `compute_driver_executable()` 校验两个文件真在） |
+
+★ 用的是 `channel="msedge"`（**系统 Edge**），所以**不需要** Chromium（再 +150MB）。
+
+## 11.3 体积（用户问"为什么 244MB"）
+
+| | 压缩包 | 解压后 | 里面有什么 |
+|---|---|---|---|
+| A 便携 zip | **77.0 MB** | 89.5 MB | 只有源码 + `data/`（GIF 66MB）；**Python 与依赖用你机器上已装的** |
+| B exe（第一版） | 249.1 MB | 447.5 MB | 自带运行时 + 依赖（不含 playwright） |
+| **B exe（现在）** | **285.7 MB** | **551.8 MB** | 再加 playwright 驱动 107MB |
+
+解压后的大头（实测）：PySide6 92 · `data/` 83 · playwright 107 · pymupdf 36 ·
+exe 本体 35 · jieba 30 · numpy 26 · PIL 13 · grpc 11.5 · cryptography 9.4 · hf_xet 9 …
+**这是"不用装 Python"的必然代价**，不是配置写错。
+要更小就砍能力（`PRTS.spec` 里注释 playwright → −107MB；pymupdf → −36MB），
+但**别开 UPX**（杀软误报）、**别排 setuptools**（起不来，真踩过）。
+
+## 11.4 这一轮的实测
+
+```
+exit=0  ok=true  31 项全过  frozen=true  base_dir == exe 目录
+avatars(预设头像) = true
+playwright_driver = true  →  <exe目录>\playwright\driver\node.exe + package\cli.js
+```
+
+产物：`dist/PRTS-DesktopPet-1.9.4-exe/`（2360 文件 / 551.8 MB）
+      + `dist/PRTS-DesktopPet-1.9.4-exe.zip`（285.7 MB）
+
+**仍没验的**（只有人能做的）：图形桌面真双击、真填 Key 聊一轮、
+真点一次「一键开通」走完登录（沙箱里起不了浏览器）。

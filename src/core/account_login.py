@@ -103,16 +103,33 @@ def install_hint() -> str:
        —— 所以这里不能再拼命令，否则界面会显示一条**照着做会再开一个桌宠**的假命令。
     """
     if is_frozen():
-        return frozen_feature_hint("一键开通 B站/P站")
+        return ("⚠ exe 里没有 pip。正常安装的 exe **自带**了这些依赖"
+                "（含 playwright 的 Edge 驱动）；\n"
+                "     只有**精简版 exe** 才会缺，请换完整版或改用便携 zip 版。")
     return (f'"{sys.executable}" -m pip install '
             f'playwright requests pixivpy3 gppt')
 
 
 def feature_available() -> tuple[bool, str]:
-    """这个功能在当前形态里能不能用；不能用时给一句**可操作**的话。"""
+    """「一键开通 B站/P站」能不能用；不能用时给一句**可操作**的话。
+
+    ★★ 1.9.4：判据从"**是不是 exe**"改成"**依赖到底在不在**"。
+      以前 exe 里把 playwright 排除了，所以在 exe 里**永远**不可用；
+      现在完整版 exe 已经带上 playwright + 驱动 → exe 里也能一键开通。
+      只有"精简版 exe / 没装依赖"才降级（降级也要说清怎么补救，不许崩）。
+    """
+    try:
+        has_pw = importlib.util.find_spec("playwright") is not None
+    except Exception:                                # noqa: BLE001
+        has_pw = False
+    if has_pw:
+        return True, ""
     if is_frozen():
-        return False, frozen_feature_hint("一键开通 B站/P站")
-    return True, ""
+        # 精简版 exe（没带 playwright）：用统一口径说清"exe 里没有 + 怎么补救"
+        return False, (frozen_feature_hint("一键开通 B站/P站")
+                       + "\n     ★ 或换**完整版 exe**（多约 107MB，已自带 Edge 驱动）。")
+    return False, ("❌ 还没装 playwright（浏览器驱动）。\n"
+                   "     在项目目录里跑这条就行：\n     " + install_hint())
 
 
 def _bili_login_browser(timeout: float = 300.0, on_line=None) -> tuple:

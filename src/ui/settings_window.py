@@ -1649,39 +1649,37 @@ class SettingsWindow(QWidget):
         g_dep = self._section("需要的依赖")
         f_dep = QFormLayout(g_dep)
         f_dep.setSpacing(8)
-        _frozen = False
+        # ★★ 1.9.4：判据是"**依赖在不在**"，不是"是不是 exe"。
+        #   第一版 exe 把 playwright 排除了 → 这里置灰并说"exe 版不支持"；
+        #   **真机反馈后重打的包**已自带 playwright + Edge 驱动 → exe 里照样能点。
+        #   只有精简版 exe / 没装依赖时才降级，并**说清怎么补救**。
+        _avail, _why, _miss = True, "", []
         try:
             from src.core import account_login as _al
             _miss = _al.missing_deps()
             _hint_cmd = _al.install_hint()
-            # ★★ 1.9.4 exe：冻结环境里没有 Python / 没有浏览器驱动
-            #   → 这里**明确说"exe 版不支持"**，而不是显示"缺 playwright"再给一条
-            #     在 exe 里照做会**再开一个桌宠**的假安装命令。
-            _frozen = _al.is_frozen()
+            _avail, _why = _al.feature_available()
         except Exception as _e:
             _miss, _hint_cmd = ["（读取失败）"], f"（{_e}）"
-        self._acc_dep_label = self._lbl(
-            ("⚠ exe 版不含浏览器驱动 —— 本页只能「刷新状态」，不能一键开通"
-             if _frozen else
-             ("✅ 都装好了" if not _miss else f"❌ 缺：{'、'.join(_miss)}")))
+            _avail, _why = False, f"读取依赖状态失败: {_e}"
+        if not _avail:
+            _state_txt = "⚠ " + (_why.splitlines()[0] if _why else "不可用")
+        else:
+            _state_txt = ("✅ 都装好了" if not _miss else f"❌ 缺：{'、'.join(_miss)}")
+        self._acc_dep_label = self._lbl(_state_txt)
         f_dep.addRow(self._lbl("状态:"), self._acc_dep_label)
         self._acc_dep_cmd = QLineEdit(_hint_cmd)
         self._acc_dep_cmd.setReadOnly(True)
-        self._acc_dep_cmd.setPlaceholderText(
-            "exe 版没有可执行的安装命令" if _frozen else "在项目目录里粘贴这行命令安装")
+        self._acc_dep_cmd.setPlaceholderText("exe 版没有可执行的安装命令")
         f_dep.addRow(self._lbl("安装命令:"), self._acc_dep_cmd)
         f_dep.addRow("", self._hint(
-            ("**exe 版**里这个功能是**关掉**的：它需要 Python 环境和浏览器驱动，"
-             "而 exe 不带这些。\n"
-             "★ 想开通：用**便携 zip 版**（双击 启动.bat）在这一页登录一次，"
-             "然后把 zip 版目录里的 `.env` 和 `data/cookies/` 拷到 exe 旁边，"
-             "再回来点「刷新状态」—— 两个形态用的是同一套文件。"
-             if _frozen else
+            (_why if not _avail else
              "这两个功能需要 playwright / requests / pixivpy3 / gppt。\n"
-             "★ 一定要装进**桌宠自己的 Python**（上面那条命令就是），"
+             "★ 一律装进**桌宠自己的 Python**（上面那条命令就是），"
              "别用系统里另一个 Python 装 —— 那样桌宠 import 不到。\n"
              "★ playwright 用的是**系统自带的 Edge**，所以**不需要**再跑 "
-             "`playwright install`。")))
+             "`playwright install`。\n"
+             "★ **exe 版已经自带这些（含 Edge 驱动）**，可以直接点「一键开通」。")))
         layout.addWidget(g_dep)
 
         # ── 两个平台 ──
@@ -1703,12 +1701,11 @@ class SettingsWindow(QWidget):
             _h = QHBoxLayout()
             _b = QPushButton(f"一键开通（登录一次）")
             _btn_ref = QPushButton("刷新状态")
-            # ★ exe 里没有浏览器驱动 → 按钮**不可点**且说明原因（别让用户点了才发现）
-            _b.setEnabled(not _frozen)
-            if _frozen:
-                _b.setText("exe 版不支持（用便携 zip 版开通）")
-                _b.setToolTip("exe 不带 Python 与浏览器驱动；"
-                              "请在便携 zip 版里开通后把 .env / data/cookies 拷过来")
+            # ★ 只有"依赖真的缺"才置灰（完整版 exe 自带 playwright → 可点）
+            _b.setEnabled(_avail)
+            if not _avail:
+                _b.setText("一键开通不可用（看上面的说明）")
+                _b.setToolTip("缺少浏览器驱动；见上方「需要的依赖」里的说明")
             _h.addWidget(_b)
             _h.addWidget(_btn_ref)
             _h.addStretch(1)

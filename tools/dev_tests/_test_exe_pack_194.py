@@ -69,6 +69,20 @@ for _doc in ("发布说明_1.9.4.txt", "B站与P站凭据获取指南_1.9.4.md",
 check("★requirements.txt / config.default.json 随包",
       "requirements.txt" in spec_text and "config.default.json" in spec_text)
 
+print("\n== A3. ★★ 1.9.4 真机反馈后的两条修复（头像 / 一键开通）==")
+check("★★DATAS 里有 `data/avatars`（漏了 → 用户看到的是『文档』占位图）",
+      "data/avatars" in spec_text)
+check("★★仓库里确实有那张预设头像",
+      (ROOT / "data" / "avatars" / "user_avatar.jpg").is_file())
+check("★★出厂配置指向它（否则带了也不会被用）",
+      "data/avatars/user_avatar.jpg" in
+      (ROOT / "config.default.json").read_text(encoding="utf-8"))
+check("★★playwright 的**浏览器驱动**作为数据随包（node.exe / cli.js，不是 .py）",
+      "playwright/driver" in spec_text and "_PW_DRIVER" in spec_text)
+check("★★playwright / gppt / pixivpy3 **不再被排除**（运行时才 import）",
+      all(k in spec_text for k in ('"playwright"', '"gppt"', '"pixivpy3"'))
+      and '# "playwright", "gppt", "pixivpy3",' in spec_text)
+
 print("\n== B. ★★ 缺口 2：运行时 import 的模块必须登记 ==")
 check("★★HIDDEN 里有 `src.core.account_login`（设置页运行时 import）",
       "src.core.account_login" in spec_text)
@@ -112,14 +126,19 @@ check("★runtime 区分 _MEIPASS 与 exe 目录", "_MEIPASS" in _rt_text)
 check("★runtime 提供 frozen_feature_hint（统一口径）", "frozen_feature_hint" in _rt_text)
 
 _ac_text = (ROOT / "src" / "core" / "account_login.py").read_text(encoding="utf-8")
-check("★★account_login 有 feature_available() 冻结判定",
+check("★★account_login 有 feature_available()（可用性判定）",
       "def feature_available" in _ac_text)
-check("★★冻结时「一键开通」返回**可操作**的说明（不是崩、不是假报没装）",
-      "frozen_feature_hint" in _ac_text and "if is_frozen()" in _ac_text)
+check("★★判据是「**依赖在不在**」而不是「是不是 exe」"
+      "（1.9.4 起完整版 exe 也能一键开通）",
+      "find_spec(\"playwright\")" in _ac_text or "find_spec('playwright')" in _ac_text)
+check("★★精简版 exe 降级时给**可操作**的替代路径（不是崩、不是假报没装）",
+      "精简版" in _ac_text and "if is_frozen()" in _ac_text)
 
 _sw_text = (ROOT / "src" / "ui" / "settings_window.py").read_text(encoding="utf-8")
-check("★★设置页在 exe 里把「一键开通」**置灰并写明原因**",
-      "exe 版不支持" in _sw_text and "_b.setEnabled(not _frozen)" in _sw_text)
+check("★★设置页按 `feature_available()` 决定是否置灰（不是看 frozen）",
+      "_b.setEnabled(_avail)" in _sw_text and "_avail, _why = _al.feature_available()" in _sw_text)
+check("★★置灰时写明原因（别让用户点了才发现）",
+      "一键开通不可用" in _sw_text)
 
 _fw_text = (ROOT / "src" / "ui" / "first_run_wizard.py").read_text(encoding="utf-8")
 check("★★首次向导的模型下载有 `_install_inprocess`（exe 里没有 python 可调）",
@@ -144,6 +163,10 @@ check("★自检覆盖「工具注册了没」",
       "tools_registered" in _main_text)
 check("★自检覆盖「.env.preset 合并进来了没」",
       "env_preset_merged" in _main_text)
+check("★自检覆盖「预设头像随包了没」（1.9.4 真机踩到）",
+      "data/avatars/user_avatar.jpg" in _main_text)
+check("★自检覆盖「playwright 驱动在不在」（一键开通的前提）",
+      "playwright_driver" in _main_text)
 
 print("\n== H. ★★ 安装程序(C) 指向 B 的产物 ==")
 _iss_text = ISS.read_text(encoding="utf-8") if ISS.is_file() else ""
@@ -167,9 +190,22 @@ try:
           _R.app_dir() == (ROOT / "_fake_meipass"))
     check("★has_python() 在 exe 里是 False（不能再用 sys.executable 跑脚本）",
           _R.has_python() is False)
+    # ★★ 1.9.4：完整版 exe **带了** playwright → 冻结环境里也应该"可用"。
+    #   判据是"依赖在不在"，不是"是不是 exe"。
     _ok, _why = _AL.feature_available()
-    check("★★一键开通在 exe 里**明确不可用**，且给出替代做法",
-          _ok is False and "zip" in _why and "exe" in _why)
+    check("★★完整版 exe 里「一键开通」**可用**（playwright 随包即可，不看 frozen）",
+          _ok is True, _why[:60])
+    # 反过来：精简版（没带 playwright）必须**明确不可用 + 给替代路径**，不许崩
+    import importlib.util as _iu
+    _orig_find = _iu.find_spec
+    try:
+        _iu.find_spec = (lambda name, *a, **k:
+                         None if name == "playwright" else _orig_find(name, *a, **k))
+        _ok2, _why2 = _AL.feature_available()
+    finally:
+        _iu.find_spec = _orig_find
+    check("★★精简版 exe（缺 playwright）→ 明确不可用 + 给替代做法（zip / 完整版）",
+          _ok2 is False and "zip" in _why2 and "exe" in _why2, _why2[:60])
     _hint = _AL.install_hint()
     check("★★安装提示不再是 `exe -m pip install` 那种假命令",
           "pip install" not in _hint, _hint[:60])

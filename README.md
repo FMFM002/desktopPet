@@ -583,12 +583,19 @@ python tools/preflight.py --json     # 给脚本/CI
 | 形态 | 体积（实测） | 用户需要什么 | 说明 |
 |---|---|---|---|
 | **A 便携 zip** | **76.9 MB** | 自己有 Python 3.10~3.12 | 最省事；解压双击 `启动.bat`，启动器会自己装依赖 |
-| **B exe** | **447 MB** / 2238 文件 | 什么都不用装 | 双击即用（自带 Python 运行时）。**代价**：体积大 + **杀软误报是常态**（PyInstaller 的固有现象，非代码问题） |
+| **B exe** | **551.8 MB** / 2360 文件（zip **285.7 MB**） | 什么都不用装 | 双击即用（自带 Python 运行时）。**代价**：体积大 + **杀软误报是常态**（PyInstaller 的固有现象，非代码问题） |
 | **C 安装程序** | — | 双击安装 | 体验最好（开始菜单/卸载/可选组件）。需要 Inno Setup 编译，公开发布通常还要**代码签名**才不被拦 |
 
 **建议**：目标用户是自己或熟人 → **A 就够**。要发给不懂电脑的人 → B 或 C。
 
-### B（exe）的两个特别之处（1.9.4 打包时才定下来的）
+### B（exe）的几个特别之处（1.9.4 打包时才定下来的）
+
+0. **体积 551.8 MB 是"把运行环境一起装进去"的代价**（zip 285.7 MB）。拆开看：
+   PySide6 92 MB · `data/` 83 MB（角色 GIF 66 MB）· pymupdf 36 MB · playwright 驱动 107 MB ·
+   exe 本体 35 MB · numpy/PIL/jieba/grpc 等约 100 MB。
+   **80 MB 的便携版不含这些** —— 它用的是你机器上已经装好的 Python 与依赖。
+   想瘦：`PRTS.spec` 里排掉 playwright（−107MB）/ pymupdf（−36MB，少"看 PDF"），
+   但**别再动 UPX 与 setuptools**（前者杀软误报、后者直接起不来，都踩过）。
 
 1. **数据就落在 exe 旁边**。`PRTS.spec` 用了 PyInstaller 6 的
    `contents_directory="."`（legacy onedir 布局）→ `sys._MEIPASS` **就是** exe 所在目录。
@@ -604,9 +611,12 @@ python tools/preflight.py --json     # 给脚本/CI
    ```
    它**跳过**首次配置引导（否则模态框会挡住自检），所以"还没填 LLM Key"不算失败。
 
-> ★ **B 形态不支持「一键开通 B站/P站」**：那要 Playwright 的浏览器驱动（+107MB），
-> 打包时被排除了。设置页会**明确写"exe 版不支持"并把按钮置灰**，
-> 需要用便携 zip 版开通一次，再把 `.env` 与 `data/cookies/` 拷到 exe 旁边。
+> ★ **B 形态支持「一键开通 B站/P站」**（1.9.4 第一版曾为了省 107MB 排除过它）。
+> 现在 playwright 的浏览器驱动（`playwright/driver/node.exe` + `cli.js`）**作为数据随包**，
+> 用的是**系统自带的 Edge**（`channel="msedge"`），所以**不需要**再下 Chromium。
+> ★ 如果要发"精简版 exe"：把 `PRTS.spec` 里 `# "playwright", "gppt", "pixivpy3",`
+> 那行取消注释重打包即可（**约 −107MB**，界面会自动降级成"不可用，用 zip 版"，
+> 不会崩）。
 
 ### 怎么构建
 

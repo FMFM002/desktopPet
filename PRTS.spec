@@ -91,6 +91,13 @@ for rel in (
     "data/memes",                        # 表情包
     "data/assets",                       # 程序图片
     "data/tools",                        # aria2c.exe（磁力下载引擎，按文件路径找）
+    # ★★ 1.9.4 修：**出厂预设的"我的头像"**。
+    #   漏了它 → `config.default.json` 里的 `ui.user_avatar_path =
+    #   "data/avatars/user_avatar.jpg"` 指向一个**不存在的文件** →
+    #   用户第一次打开 exe 看到的是"文档"占位图（真机上就是这么被发现的）。
+    #   ★ A 形态的 zip 是整棵 data/ 一起装，所以只有 exe 会踩这个坑。
+    "data/avatars",
+    "data/自建工具模板",                   # 自建工具模板（只有 README，与 zip 一致）
     "data/China-City-List-latest.csv",   # 天气城市表
     "config.default.json",               # 出厂配置（首启据此生成 config.json）
     ".env.example",                      # 密钥模板
@@ -123,6 +130,28 @@ _VENDOR = ROOT / "tools" / "_vendor"
 if _VENDOR.is_dir():
     DATAS.append((str(_VENDOR), "tools/_vendor"))
 
+# ── ★★ 1.9.4：一键开通 B站/P站 要的 **playwright 浏览器驱动** ──
+#   背景：1.9.4 第一次打 exe 时把它排除了（省 107MB），用户真机一问"为什么不支持"，
+#   于是改成**支持**。注意两件事：
+#     1. PyInstaller **没有** playwright 的官方 hook —— 它只会收 `.py`，
+#        `playwright/driver/`（node.exe + cli.js）是**数据**，必须显式带上；
+#     2. 冻结后 `compute_driver_executable()` 用 `inspect.getfile(playwright)`
+#        → `_MEIPASS/playwright/__init__.py`，所以驱动必须落在
+#        **`playwright/driver/`**（相对 exe 目录）这个位置。
+#   ★ 我们用的是 `channel="msedge"`（系统自带的 Edge），所以**不需要**再带 Chromium
+#     （那会再 +150MB）。
+_PW_DRIVER = None
+try:
+    import playwright as _pw
+    _PW_DRIVER = Path(_pw.__file__).parent / "driver"
+except Exception as _e:                              # noqa: BLE001
+    print(f"[spec][warn] 没找到 playwright（一键开通在 exe 里会降级）: {_e}")
+if _PW_DRIVER is not None and _PW_DRIVER.is_dir():
+    DATAS.append((str(_PW_DRIVER), "playwright/driver"))
+    print(f"[spec] playwright driver 已随包: {_PW_DRIVER}")
+else:
+    print("[spec][warn] 没找到 playwright/driver —— exe 里「一键开通」会被降级")
+
 # ── 隐藏导入：这些是"运行时才 import"或"按路径 import"的 ──
 HIDDEN = [
     "src.core.models",                   # 模型集中管理（运行时被解析）
@@ -137,6 +166,11 @@ HIDDEN = [
     # ★ exe 里的模型下载（向导里**在本进程内**跑 model_manager，见 first_run_wizard）：
     #   huggingface_hub 1.x 的 xet 后端是**延迟导入**的，不登记会漏。
     "huggingface_hub", "hf_xet", "filelock", "tqdm", "yaml",
+    # ★★ 1.9.4：「一键开通 B站/P站」在生产路径上是**延迟导入**的
+    #   （account_login 里 `import playwright.sync_api` / `import gppt`），
+    #   静态分析扫不到 → 不登记就在 exe 里变成"没装"。
+    "playwright", "playwright.sync_api", "playwright.async_api",
+    "gppt", "pixivpy3",
 ]
 # ★★ 工具模块本身也要进 hiddenimports —— 不是为了让"导入它们"，
 #   而是为了让 PyInstaller **分析它们的依赖**（pptx / yt_dlp / jmcomic / aiohttp …）。
@@ -175,12 +209,12 @@ EXCLUDES = [
     "sudachidict_core", "sudachipy", "paddle", "paddleocr", "paddlex",
     "pyopenjtalk", "g2pk2", "eunjeon", "jamo", "ko_pron", "mecab",
     "pycld2", "polyglot", "icu",
-    # ★★ 1.9.4 缺口 3 的取舍（交接文档第三节，按"建议方案"执行）：
-    #    「一键开通 B站/P站」要 playwright（含 107MB 浏览器驱动）+ gppt。
-    #    exe 里把这三个排掉 → 该功能在界面上**明确提示改用便携 zip 版**，
-    #    而不是崩、也不是假报"没装"（见 src/core/account_login.py 的 frozen 分支）。
-    #    ★ 想改成支持：删掉这行，并把 playwright 的驱动目录加进 DATAS（+150MB 起）。
-    "playwright", "gppt", "pixivpy3",
+    # ★★ 1.9.4 **第一版 exe** 的取舍 —— 真机反馈后**已反转**
+    #    （用户问"为什么不支持开通"）：现在 playwright / gppt / pixivpy3
+    #    **打进包**，驱动单独作为数据带上（见上）。代价：+107MB。
+    #    ★ 如果哪天要做"精简版 exe"，把下面这行取消注释即可退回约 447MB
+    #      （界面会自动降级成"exe 不支持，用 zip 版"，不会崩）。
+    # "playwright", "gppt", "pixivpy3",
 ]
 
 a = Analysis(
