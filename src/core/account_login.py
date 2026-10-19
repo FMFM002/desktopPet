@@ -371,6 +371,39 @@ def _wait_for_redirect_tolerant(page, timeout_ms: int) -> None:
             return
 
 
+def _wait_for_form_better(page) -> None:
+    """等 pixiv 的登录表单出现；**把三种失败分开**（1.9.4 真机第三轮）。
+
+    ## 为什么不能直接用 gppt 原来的 `_wait_for_form`
+        它把**所有** playwright 错误都包成同一句
+            "Login form did not appear. Please check connectivity for ..."
+        于是下面两种完全不同的情况在界面上长得一模一样：
+          · pixiv **522 / Cloudflare 挡了** → 登录页根本没加载（用户截图就是这种）；
+          · 用户**手快把窗口关了** → 也是同一句，被误解成"网络问题"。
+
+    ## 现在
+      · 错误里含 "closed" → **原样抛出**（上层会翻译成"你把浏览器关掉了"）；
+      · 其它 → 先往日志里记下当时的 `url` 与 `title`（这就是诊断 522 的铁证），
+        再抛 gppt 原本那句（保持错误类型不变，别让上层逻辑失配）。
+    """
+    import gppt.browser as _gb                              # noqa: PLC0415
+    from playwright.sync_api import Error as _PWError       # noqa: PLC0415
+
+    try:
+        page.wait_for_selector(_gb.USERNAME_SELECTOR, timeout=_gb.FORM_TIMEOUT_MS)
+    except _PWError as exc:
+        if "closed" in str(exc).lower():
+            raise                                           # 用户关窗口：交给上层说清楚
+        try:
+            _log.warning("[Pixiv] 登录页没出现：url=%s ，title=%s",
+                         page.url, page.title())
+        except Exception:                                   # noqa: BLE001
+            pass
+        raise _gb.LoginError(
+            "Login form did not appear. Please check connectivity for "
+            f"{_gb.LOGIN_URL}") from exc
+
+
 def _login_gppt_with_system_edge(headless: bool = False):
     """★ 1.9.4 真机修复（2026-10-19）：让 **gppt 5.x 用系统自带的 Edge** 登录。
 
@@ -411,6 +444,7 @@ def _login_gppt_with_system_edge(headless: bool = False):
     _orig_launch = _BT.launch
     _orig_manual_ms = getattr(_gb, "MANUAL_TIMEOUT_MS", None)
     _orig_wait_redirect = getattr(_gb, "_wait_for_redirect", None)
+    _orig_wait_form = getattr(_gb, "_wait_for_form", None)
     _orig_new_page = _BC.new_page
 
     def _no_install(*_a, **_k):
@@ -438,6 +472,8 @@ def _login_gppt_with_system_edge(headless: bool = False):
             _gb.MANUAL_TIMEOUT_MS = int(LOGIN_WAIT_S * 1000)
         if _orig_wait_redirect is not None:
             _gb._wait_for_redirect = _wait_for_redirect_tolerant
+        if _orig_wait_form is not None:
+            _gb._wait_for_form = _wait_for_form_better
         return _gppt_login(headless)
     finally:
         _gb.install = _orig_install
@@ -447,6 +483,8 @@ def _login_gppt_with_system_edge(headless: bool = False):
             _gb.MANUAL_TIMEOUT_MS = _orig_manual_ms
         if _orig_wait_redirect is not None:
             _gb._wait_for_redirect = _orig_wait_redirect
+        if _orig_wait_form is not None:
+            _gb._wait_for_form = _orig_wait_form
 
 
 def _gppt_login(headless: bool):
@@ -462,6 +500,13 @@ def _humanize_pixiv_error(err) -> str:
       原始报错里有一整段
           Looks like Playwright was just installed or updated. ...
       但真正的结论只有一句 —— 所以这里按"看得懂 + 下一步做什么"重写。
+
+    ★ 1.9.4 第三轮（用户 2026-10-20 手动关掉浏览器 / pixiv 522）补了三种：
+      · **登录页根本没加载出来**（gppt 的 "Login form did not appear"）——
+        真机截图里是 Cloudflare `522 Connection timed out`（app-api.pixiv.net 不可达），
+        这跟"你没登录"完全不是一回事，必须分开说；
+      · **用户自己把浏览器关了**（TargetClosedError / "has been closed"）；
+      · **登录页出来了但没抓到 code**（"Did not capture an authorization code"）。
     """
     s = f"{type(err).__name__}: {err}"
     low = s.lower()
@@ -471,6 +516,22 @@ def _humanize_pixiv_error(err) -> str:
                 "     请确认：① 机器上装了 Microsoft Edge；② 不是精简版 exe。\n"
                 "     ★ 不想折腾的话：先用**便携 zip 版**开通 P站，"
                 "再把 .env 拷到 exe 旁边。")
+    if "login form did not appear" in low:
+        return ("❌ pixiv 的**登录页根本没打开**（不是你没登录）。\n"
+                "     常见原因：代理/VPN 没覆盖 `app-api.pixiv.net`，\n"
+                "     或者 pixiv 那边回了 Cloudflare 522/超时（截图里那种页面）。\n"
+                "     可以这样确认：在浏览器里打开\n"
+                "       https://app-api.pixiv.net/web/v1/login\n"
+                "     如果能正常出登录框，再回来点一次；打不开就先修代理节点。")
+    if ("has been closed" in low or "targetclosed" in low
+            or "browser closed" in low or "page closed" in low):
+        return ("❌ 浏览器被关掉了，这次登录没完成。\n"
+                "     要开通的话请再点一次「一键开通」，并且**别提前关窗口** ——\n"
+                "     登录成功后页面会自己跳走，窗口会自己关。")
+    if "did not capture an authorization code" in low:
+        return ("❌ 登录页打开了，但**没抓到授权码**（可能没真正登进去）。\n"
+                "     请在窗口里完整走完登录（看到 pixiv 首页/头像）再等它自己关窗口。\n"
+                "     如果一直停在验证码或报错页，多半还是代理的问题。")
     if "failed to login" in low or "authorization code" in low:
         return ("❌ 登录没有完成（浏览器里可能没登进去，或被 pixiv 拦了）。\n"
                 "     常见原因：代理没生效 / 页面停在验证码 / 窗口被提前关掉。\n"

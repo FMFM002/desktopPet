@@ -1654,14 +1654,20 @@ class SettingsWindow(QWidget):
         #   **真机反馈后重打的包**已自带 playwright + Edge 驱动 → exe 里照样能点。
         #   只有精简版 exe / 没装依赖时才降级，并**说清怎么补救**。
         _avail, _why, _miss = True, "", []
+        _frozen = False
         try:
             from src.core import account_login as _al
             _miss = _al.missing_deps()
             _hint_cmd = _al.install_hint()
             _avail, _why = _al.feature_available()
+            _frozen = _al.is_frozen()
         except Exception as _e:
             _miss, _hint_cmd = ["（读取失败）"], f"（{_e}）"
             _avail, _why = False, f"读取依赖状态失败: {_e}"
+        # ★ 完整版 exe 里这些依赖是**自带**的 —— 别再显示"精简版才会缺…"那条
+        #   （用户截图里那行出现在"安装命令"框里，看着像缺东西）。
+        if _avail and _frozen:
+            _hint_cmd = "（exe 版已自带，无需安装）"
         if not _avail:
             _state_txt = "⚠ " + (_why.splitlines()[0] if _why else "不可用")
         else:
@@ -1670,7 +1676,7 @@ class SettingsWindow(QWidget):
         f_dep.addRow(self._lbl("状态:"), self._acc_dep_label)
         self._acc_dep_cmd = QLineEdit(_hint_cmd)
         self._acc_dep_cmd.setReadOnly(True)
-        self._acc_dep_cmd.setPlaceholderText("exe 版没有可执行的安装命令")
+        self._acc_dep_cmd.setPlaceholderText("需要时可粘贴安装命令")
         f_dep.addRow(self._lbl("安装命令:"), self._acc_dep_cmd)
         f_dep.addRow("", self._hint(
             (_why if not _avail else

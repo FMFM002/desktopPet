@@ -291,6 +291,32 @@ check("★★替换 gppt 的等待函数，且调用结束还原",
 check("★★失败时把**原始异常 + 耗时**写进日志（下次不用猜是哪一个超时）",
       "[Pixiv] 登录失败" in _s and "用时 %.1f 秒" in _s and "exc_info=True" in _s)
 
+print("\n== R. ★★★ 真机：pixiv 522 打不开登录页 / 用户手动关浏览器 ==")
+# 用户 2026-10-20 截图：Edge 里是 Cloudflare `522 Connection timed out`
+# （app-api.pixiv.net 不可达），他手动关了浏览器。以前这两种都会显示成
+# "Login form did not appear"（像"你没登录"），必须分开说。
+check("★★★存在 `_wait_for_form_better`（区分「页面没加载」与「被关掉」）",
+      "def _wait_for_form_better" in _s)
+check('★★"closed" 时**原样抛**（让上层说"你把浏览器关了"），不包成"网络问题"',
+      'if "closed" in str(exc).lower():' in _s)
+check("★★页面没出来时把 `url` 和 `title` 写进日志（522 的证据）",
+      "[Pixiv] 登录页没出现" in _s and "page.title()" in _s)
+check("★★替换 gppt 的 `_wait_for_form`，且结束后还原",
+      "_gb._wait_for_form = _wait_for_form_better" in _s
+      and "_gb._wait_for_form = _orig_wait_form" in _s)
+
+_h = _s.split("def _humanize_pixiv_error")[1]
+check("★★登录页没打开 → 指向 `app-api.pixiv.net` 没被代理 / 522（可照做）",
+      "login form did not appear" in _h and "app-api.pixiv.net" in _h and "522" in _h)
+check("★★浏览器被关掉 → 明确说「别提前关窗口」，不再混进「网络问题」",
+      "浏览器被关掉了" in _h)
+check("★★没抓到授权码 → 说「要完整走完登录」，与「页面没打开」区分开",
+      "没抓到授权码" in _h)
+
+check("★设置页在「完整版 exe 且依赖都在」时显示「无需安装」，不再贴精简版提示",
+      "（exe 版已自带，无需安装）" in
+      (ROOT / "src" / "ui" / "settings_window.py").read_text(encoding="utf-8"))
+
 _seen = {}
 _orig_login = _AL._gppt_login
 _orig_install_name = getattr(_gb.install, "__name__", "?")
