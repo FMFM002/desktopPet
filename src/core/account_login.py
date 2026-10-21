@@ -310,9 +310,18 @@ def _verify_pixiv_token(token: str) -> tuple:
         api.auth(refresh_token=token)
     except Exception as e:
         _m = str(e)
-        # 401/403 之类 = 令牌无效；网络类 = 没法判断
+        # ★★ 1.9.4 真机第三轮（2026-10-21）：Cloudflare 会按出口 IP 拦请求。
+        #   实测（走本机 7897 代理）：GET auth/token → 503 挑战页；
+        #   POST auth/token → **405 Not Allowed**（nginx）。这**不是**令牌失效，
+        #   所以既不能判失败，也不能只说"网络问题" —— 要说清是出口被挡了。
+        if "405" in _m or "503" in _m or "cloudflare" in _m.lower():
+            _log.warning("[Pixiv] 令牌验证被 Cloudflare 拦了：%s", _m[:200])
+            return None, ("pixiv 的 API 被 Cloudflare 拦了（HTTP 405/503，"
+                          "是**当前网络出口**的问题，不代表令牌失效）")
+        # 401/403 之类 = 令牌无效；其它网络类 = 没法判断
         if any(k in _m for k in ("401", "403", "invalid_grant", "Unauthorized")):
             return False, f"令牌无效（{_m[:80]}）"
+        _log.warning("[Pixiv] 令牌验证请求失败：%s", _m[:200])
         return None, f"没能验证（网络/代理问题）：{_m[:80]}"
     try:
         api.illust_ranking(mode="day")

@@ -231,8 +231,20 @@ def _build_api():
         api.auth(refresh_token=token)
     except Exception as e:
         msg = str(e)
-        hint = ""
-        if "403" in msg or "400" in msg or "refresh_token" in msg:
+        low = msg.lower()
+        # ★★ 1.9.4 真机第三轮（2026-10-21）：pixiv 的 **Cloudflare** 会按网络出口拦请求。
+        #   实测（本机、走 7897 代理）：
+        #       GET  https://oauth.secure.pixiv.net/auth/token  → 503（人机挑战页）
+        #       POST https://oauth.secure.pixiv.net/auth/token  → **405 Not Allowed**（nginx 页）
+        #   这跟"令牌失效"完全无关 —— 不分开说，用户会一直去重新登录。
+        if "405" in msg or "503" in msg or "cloudflare" in low:
+            hint = ("\n     这是 pixiv 的 Cloudflare 把**当前网络出口**挡了，不是令牌的问题：\n"
+                    "       · 405 = POST 被拦（nginx 那个 405 Not Allowed 页）\n"
+                    "       · 503 = 直接给了人机挑战页\n"
+                    "     换一个代理节点（或开全局）再试。自检办法：浏览器里打开\n"
+                    "       https://oauth.secure.pixiv.net/auth/token\n"
+                    "     如果也是 405/503，就确认是网络侧，别再重复登录。")
+        elif "403" in msg or "400" in msg or "refresh_token" in msg:
             hint = ("（令牌可能过期/失效；刷新令牌是一次性的，"
                     "每次登录都会换一个新的，建议把 .env 里的值更新成最新的）")
         return None, f"Pixiv 登录失败: {msg[:300]}{hint}"

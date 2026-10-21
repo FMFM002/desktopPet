@@ -85,6 +85,10 @@ for _mb in ("1855", "465", "100"):
 check("★文档写了日志位置 `logs/prts_`", "logs/prts_" in _text)
 check("★文档写了隐私红线 data/DBs / cookies",
       "data/DBs" in _text and "cookies" in _text)
+# ★ 2026-10-21：405/503 是 Cloudflare 按出口 IP 拦的（真机实测），文档必须写清楚，
+#   否则桌宠会把它当成"令牌失效"让用户反复重登。
+check("★★文档写了 P站 405/503 = Cloudflare 出口拦截（不是令牌问题）",
+      "405" in _text and "503" in _text and "Cloudflare" in _text)
 
 print("\n== E. ★ 不让它变成「资料夹里的死文件」 ==")
 # 版本号：文档头注明当前版本，方便日后核对（不强制，但要有）
