@@ -15,6 +15,32 @@ from PIL import Image
 
 _log = logging.getLogger("LLM")
 
+# ★★★ 1.9.4 真机修复（2026-10-21，日志铁证）：
+#   `api.deepseek.com` 的请求被**系统代理**（Clash 127.0.0.1:7897）接管后反复失败：
+#       start_tls.failed ConnectTimeout(handshake timed out)
+#       start_tls.failed ConnectError(SSLEOFError(...))
+#       receive_response_body.failed ReadTimeout
+#   表现就是聊天"卡住"→ 回一句「(唔…我好像卡住了)」，而同一时刻直连是通的。
+#   DeepSeek 的 API 国内外都可直连 → **默认绕开系统代理**（更快更稳）。
+#   ★ 需要走代理的机器（公司网/白名单）设环境变量 `PRTS_LLM_USE_PROXY=1` 即可恢复。
+_LLM_DIRECT = os.environ.get("PRTS_LLM_USE_PROXY") != "1"
+
+
+def _llm_http_client(timeout: float):
+    """给 OpenAI SDK 用的 httpx 客户端；直连模式返回 `trust_env=False` 的客户端。
+
+    返回 `None` 表示"交给 SDK 默认行为"（= 读环境/系统代理）。
+    ★ 只影响 **LLM 请求**；pixiv/B站/下载那些仍然各自走系统代理（它们需要）。
+    """
+    if not _LLM_DIRECT:
+        return None
+    try:
+        import httpx
+        return httpx.Client(trust_env=False, timeout=timeout)
+    except Exception as e:                                  # noqa: BLE001
+        _log.warning(f"构建直连 HTTP 客户端失败，回落到默认（含系统代理）: {e}")
+        return None
+
 
 def _get_llm_config(provider_override: str = None):
     """获取 LLM 配置，支持运行时覆盖"""
@@ -47,7 +73,8 @@ class VisionClient:
         if cfg.host and cfg.api_key:
             try:
                 self._api_client = OpenAI(api_key=cfg.api_key, base_url=cfg.host,
-                                          timeout=30.0, max_retries=2)
+                                          timeout=30.0, max_retries=2,
+                             http_client=_llm_http_client(30.0))
             except Exception as e:
                 _log.warning(f"视觉 API 客户端初始化失败: {e}")
 
@@ -57,7 +84,8 @@ class VisionClient:
         if cfg.ollama_host:
             try:
                 self._ollama_client = OpenAI(api_key="ollama", base_url=cfg.ollama_host,
-                                             timeout=60.0, max_retries=1)
+                                             timeout=60.0, max_retries=1,
+                             http_client=_llm_http_client(60.0))
             except Exception as e:
                 _log.warning(f"Ollama 视觉客户端初始化失败: {e}")
 
@@ -81,13 +109,15 @@ class VisionClient:
         if self._cfg.host:
             try:
                 self._api_client = OpenAI(api_key=self._cfg.api_key, base_url=self._cfg.host,
-                                          timeout=30.0, max_retries=2)
+                                          timeout=30.0, max_retries=2,
+                             http_client=_llm_http_client(30.0))
             except Exception:
                 pass
         if self._cfg.ollama_host:
             try:
                 self._ollama_client = OpenAI(api_key="ollama", base_url=self._cfg.ollama_host,
-                                             timeout=60.0, max_retries=1)
+                                             timeout=60.0, max_retries=1,
+                             http_client=_llm_http_client(60.0))
             except Exception:
                 pass
         self._ocr_engine = None  # 强制重新加载
@@ -246,7 +276,8 @@ class SummarizerClient:
     def __init__(self):
         kc = _get_llm_config()
         self.client = OpenAI(api_key=kc["api_key"], base_url=kc["host"],
-                             timeout=30.0, max_retries=2)
+                             timeout=30.0, max_retries=2,
+                             http_client=_llm_http_client(30.0))
         self.model = kc["model"]
         _log.info("总结客户端就绪")
 
@@ -466,7 +497,8 @@ class ChatClient:
     def __init__(self, provider: str = None):
         kc = _get_llm_config(provider)
         self.client = OpenAI(api_key=kc["api_key"], base_url=kc["host"],
-                             timeout=30.0, max_retries=2)
+                             timeout=30.0, max_retries=2,
+                             http_client=_llm_http_client(30.0))
         self.model = kc["model"]
         self.temperature = kc["temperature"]
         self.max_tokens = kc["max_tokens"]
