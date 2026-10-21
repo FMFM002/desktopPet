@@ -81,6 +81,34 @@ def _headers(api_key: str) -> dict:
     return {"X-QW-Api-Key": api_key, "Accept-Encoding": "gzip"}
 
 
+_SESSION = None
+
+
+def _session():
+    """★ 1.9.4 真机修复（2026-10-21）：和风天气是**国内**服务，必须**直连**。
+
+    ## 真机现象
+        实时天气偶尔能通，**未来预报必挂**：
+        HTTPSConnectionPool(host='p37byj4xwf.re.qweatherapi.com', port=443)
+        Max retries exceeded ... (Caused by SSLError(SSLEOFError(8,
+        '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol')))
+    查日志发现这些请求走的是**系统代理**（Clash 香港出口）—— 国内服务绕 Hong Kong
+    出去，TLS 直接被掐。用户看到的则是"重庆未来预报接口一直 SSL 连接失败"。
+
+    ## 做法
+      单独一个 `Session`，`trust_env=False` → **不吃系统代理**。
+      ★ 确实需要走代理的机器：设 `PRTS_WEATHER_USE_PROXY=1` 恢复。
+    """
+    global _SESSION
+    if _SESSION is None:
+        import os
+        s = requests.Session()
+        s.trust_env = (os.environ.get("PRTS_WEATHER_USE_PROXY") == "1")
+        _SESSION = s
+        _log.debug(f"天气 HTTP 会话就绪（trust_env={s.trust_env}）")
+    return _SESSION
+
+
 def _day_label(idx: int) -> str:
     return {0: "今天", 1: "明天", 2: "后天"}.get(idx, "")
 
@@ -92,7 +120,7 @@ def _query_forecast(city: str, location_id: str, api_key: str,
     endpoint = "3d" if days <= 3 else "7d"
     url = f"https://{api_host}/v7/weather/{endpoint}"
     try:
-        resp = requests.get(url, params={"location": location_id},
+        resp = _session().get(url, params={"location": location_id},
                             headers=_headers(api_key), timeout=8)
         if resp.status_code != 200:
             _log.warning(f"天气预报 HTTP {resp.status_code}: {resp.text[:200]}")
@@ -164,7 +192,7 @@ def execute(city: str, days: int = 0, **kwargs) -> str:
     # 调实时天气 API
     url = f"https://{api_host}/v7/weather/now"
     try:
-        resp = requests.get(url, params={
+        resp = _session().get(url, params={
             "location": location_id,
         }, headers=_headers(api_key), timeout=8)
 

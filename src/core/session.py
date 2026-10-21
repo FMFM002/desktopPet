@@ -1654,6 +1654,9 @@ class ChatSession:
                     # ★ 1.4.0+: 延迟注入标记（避免在 tool_calls→tool 链中插入 system 消息破坏 API 格式）
                     search_warn_needed = 0       # 0=不需要, >0=需要(值为连续次数)
                     failure_warn_needed = 0      # 0=不需要, >0=需要(值为连续失败次数)
+                    # ★ 1.9.4（2026-10-21）：这一轮里**有没有工具失败** ——
+                    #   有的话就不发"进度汇报"（否则会编出"已经查好了"）。
+                    round_had_failure = False
 
                     for tc in valid_tool_calls:
                         if self._abort_chat or self._abort_tool:
@@ -1689,6 +1692,11 @@ class ChatSession:
                         is_failure = _is_tool_failure(result)
                         if is_failure:
                             consecutive_tool_failures += 1
+                            # ★ 1.9.4（2026-10-21 真机）：这一轮**有工具失败** → 不许
+                            #   让"进度汇报"编一句"查好了"。那次天气接口 SSL 挂了三次，
+                            #   旁路模型却说"重庆的天气查好了，马上整理给你～"，
+                            #   紧接着正式回答又说"实在拿不到" —— 前后自相矛盾。
+                            round_had_failure = True
                             # ★ 1.9.3：记下最近一次失败的**工具名 + 原因**，
                             #   供"放弃"时如实告诉用户卡在哪一步（见下面空回复兜底）。
                             _last_failed_tool = func_name
@@ -1778,6 +1786,10 @@ class ChatSession:
                         #   要不要发旁路请求。以前是先花 8 秒让模型写一句进度，
                         #   再被 `report()` 拒掉 —— 一次查天气就这么从 7 秒拖到 20+ 秒。
                         _can_rep, _why_no = _pb_r.would_accept()
+                        # ★ 1.9.4（2026-10-21 真机）：这一轮有工具失败时**不许汇报** ——
+                        #   否则旁路模型会编一句"查好了"，紧接着正式回答又说"拿不到"。
+                        if round_had_failure:
+                            _can_rep, _why_no = False, "本轮有工具失败（不能编'查好了'）"
                         if not _can_rep:
                             _log.debug(f"[进度汇报] 跳过旁路请求（{_why_no}）"
                                        " —— 既不占时间、也不会被拒")
@@ -1791,8 +1803,8 @@ class ChatSession:
                             _pb_r.report(_rep_line)
                         elif int(_pb_r.count_this_turn() or 0) == 0 and \
                                 _t_r.time() - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
-                            # 兜底那句也要过闸门（短任务连这句都不该出）
-                            if _pb_r.would_accept()[0]:
+                            # 兜底那句也要过闸门（短任务连这句都不该出；失败轮也不出）
+                            if not round_had_failure and _pb_r.would_accept()[0]:
                                 self._last_progress_at = _t_r.time()
                                 _pb_r.report("还在弄，我继续～")
                                 _log.info("[进度兜底] 已发兜底汇报")
