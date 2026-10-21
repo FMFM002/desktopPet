@@ -105,6 +105,14 @@ check("★★progress_bus 有「跑 < 20 秒 → 拒绝汇报」这条硬限制"
 check("★reset_turn 同时清零计时与「已开口」",
       "_turn_started_at = _t.time()" in _PB and "_visible_text_this_turn = False" in _PB)
 
+# ★★ 2026-10-21 真机性能问题：旁路请求要 8 秒，以前是"先花 8 秒、再被拒"。
+check("★★★session **先问闸门**再决定要不要发旁路请求（省掉白等的 8 秒）",
+      "_can_rep, _why_no = _pb_r.would_accept()" in _src
+      and _src.index("_pb_r.would_accept()") < _src.index("_side_progress_line(valid_tool_calls)"))
+check("★★闸门预览函数存在（would_accept）", "def would_accept" in _PB)
+check("★兜底那句也过闸门（短任务连'还在弄'都不该出）",
+      '_pb_r.would_accept()[0]' in _src)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

@@ -1774,7 +1774,14 @@ class ChatSession:
                         import time as _t_r
                         from src.core import progress_bus as _pb_r
                         _rep_line = ""
-                        if _t_r.time() - float(getattr(self, "_last_side_report", 0.0)) >= 3.0:
+                        # ★★ 1.9.4（真机 2026-10-21，**性能**）：先问闸门，再决定
+                        #   要不要发旁路请求。以前是先花 8 秒让模型写一句进度，
+                        #   再被 `report()` 拒掉 —— 一次查天气就这么从 7 秒拖到 20+ 秒。
+                        _can_rep, _why_no = _pb_r.would_accept()
+                        if not _can_rep:
+                            _log.debug(f"[进度汇报] 跳过旁路请求（{_why_no}）"
+                                       " —— 既不占时间、也不会被拒")
+                        elif _t_r.time() - float(getattr(self, "_last_side_report", 0.0)) >= 3.0:
                             self._last_side_report = _t_r.time()
                             _t0_r = _t_r.time()
                             _rep_line = self._side_progress_line(valid_tool_calls)
@@ -1784,9 +1791,11 @@ class ChatSession:
                             _pb_r.report(_rep_line)
                         elif int(_pb_r.count_this_turn() or 0) == 0 and \
                                 _t_r.time() - float(getattr(self, "_last_progress_at", 0.0)) >= 20.0:
-                            self._last_progress_at = _t_r.time()
-                            _pb_r.report("还在弄，我继续～")
-                            _log.info("[进度兜底] 已发兜底汇报")
+                            # 兜底那句也要过闸门（短任务连这句都不该出）
+                            if _pb_r.would_accept()[0]:
+                                self._last_progress_at = _t_r.time()
+                                _pb_r.report("还在弄，我继续～")
+                                _log.info("[进度兜底] 已发兜底汇报")
                     except Exception as _e_r:
                         _log.debug(f"[进度汇报] 失败: {_e_r}")
                     self._empty_rounds = 0   # ★ 1.9.3 第 10 轮：有过推进就不算空

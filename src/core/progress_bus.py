@@ -88,6 +88,35 @@ def set_sink(fn):
     _log.debug(f"[临时汇报] 投递通道已注册: {bool(fn)}")
 
 
+def would_accept(kind: str = "progress") -> tuple[bool, str]:
+    """★ 1.9.4（真机 2026-10-21）：**先问一句"这条汇报会被放行吗"**。
+
+    ## 为什么需要它（性能问题，真机日志铁证）
+        19:53:34  [LLM] 工具已注册: 0 个        ← 旁路请求：临时关工具
+        19:53:42  [LLM] 工具已注册: 18 个       ← 旁路回来，**花了 8 秒**
+        19:53:42  [临时汇报] 本轮才调了 1 次工具（<3）→ **拒绝**
+    也就是说：为了生成一句**注定会被拒绝**的进度，白等了一次完整的 LLM 请求
+    （8 秒）。一次查天气从 7 秒变成 20+ 秒，主要就是它。
+
+    ⇒ 调用方（session）在发起旁路请求**之前**先问这里；不满足就直接跳过，
+      **一个网络请求都不发**。
+
+    返回 `(会不会被接受, 不会被接受的原因)`。
+    """
+    if kind != "progress":
+        return True, ""
+    if _tools_this_turn < _MIN_TOOL_CALLS:
+        return False, f"工具调用 {_tools_this_turn} 次（<{_MIN_TOOL_CALLS}）"
+    if _visible_text_this_turn:
+        return False, "本轮已经向用户说过话"
+    _el = elapsed_this_turn()
+    if _el < _MIN_SECONDS:
+        return False, f"本轮才跑了 {_el:.1f} 秒（<{_MIN_SECONDS:.0f}）"
+    if _count_this_turn >= 1:
+        return False, "本轮已经有 1 条汇报"
+    return True, ""
+
+
 def report(text: str, kind: str = "progress") -> bool:
     """工具侧调用：投递一句临时汇报。返回是否成功送出。
 

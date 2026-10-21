@@ -150,6 +150,26 @@ try:
     check("★★两条都满足（跑够 20 秒 + 还没开口）→ 正常放行",
           P.report("长任务汇报") is True)
     check("★reset_turn 把「是否已开口」也清零", P.visible_text_this_turn() is False)
+
+    # ★★ 1.9.4（真机 2026-10-21）**性能**：旁路请求（让模型写一句进度）要 8 秒，
+    #   以前是**先花 8 秒、再被拒**。现在必须先问 `would_accept()`，不满足就不发请求。
+    P.reset_turn()
+    check("★★闸门预览：一开始就不满足（工具 0 次）→ False",
+          P.would_accept()[0] is False)
+    for _ in range(3):
+        P.note_tool_called()
+    check("★★工具够了但才跑 0 秒 → False", P.would_accept()[0] is False)
+    P._turn_started_at -= 60
+    check("★★工具够 + 跑够 20 秒 + 没开口 → True（这时才值得发旁路请求）",
+          P.would_accept()[0] is True)
+    P.note_visible_text()
+    check("★★已经开口 → False（否则会插在答案里）", P.would_accept()[0] is False)
+    P.reset_turn()
+    for _ in range(3):
+        P.note_tool_called()
+    P._turn_started_at -= 60
+    P.report("第一条")
+    check("★★本轮已经发过 1 条 → False（一轮一条）", P.would_accept()[0] is False)
     check("★★第二轮起会记一笔「被拒(一轮一条)」到全量记录（方便日后核对）"
           "—— ★ 标签必须**专属**：原来复用 `progress(delivered=False)`，"
           "而它渲染成「排队」，跟「丢弃」混在一起，**把排查的我误导过一次**",
