@@ -114,6 +114,8 @@ try:
           f"sent={_sent}")
     for _ in range(3):
         P.note_tool_called()
+    # ★★ 1.9.4（2026-10-21）：现在还要求"本轮至少跑了 20 秒" —— 测试里把起点往前挪
+    P._turn_started_at -= 60
     _r1 = P.report("第一条")
     _r2 = P.report("第二条（应被拒）")
     check("★★★调够 3 次后**一轮只放行一条**（第二条被拒且不投递）",
@@ -124,9 +126,30 @@ try:
           P.tools_this_turn() == 0, str(P.tools_this_turn()))
     for _ in range(3):
         P.note_tool_called()
+    P._turn_started_at -= 60
     _r3 = P.report("新一轮第一条")
     check("★★**新一轮能重新发**（限流是按轮算的，不是全局只许一条）",
           _r3 is True and _sent[-1] == "新一轮第一条")
+
+    # ★★★ 2026-10-21 真机：查天气那一轮只花了 7 秒，却因为顺手调了个表情包
+    #   凑够 3 次工具就放行 → 在答案之后又冒出一条"马上帮你查"，随后答案重复。
+    #   ⇒ 两条新硬限制：**跑够 20 秒** + **本轮还没开口**。
+    P.reset_turn()
+    for _ in range(3):
+        P.note_tool_called()
+    check("★★★只跑了 0 秒（<20s）→ 拒绝汇报（7 秒的短任务不算长任务）",
+          P.report("太快的短任务") is False)
+    P._turn_started_at -= 60
+    P.note_visible_text()
+    check("★★★本轮**已经说过话** → 拒绝汇报（避免插在答案里造成重复）",
+          P.report("都说完了还汇报") is False)
+    P.reset_turn()
+    for _ in range(3):
+        P.note_tool_called()
+    P._turn_started_at -= 60
+    check("★★两条都满足（跑够 20 秒 + 还没开口）→ 正常放行",
+          P.report("长任务汇报") is True)
+    check("★reset_turn 把「是否已开口」也清零", P.visible_text_this_turn() is False)
     check("★★第二轮起会记一笔「被拒(一轮一条)」到全量记录（方便日后核对）"
           "—— ★ 标签必须**专属**：原来复用 `progress(delivered=False)`，"
           "而它渲染成「排队」，跟「丢弃」混在一起，**把排查的我误导过一次**",

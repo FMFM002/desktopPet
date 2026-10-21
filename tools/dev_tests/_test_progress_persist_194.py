@@ -83,6 +83,28 @@ check("★★sink 里除了显示，还调了 `session.note_progress`",
 check("★仍然经信号回 GUI 线程（**绝不能在工具线程里碰 Qt 控件**）",
       "bot_text_in.emit" in _mw)
 
+print("\n== F. ★★★ 真机 2026-10-21：简单任务也汇报 + 答案重复 ==")
+# 用户截图：查一次天气 → 答案 → "铃兰在收拾东西，马上帮你查…" → 答案又一遍。
+# 日志证据：第3轮 content=98字符 **且** tool_calls=1（meme）→ 汇报放行；
+#          第4轮 content=63字符（同一答案）。
+# 两处根因：① 汇报只看工具次数，没看"是否已经开口/跑了多久"；
+#          ② 调工具那一轮的 assistant 消息 **content 写死 None** → 模型不记得自己答过。
+_PB = (ROOT / "src" / "core" / "progress_bus.py").read_text(encoding="utf-8")
+
+check("★★★调工具那轮的 assistant 消息**保存 content**（不再写死 None）",
+      '"content": (content_buffer or None)' in _src)
+check("★★★正文统一走 `_emit_text()`，并顺手告诉 progress_bus「已经开口了」",
+      "def _emit_text" in _src and "_pb.note_visible_text()" in _src)
+check("★★除 `_emit_text` 内部外，没有别处直接调 `self.on_text(`"
+      "（否则会绕过「已开口」标记）",
+      _src.count("self.on_text(") == 1, str(_src.count("self.on_text(")))
+check("★★progress_bus 有「本轮已开口 → 拒绝汇报」这条硬限制",
+      "_visible_text_this_turn" in _PB and "已开口被拒" in _PB)
+check("★★progress_bus 有「跑 < 20 秒 → 拒绝汇报」这条硬限制",
+      "_MIN_SECONDS = 20.0" in _PB)
+check("★reset_turn 同时清零计时与「已开口」",
+      "_turn_started_at = _t.time()" in _PB and "_visible_text_this_turn = False" in _PB)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

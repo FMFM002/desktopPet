@@ -35,6 +35,37 @@ _tools_this_turn: int = 0
 #     （真机就发生过：一次查天气发了两条汇报）。**代码说不行就是不行。**
 _MIN_TOOL_CALLS = 3
 
+# ★★★ 1.9.4 真机第三轮（用户 2026-10-21，附聊天截图）：
+#   "简单任务也临时汇报，导致回复重复。"
+#   日志证据（查天气那一轮）：system_command → weather_query → **meme** 凑够 3 次工具，
+#   于是**在答案已经说出去之后**又投递了一条"铃兰在收拾东西，马上帮你查…"，
+#   随后模型再答一遍 → 聊天里三条气泡、语义重复。
+#   ⇒ 光数工具次数不够，再加两条**代码级**硬限制：
+#     ① **本轮至少跑了 `_MIN_SECONDS` 秒**（7 秒的短任务不算"长任务"）；
+#     ② **本轮还没向聊天窗口说过任何可见的话**（已经开口了，就不该再"汇报"）。
+_MIN_SECONDS = 20.0
+
+_turn_started_at: float = 0.0
+_visible_text_this_turn: bool = False
+
+
+def note_visible_text():
+    """会话层每向聊天窗口送出一次正文就调一次（见 session 的 `_emit_text`）。
+
+    用途：**已经在说话了就别再"临时汇报"** —— 那只会插在答案前后造成重复。
+    """
+    global _visible_text_this_turn
+    _visible_text_this_turn = True
+
+
+def visible_text_this_turn() -> bool:
+    return _visible_text_this_turn
+
+
+def elapsed_this_turn() -> float:
+    import time as _t
+    return max(0.0, _t.time() - _turn_started_at) if _turn_started_at else 0.0
+
 
 def note_tool_called():
     """★ 工具侧（`tool_manager`）每执行一次工具就调一次。
@@ -80,6 +111,31 @@ def report(text: str, kind: str = "progress") -> bool:
             _T1.note("临时汇报/短任务被拒",
                      f"本轮工具调用 {_tools_this_turn} 次（<{_MIN_TOOL_CALLS}），"
                      f"内容={text[:60]}")
+        except Exception:
+            pass
+        return False
+    # ★★ 1.9.4（真机 2026-10-21）：**这轮已经说过话了** → 拒绝汇报。
+    #   查天气那个例子：模型先说"查好啦…"，随后又"汇报"一句"马上帮你查"，
+    #   时序颠倒、内容重复。既然已经开口，就不需要"别让用户干等"了。
+    if kind == "progress" and _visible_text_this_turn:
+        _log.info(f"[临时汇报] 本轮**已经向用户说过话** → 拒绝（避免插在答案里）: "
+                  f"{text[:40]}")
+        try:
+            from src.utils import transcript as _T0
+            _T0.note("临时汇报/已开口被拒", text)
+        except Exception:
+            pass
+        return False
+    # ★★ 1.9.4（真机 2026-10-21）：**跑得还不够久** → 拒绝。
+    #   查天气整轮只有 7 秒，靠"顺手调了个表情包"凑够 3 次工具就放行 —— 那不是长任务。
+    if kind == "progress" and elapsed_this_turn() < _MIN_SECONDS:
+        _log.info(f"[临时汇报] 本轮只跑了 {elapsed_this_turn():.1f} 秒"
+                  f"（<{_MIN_SECONDS:.0f}）→ 按「短任务不汇报」**拒绝**: {text[:40]}")
+        try:
+            from src.utils import transcript as _T1b
+            _T1b.note("临时汇报/短任务被拒",
+                      f"本轮 {elapsed_this_turn():.1f} 秒（<{_MIN_SECONDS:.0f}），"
+                      f"内容={text[:60]}")
         except Exception:
             pass
         return False
@@ -147,11 +203,16 @@ def report(text: str, kind: str = "progress") -> bool:
 def reset_turn():
     """新一轮开始（主窗口在收到用户消息时调用）。"""
     global _queue, _count_this_turn, _tools_this_turn
+    global _turn_started_at, _visible_text_this_turn
     _queue = []
     _count_this_turn = 0
     # ★ 工具计数也要清零 —— 否则上一轮的调用数会**累加到下一轮**，
     #   短任务就会误判成"已调够 3 次"，那条限制等于形同虚设。
     _tools_this_turn = 0
+    # ★ 计时与"是否已开口"同样按轮清零（见上面 _MIN_SECONDS 的注释）
+    import time as _t
+    _turn_started_at = _t.time()
+    _visible_text_this_turn = False
 
 
 def count_this_turn() -> int:

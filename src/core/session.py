@@ -818,6 +818,27 @@ class ChatSession:
     # 消息裁剪
     # ══════════════════════════════════════════════════
 
+    def _emit_text(self, text: str) -> None:
+        """★ 1.9.4：**所有"正文送到聊天窗口"的唯一出口**。
+
+        ## 为什么不让各处直接调 `self.on_text`
+        用户 2026-10-21 报"简单任务也临时汇报，导致回复重复"，日志里是：
+            第3轮 content=98字符 + tool_calls=1（meme）
+            → [临时汇报] 已投递: 铃兰在收拾东西，马上帮你查…
+            → 第4轮 content=63字符（把答案又说了一遍）
+        ⇒ 这里除了显示，还要**告诉 progress_bus "本轮已经开口了"**：
+          已经说过话就不该再插"临时汇报"（那会插在答案中间）。
+        """
+        if not text:
+            return
+        if self.on_text:
+            self.on_text(text)
+        try:
+            from src.core import progress_bus as _pb
+            _pb.note_visible_text()
+        except Exception:
+            pass
+
     def _trim_messages(self):
         """裁剪消息历史：保留系统消息 + 最近 MAX_MESSAGES 条"""
         with self._lock:
@@ -1530,7 +1551,7 @@ class ChatSession:
                         # ★ 1.9.3 第 22 轮：再过一道"标记开头"过滤器（挡掉那个孤立的 `<`）
                         safe_content = marker_filter.feed(safe_content)
                         if not tool_json_leak and safe_content and self.on_text:
-                            self.on_text(safe_content)
+                            self._emit_text(safe_content)
                             text_sent_to_ui = True
 
                     if delta.tool_calls:
@@ -1562,14 +1583,14 @@ class ChatSession:
                 if _tail:
                     _tail = marker_filter.feed(_tail)
                 if _tail and not tool_json_leak and self.on_text:
-                    self.on_text(_tail)
+                    self._emit_text(_tail)
                     text_sent_to_ui = True
                 # ★ 1.9.3 第 22 轮：marker 过滤器也收尾 —— 它 hold 的那点若是普通文本
                 #   （比如正文里一个孤立的 `<`），这里必须补发，**不能吃掉用户的字**。
                 #   但若本轮已判定为工具调用泄漏，就永远不要吐出来。
                 _mtail = marker_filter.flush()
                 if _mtail and not tool_json_leak and self.on_text:
-                    self.on_text(_mtail)
+                    self._emit_text(_mtail)
                     text_sent_to_ui = True
                 content_buffer, _proto_split = split_protocol(content_buffer)
                 _proto = proto_filter.payload or _proto_split
@@ -1610,7 +1631,13 @@ class ChatSession:
                         #   （"The reasoning_content in the thinking mode must be passed
                         #   back to the API"）。这里把本轮思考一并写回。
                         _tc_msg = {
-                            "role": "assistant", "content": None,
+                            "role": "assistant",
+                            # ★★ 1.9.4（真机 2026-10-21，用户截图"回复重复"）：
+                            #   这里原来写死 `"content": None` —— 于是模型**不记得**
+                            #   自己上一轮已经答过（例如查完天气说"查好啦…"），
+                            #   下一轮又把同一个答案说一遍，用户看到两条几乎一样的回复。
+                            #   ⇒ 把**这轮真的展示给用户的那段话**存回上下文。
+                            "content": (content_buffer or None),
                             "tool_calls": [{
                                 "id": tc["id"], "type": "function",
                                 "function": tc["function"],
@@ -1895,7 +1922,7 @@ class ChatSession:
                         except Exception:
                             _msg = "抱歉，这次没弄完。要我再试一次吗？"
                         if self.on_text:
-                            self.on_text(_msg)
+                            self._emit_text(_msg)
                         if self.on_system_msg:
                             self.on_system_msg("[模型返回为空，请检查API配置]")
                         break
@@ -1915,7 +1942,7 @@ class ChatSession:
                     if self.on_system_msg:
                         self.on_system_msg("[请求超时] LLM 服务响应过慢或未响应，请检查网络或 API 配置")
                     if self.on_text:
-                        self.on_text("（唔…我好像卡住了，稍后再试试吧）")
+                        self._emit_text("（唔…我好像卡住了，稍后再试试吧）")
                 else:
                     _log.error(f"对话循环错误(第{round_count}轮): {e}", exc_info=True)
                     # ★ 1.6.0: 若本轮带了图片直传而模型不支持 → 自动降级为纯文字重试一次
@@ -1957,7 +1984,7 @@ class ChatSession:
                          + (f"刚在做：{_cur}。" if _cur else "")
                          + "要我接着往下做吗？回一句「继续」我就接着干～")
                 if self.on_text:
-                    self.on_text(_bmsg)
+                    self._emit_text(_bmsg)
                 try:
                     from src.core import progress_bus as _pb_b
                     if int(_pb_b.count_this_turn() or 0) == 0:
@@ -2061,7 +2088,7 @@ class ChatSession:
                     #   这里仅在「本轮从未增量推送」（如被 tool_json_leak 吞掉）时才补发整段，
                     #   避免整段 content 再追加一次导致重复显示。
                     if not text_sent_to_ui and self.on_text:
-                        self.on_text(content)
+                        self._emit_text(content)
                     _log.debug(f"边界轮 #{boundary_rounds}: LLM 处理完成, content={len(content)}字符, "
                                f"text_sent_to_ui={text_sent_to_ui}")
                     tool_just_executed = False  # 结束
