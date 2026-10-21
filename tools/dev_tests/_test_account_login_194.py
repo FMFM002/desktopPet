@@ -109,10 +109,10 @@ print("\n== ★★ H. 根目录的说明文档必须进包（否则用户拿到�
 # ★ 收尾时发现的缺口：装配器的 INCLUDE 只认几个固定文件名，
 #   所以 `发布说明` / 凭据指南 / 施工说明书 **都没被打进 zip** —— 等于没写。
 _br_src = (ROOT / "tools" / "build_release.py").read_text(encoding="utf-8")
-for _doc in ("发布说明_1.9.4.txt",
-             "B站与P站凭据获取指南_1.9.4.md",
-             "施工说明书_ComfyUI集成_1.9.4.txt",
-             "评估_画图工具自部署_1.9.4.txt"):
+for _doc in ("发布说明_1.9.5.txt",
+             "B站与P站凭据获取指南_1.9.5.md",
+             "施工说明书_ComfyUI集成_1.9.5.txt",
+             "评估_画图工具自部署_1.9.5.txt"):
     check(f"★★装配器 INCLUDE 里有 `{_doc}`", f'"{_doc}"' in _br_src)
 
 print("\n== ★ 诚实声明：真流程必须在真机上验 ==")

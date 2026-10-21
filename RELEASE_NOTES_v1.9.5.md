@@ -1,24 +1,32 @@
-# v1.9.4 —— 便携版（免安装）
+# v1.9.5 —— 便携版（免安装）
 
 > 解压即用。**本包不包含模型**（否则会从 77 MB 变成 2 GB 级），模型按需获取。
 
 ## 下载
 
-**`PRTS-DesktopPet-1.9.4-portable.zip`** —— 77.0 MB
+**`PRTS-DesktopPet-1.9.5-portable.zip`** —— 77.2 MB
 
-- SHA256：`3FB40E2A233B029BD36F77C3550AA98B6798EE74B3CBA7E7EB47E1B0DB26CD4F`
+- SHA256：`2802AE6F14E607E7CDA60CE77D5DE8B20914249B4EBFC26744FC4A35D46998DE`
 - 需要你机器上**已有 Python 3.10~3.12**（首次启动会自动装依赖，需联网）
 
-**`PRTS-DesktopPet-1.9.4-exe.zip`** —— 285.7 MB（解压后 551.8 MB / 2360 文件）★ 1.9.4 收尾新增
+**`PRTS-DesktopPet-1.9.5-exe.zip`** —— 286.0 MB（解压后 552.1 MB / 2363 文件）
 
-- **什么都不用装**：解压 → 双击 `PRTS-DesktopPet-1.9.4.exe`
+- SHA256：`0FB1B14A39D957DE593047AC1D83E76FFDBB762B85CCD49B4E6A96BF3E824AC4`
+- **什么都不用装**：解压 → 双击 `PRTS-DesktopPet-1.9.5.exe`
 - 你的配置/聊天记录/日志会生成在 **exe 旁边**（`config.json` / `.env` / `logs\` / `data\`）
-- 双击没反应？跑一次 `PRTS-DesktopPet-1.9.4.exe --selftest`，
+- 双击没反应？跑一次 `PRTS-DesktopPet-1.9.5.exe --selftest`，
   它会把每项检查写进 `logs\selftest_*.txt`（退出码 0=全过 / 3=有问题）
 - **一键开通 B站/P站 照常可用**：包里已带 Playwright 的 Edge 驱动（用系统自带 Edge，
   不需要再下 Chromium）
 - 为什么比便携版大 470MB：exe 把 Python 运行时 + PySide6 + 全部依赖都**装进去了**；
   便携版用的是你机器上已装好的 Python（PySide6 一个就 634MB 装好）
+
+## 这一版改了什么（全部来自真机反馈，没有新功能）
+
+- **exe**：预设头像随包；**一键开通改回随包**（含 Edge 驱动）；图标统一（exe/任务栏/引导/托盘）；引导页删掉「Python 环境检测」
+- **P站**：改用系统 Edge（不再下 Chromium、不闪黑窗）；登录完成即返回（不再转圈到超时）；**405/403/503 先判官方维护**；等登录 8 分 20 秒
+- **聊天**：简单任务不再插「临时汇报」、不再重复回答；工具失败的那轮不再说「查好了」；LLM 请求默认**直连**（修 SSL 握手超时导致的「卡住了」）；省掉一次 8 秒白等的旁路请求
+- **天气**：和风天气改**直连**，修复「实时能查、未来预报一直 SSL 失败」
 
 ## 怎么用
 
@@ -84,7 +92,7 @@ python tools\model_manager.py install --all
 
 ## 质量数据
 
-- **87 个测试套件 = 86 真跑 + 1 既定 SKIP**，断言累计 **2747**，**FAIL 0**
+- **91 个测试套件 = 90 真跑 + 1 既定 SKIP**，断言累计 **2747**，**FAIL 0**
   （其中 `_test_exe_pack_194.py` 46 条专门盯着 exe 打包：spec 缺口 / 工具随包 /
   数据落点 / 目录不撞名 / 冻结降级 / `--selftest`）
 - 唯一的 SKIP 是长期记忆真机端到端（要真调 LLM 花 token），

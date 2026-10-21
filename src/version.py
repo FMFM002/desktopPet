@@ -23,7 +23,7 @@
 from __future__ import annotations
 
 # ── 版本号：**唯一来源** ──
-__version__ = "1.9.4"
+__version__ = "1.9.5"
 
 # ── 名称与标识（安装包 / 窗口标题 / 数据目录都用它，避免各处写法不一致）──
 APP_NAME = "铃兰桌宠"

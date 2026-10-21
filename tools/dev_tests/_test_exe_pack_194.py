@@ -63,8 +63,8 @@ check("★★DATAS 里有 `.env.preset`（漏了天气/搜索/终末地全废）
       '".env.preset"' in spec_text or "'.env.preset'" in spec_text)
 check("★DATAS 里仍有 `.env.example`（给用户看要填什么）",
       '".env.example"' in spec_text)
-for _doc in ("发布说明_1.9.4.txt", "B站与P站凭据获取指南_1.9.4.md",
-             "施工说明书_ComfyUI集成_1.9.4.txt", "评估_画图工具自部署_1.9.4.txt"):
+for _doc in ("发布说明_1.9.5.txt", "B站与P站凭据获取指南_1.9.5.md",
+             "施工说明书_ComfyUI集成_1.9.5.txt", "评估_画图工具自部署_1.9.5.txt"):
     check(f"★文档随包: {_doc}", _doc in spec_text)
 check("★requirements.txt / config.default.json 随包",
       "requirements.txt" in spec_text and "config.default.json" in spec_text)

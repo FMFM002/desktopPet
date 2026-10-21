@@ -99,7 +99,7 @@ check("★action 里有真能跑的命令（如 build_release / PyInstaller / IS
       any(k in _actions for k in ("build_release", "PyInstaller", "ISCC", "启动.bat")))
 
 print("\n== F. 自检必须是**只读**的 ==")
-_probe = [ROOT / "dist" / "PRTS-DesktopPet-1.9.4-portable.zip",
+_probe = [ROOT / "dist" / "PRTS-DesktopPet-1.9.5-portable.zip",
           ROOT / "PRTS.spec", ROOT / "installer" / "PRTS.iss"]
 _before = [(p, p.stat().st_mtime_ns if p.exists() else None) for p in _probe]
 _run()

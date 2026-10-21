@@ -3,11 +3,11 @@
 
 ## B 形态是什么
 A（便携 zip）要求用户**自己有 Python**；B 把这个前提去掉 ——
-打出一个 `PRTS-DesktopPet-1.9.4.exe`，**双击就能跑**（内部自带 Python 运行时与依赖）。
+打出一个 `PRTS-DesktopPet-1.9.5.exe`，**双击就能跑**（内部自带 Python 运行时与依赖）。
 
 ## 构建
     python -m PyInstaller PRTS.spec --noconfirm
-    产物: dist/PRTS-DesktopPet-1.9.4-exe/PRTS-DesktopPet-1.9.4.exe
+    产物: dist/PRTS-DesktopPet-1.9.5-exe/PRTS-DesktopPet-1.9.5.exe
 
 ## ★★ 四条硬约束（都在下面落实了）
   1. **绝不把 1.8 GB 的 TTS 模型打进去**。
@@ -18,7 +18,7 @@ A（便携 zip）要求用户**自己有 Python**；B 把这个前提去掉 —�
      `data/桌宠私有data` 一律不进包（发布了就收不回来）。
   3. **exe 不需要模型也能启动** —— 缺模型只是少功能，不是崩
      （这条由 `_test_standalone_194.py` 盯着）。
-  4. **不与 A 形态撞目录**：A 的装配目录是 `dist/PRTS-DesktopPet-1.9.4/`，
+  4. **不与 A 形态撞目录**：A 的装配目录是 `dist/PRTS-DesktopPet-1.9.5/`，
      所以 B 的 COLLECT 目录名多一个 `-exe` 后缀。
      ★ 这一条是**真踩过的坑**：PyInstaller 带 `--noconfirm` 时会**先删掉同名输出目录**，
        以前两边同名 → 打一次 exe 就把 77MB 的便携装配目录整锅端掉。
@@ -53,7 +53,7 @@ PyInstaller 6 默认把运行时塞进 `_internal/`，于是 `sys._MEIPASS` 指�
   · 带上 Python 运行时 + PySide6 + onnxruntime… 实测约 **400 MB**；
   · `console=False` 的单文件 exe **常被杀软误报**（PyInstaller 的固有现象）。
     所以这里用 **onedir（默认）而不是 onefile** —— 误报更少、启动更快。
-  · 排查"双击没反应"的正确姿势：`PRTS-DesktopPet-1.9.4.exe --selftest`
+  · 排查"双击没反应"的正确姿势：`PRTS-DesktopPet-1.9.5.exe --selftest`
     （把启动过程写进 `logs/selftest_*.txt`，不需要改 console）。
 """
 import os
@@ -115,10 +115,10 @@ for rel in (
     #   所以它必须真的在包里 —— 否则模型只能编。
     "桌宠自述.md",
     # 与便携 zip 保持一致的 4 份文档
-    "发布说明_1.9.4.txt",
-    "B站与P站凭据获取指南_1.9.4.md",
-    "施工说明书_ComfyUI集成_1.9.4.txt",
-    "评估_画图工具自部署_1.9.4.txt",
+    "发布说明_1.9.5.txt",
+    "B站与P站凭据获取指南_1.9.5.md",
+    "施工说明书_ComfyUI集成_1.9.5.txt",
+    "评估_画图工具自部署_1.9.5.txt",
 ):
     p = ROOT / rel
     if p.exists():

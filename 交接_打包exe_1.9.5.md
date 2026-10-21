@@ -13,7 +13,7 @@
 | 版本 | **1.9.4**（唯一来源 `src/version.py`，有守卫核对） |
 | 提交 | `174966c`，分支 `main`，已推到 <https://github.com/FMFM002/desktopPet>（公开） |
 | 回归 | **86 套件 = 85 真跑 + 1 既定 SKIP**，PASS **2559**，FAIL **0** |
-| A 形态（便携 zip） | ✅ 完成：`dist/PRTS-DesktopPet-1.9.4-portable.zip`，**77.0 MB / 357 文件** |
+| A 形态（便携 zip） | ✅ 完成：`dist/PRTS-DesktopPet-1.9.5-portable.zip`，**77.0 MB / 357 文件** |
 | B 形态（exe） | ⚠️ **曾产出过 403.2 MB，但从未被真正运行过** ← **本阶段要解决的就是这个** |
 | C 形态（安装包） | ❌ 只有 `installer/PRTS.iss`，**从未编译**（本机无 Inno Setup） |
 
@@ -134,10 +134,10 @@ python tools\preflight.py              # 看"离发布还差什么"
 ```python
 # ① DATAS 里加（与 zip 保持一致）
 ".env.preset",                       # ★★ 出厂预设密钥（漏了天气/搜索/终末地全废）
-"发布说明_1.9.4.txt",
-"B站与P站凭据获取指南_1.9.4.md",
-"施工说明书_ComfyUI集成_1.9.4.txt",
-"评估_画图工具自部署_1.9.4.txt",
+"发布说明_1.9.5.txt",
+"B站与P站凭据获取指南_1.9.5.md",
+"施工说明书_ComfyUI集成_1.9.5.txt",
+"评估_画图工具自部署_1.9.5.txt",
 
 # ② HIDDEN 里加
 "src.core.account_login",            # 设置页运行时 import，扫不到就会 ModuleNotFoundError
@@ -150,16 +150,16 @@ python tools\preflight.py              # 看"离发布还差什么"
 
 ```powershell
 pyinstaller PRTS.spec --noconfirm --clean
-# 产物在 dist\PRTS-DesktopPet-1.9.4\
+# 产物在 dist\PRTS-DesktopPet-1.9.5\
 ```
 
 ### 第 3 步：★★★ **在一台"没装 Python"的环境里验证**（本阶段的真正验收）
 
 这一步**沙箱做不了**，必须真机。建议顺序：
 
-1. 把 `dist\PRTS-DesktopPet-1.9.4\` 整个目录拷到一个**干净位置**
+1. 把 `dist\PRTS-DesktopPet-1.9.5\` 整个目录拷到一个**干净位置**
    （**不是**仓库目录 —— 否则它会读到仓库里的 `config.json` / `.env`，验证就没意义了）
-2. **双击 `PRTS-DesktopPet-1.9.4.exe`**
+2. **双击 `PRTS-DesktopPet-1.9.5.exe`**
 3. 期望：
    - 弹出**首次配置引导**
    - 填 Key → 「测试一下」能通 → 完成
@@ -173,7 +173,7 @@ pyinstaller PRTS.spec --noconfirm --clean
 python -m compileall -q src tools
 & tools\dev_tests\_sweep190.ps1
 ```
-然后更新 `发布说明_1.9.4.txt` 的「已知问题」：**把"exe 从未被真正运行过"
+然后更新 `发布说明_1.9.5.txt` 的「已知问题」：**把"exe 从未被真正运行过"
 改成实测结论**（成功的样子 / 或具体报错）。
 
 ---
@@ -187,7 +187,7 @@ python -m compileall -q src tools
 - [ ] 缺模型时**优雅降级**（TTS 退回 edge-tts、whisper 不可用但不崩）
 - [ ] 杀软误报有说明（README / 发布说明里写清"这是 PyInstaller 固有现象"）
 - [ ] 全量回归 **FAIL=0**
-- [ ] `发布说明_1.9.4.txt` 的「已知问题」**按实测结果更新**（不许沿用旧话）
+- [ ] `发布说明_1.9.5.txt` 的「已知问题」**按实测结果更新**（不许沿用旧话）
 
 ---
 
@@ -253,13 +253,13 @@ python -m compileall -q src tools
 ```powershell
 # 1) 打包
 python -m PyInstaller PRTS.spec --noconfirm
-#   → dist/PRTS-DesktopPet-1.9.4-exe/  （2238 文件 / 447.5 MB，**没有 _internal/**）
+#   → dist/PRTS-DesktopPet-1.9.5-exe/  （2238 文件 / 447.5 MB，**没有 _internal/**）
 
 # 2) 拷到干净位置（不是仓库目录！）
-robocopy dist\PRTS-DesktopPet-1.9.4-exe 临时文件\_exe_smoke /E
+robocopy dist\PRTS-DesktopPet-1.9.5-exe 临时文件\_exe_smoke /E
 
 # 3) 自检
-临时文件\_exe_smoke\PRTS-DesktopPet-1.9.4.exe --selftest
+临时文件\_exe_smoke\PRTS-DesktopPet-1.9.5.exe --selftest
 #   → 退出码 0；logs/selftest_*.txt: ok=true，27 项全过
 ```
 
@@ -353,8 +353,8 @@ avatars(预设头像) = true
 playwright_driver = true  →  <exe目录>\playwright\driver\node.exe + package\cli.js
 ```
 
-产物：`dist/PRTS-DesktopPet-1.9.4-exe/`（2360 文件 / 551.8 MB）
-      + `dist/PRTS-DesktopPet-1.9.4-exe.zip`（285.7 MB）
+产物：`dist/PRTS-DesktopPet-1.9.5-exe/`（2360 文件 / 551.8 MB）
+      + `dist/PRTS-DesktopPet-1.9.5-exe.zip`（285.7 MB）
 
 **仍没验的**（只有人能做的）：图形桌面真双击、真填 Key 聊一轮、
 真点一次「一键开通」走完登录（沙箱里起不了浏览器）。

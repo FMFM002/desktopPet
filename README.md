@@ -1,4 +1,4 @@
-# 铃兰桌宠（PRTS Desktop Pet）v1.9.4
+# 铃兰桌宠（PRTS Desktop Pet）v1.9.5
 
 > **版本号唯一来源是 [`src/version.py`](src/version.py)** —— 本文标题里的数字必须与它一致，
 > `tools/dev_tests/_test_version_193.py` 会**自动核对**（不一致就报红），避免再出现
@@ -619,7 +619,7 @@ python tools/preflight.py --json     # 给脚本/CI
    这个模式会把"窗口/形象/托盘/工具/`.env.preset` 合并"逐项检查写进
    `logs/selftest_*.txt`，然后自己退出（**退出码 0 = 全过，3 = 有必检项没过**）：
    ```powershell
-   .\PRTS-DesktopPet-1.9.4.exe --selftest
+   .\PRTS-DesktopPet-1.9.5.exe --selftest
    # 报告：logs\selftest_YYYYmmdd_HHMMSS.txt
    ```
    它**跳过**首次配置引导（否则模态框会挡住自检），所以"还没填 LLM Key"不算失败。
@@ -651,15 +651,15 @@ python tools/preflight.py --json     # 给脚本/CI
 ```powershell
 # A：便携 zip（含启动器与「首次使用必读」，顶层带一层目录名，解压不撒桌面）
 python tools/build_release.py --zip
-#   → dist/PRTS-DesktopPet-1.9.4-portable.zip
+#   → dist/PRTS-DesktopPet-1.9.5-portable.zip
 
 # B：PyInstaller exe（onedir，配置见根目录 PRTS.spec）
 python -m PyInstaller PRTS.spec --noconfirm
-#   → dist/PRTS-DesktopPet-1.9.4-exe/PRTS-DesktopPet-1.9.4.exe
+#   → dist/PRTS-DesktopPet-1.9.5-exe/PRTS-DesktopPet-1.9.5.exe
 #   ★ 目录名带 -exe：绝不能与 A 的装配目录同名 ——
 #     `--noconfirm` 会**先删掉同名输出目录**，同名就等于打一次 exe 顺手删掉便携装配。
 #   分发给别人时把这一层目录压成 zip（顶层带目录名，解压不散）：
-#     → dist/PRTS-DesktopPet-1.9.4-exe.zip
+#     → dist/PRTS-DesktopPet-1.9.5-exe.zip
 
 # C：安装程序（需先装 Inno Setup 6）
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\PRTS.iss

@@ -11,20 +11,20 @@
 ;    本机开发环境**没有装 Inno Setup**（实测），所以这个脚本**没有被编译验证过** ——
 ;    这点如实记录，第一次编译若报错请把输出给我。
 ;
-;  ★ 打包对象用 **B（PyInstaller onedir）的产物**：dist\PRTS-DesktopPet-1.9.4-exe\
+;  ★ 打包对象用 **B（PyInstaller onedir）的产物**：dist\PRTS-DesktopPet-1.9.5-exe\
 ;    因为 C 面向的是"什么都不想装"的用户，B 已经把 Python 运行时带上了。
 ;  ★ 1.9.4：B 的目录名带 `-exe` 后缀 —— 不能与 A 的装配目录
-;    `dist\PRTS-DesktopPet-1.9.4\` 同名，否则 `pyinstaller --noconfirm`
+;    `dist\PRTS-DesktopPet-1.9.5\` 同名，否则 `pyinstaller --noconfirm`
 ;    会先删掉同名输出目录（= 顺手删掉 77MB 的便携装配）。
 ; ══════════════════════════════════════════════════════════════
 
 #define AppName "铃兰桌宠"
 #define AppNameEn "PRTS Desktop Pet"
-#define AppVer "1.9.4"
+#define AppVer "1.9.5"
 #define AppPublisher "PRTS"
-#define AppExeName "PRTS-DesktopPet-1.9.4.exe"
+#define AppExeName "PRTS-DesktopPet-1.9.5.exe"
 ; ★ 源目录：PyInstaller 的 onedir 产物（先跑 PRTS.spec 生成）
-#define SrcDir "..\dist\PRTS-DesktopPet-1.9.4-exe"
+#define SrcDir "..\dist\PRTS-DesktopPet-1.9.5-exe"
 
 [Setup]
 AppId={{8E2B1C44-9F3A-4D77-9C21-PRTS19400000}
