@@ -172,6 +172,29 @@ finally:
     fr.use_env_file_for_tests(None)
     shutil.rmtree(_J, ignore_errors=True)
 
+print("\n== 用户 2026-10-21：引导页**不要再有 py 环境检测** ==")
+# 原话："引导页还残留有 py 环境检测环节，删掉。"
+# 以前 detect() 会追加 python_deps（逐个 import 依赖）与 python_version（sys.version），
+# 对用户没有可操作价值，exe 版更是没有"Python 环境"这个概念。
+_FR_SRC = (ROOT / "src" / "core" / "first_run.py").read_text(encoding="utf-8")
+# ★ 用 AST 找 `Finding("python_deps", …)` 这种**真的调用** ——
+#   直接搜字符串会把注释里的说明也当成"还在"（我第一版就这么假红过一次）。
+import ast as _ast                                     # noqa: E402
+_bad_keys = set()
+for _node in _ast.walk(_ast.parse(_FR_SRC)):
+    if (isinstance(_node, _ast.Call)
+            and getattr(_node.func, "id", "") == "Finding" and _node.args):
+        _a0 = _node.args[0]
+        if (isinstance(_a0, _ast.Constant)
+                and _a0.value in ("python_deps", "python_version")):
+            _bad_keys.add(_a0.value)
+check("★★detect() 里不再产出 `python_deps` / `python_version` 这两条",
+      not _bad_keys, str(_bad_keys))
+check("★★也不再 import PySide6/openai 去「探测依赖」（那段代码整段删了）",
+      "def _probe_python_deps" not in _FR_SRC)
+check("★但「唯一必填 LLM Key」仍在（别把该留的删了）",
+      "llm_key" in _FR_SRC and "MUST_FILL" in _FR_SRC)
+
 print(f"\n==== 结果: {len(PASS)} PASS / {len(FAIL)} FAIL ====")
 for f in FAIL:
     print("  FAIL:", f)

@@ -5,10 +5,13 @@
 新用户**只需要手填 1 项**：LLM API Key。其余都能自动发现、或有默认值、或"想用才问"：
 
     LLM API Key      必须手填（没有它整个桌宠不能用）
-    能自动发现(7)     whisper 模型 / easyocr 模型 / 形象目录 / 私有数据目录 /
-                      Python 依赖 / Python 版本 / base_url+model 默认值
-    想用才问(8)       ComfyUI(端口+路径) / Ollama / 代理端口 / 天气 /
+    能自动发现(5)     whisper 模型 / easyocr 模型 / 形象目录 / 私有数据目录 /
+                      base_url+model 默认值
+    想用才问(7)       ComfyUI(端口+路径) / Ollama / 代理端口 / 天气 /
                       Tavily / 终末地 / Pixiv
+
+★ 1.9.4（用户 2026-10-21）：**"Python 依赖 / Python 版本"两条已删除** ——
+  引导页不该出现"py 环境检测"（exe 版根本没有这个概念，用户看了也无可操作项）。
 
 ## ★★ 一个必须记住的坑（探路当场踩到）
 `.env` **文件里明明有** `DEEPSEEK_API_KEY`，但 `os.getenv()` **读不到** ——
@@ -26,7 +29,6 @@ from __future__ import annotations
 
 import os
 import socket
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -164,18 +166,6 @@ def _port_open(host: str, port: int, t: float = 0.35) -> bool:
         return False
 
 
-def _probe_python_deps() -> tuple[bool, str]:
-    """核心依赖能不能 import（缺了直接就是"跑不起来"）。"""
-    need = ["PySide6", "openai", "requests", "numpy"]
-    miss = []
-    for m in need:
-        try:
-            __import__(m)
-        except Exception:
-            miss.append(m)
-    return (not miss), ("齐了" if not miss else "缺: " + ", ".join(miss))
-
-
 # ── 可选能力的登记表：(key, 标签, 怎么判断有没有配, 指引) ──
 #   顺序按"常见程度"排；UI 按这个顺序渲染勾选框。
 _OPTIONAL_SPECS = [
@@ -232,13 +222,13 @@ def detect(base: Path | None = None, include_services: bool = True) -> FirstRunR
             hint="去 platform.deepseek.com 申请；填好后会写进 .env（不进版本库）"))
 
     # ── 2. 可自动发现的 ──
-    _ok, _how = _probe_python_deps()
-    r.findings.append(Finding(
-        "python_deps", "Python 依赖", AUTO if _ok else MUST_FILL,
-        "逐个 import 试一遍（PySide6/openai/requests/numpy）", _how, "env"))
-    r.findings.append(Finding(
-        "python_version", "Python 版本", AUTO, "sys.version",
-        sys.version.split()[0], "env"))
+    # ★★ 1.9.4（用户 2026-10-21）："引导页还残留有 py 环境检测环节，删掉。"
+    #   原来这里有两条：
+    #       python_deps    —— 逐个 import 试 PySide6/openai/requests/numpy
+    #       python_version —— 显示 sys.version
+    #   对用户来说这两条**毫无可操作性**（缺依赖他也只能看到一串包名），
+    #   而 exe 版根本不存在"Python 环境"这回事 —— 摆在那里只会让人以为要装 Python。
+    #   ⇒ 两条都删掉；`_probe_python_deps()` 一并删除（否则就是死代码，守卫会红）。
 
     # 模型类：找到就自动用，没有就"可选下载"（不属于"必须手填"）
     # ★★ 1.9.4 真机修复（用户原话："**2，缺少TTS块**"）：
