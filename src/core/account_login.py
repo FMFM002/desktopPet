@@ -310,16 +310,29 @@ def _verify_pixiv_token(token: str) -> tuple:
         api.auth(refresh_token=token)
     except Exception as e:
         _m = str(e)
-        # ★★ 1.9.4 真机第三轮（2026-10-21）：Cloudflare 会按出口 IP 拦请求。
-        #   实测（走本机 7897 代理）：GET auth/token → 503 挑战页；
-        #   POST auth/token → **405 Not Allowed**（nginx）。这**不是**令牌失效，
-        #   所以既不能判失败，也不能只说"网络问题" —— 要说清是出口被挡了。
-        if "405" in _m or "503" in _m or "cloudflare" in _m.lower():
-            _log.warning("[Pixiv] 令牌验证被 Cloudflare 拦了：%s", _m[:200])
-            return None, ("pixiv 的 API 被 Cloudflare 拦了（HTTP 405/503，"
-                          "是**当前网络出口**的问题，不代表令牌失效）")
-        # 401/403 之类 = 令牌无效；其它网络类 = 没法判断
+        # ★★ 1.9.4 真机（2026-10-21）：405/403/503 **很可能只是 pixiv 在维护**。
+        #   实测：维护期间浏览器 UA 访问首页/令牌端点都是 503 + "Under maintenance"，
+        #   而 App UA 的 POST 会被边缘直接挡成 **405**。先探测一次，别让用户白折腾。
+        if any(k in _m for k in ("405", "503")) or "cloudflare" in _m.lower():
+            try:
+                from src.core.pixiv_status import check as _px_check, maintenance_hint
+                if _px_check().get("under_maintenance"):
+                    _log.warning("[Pixiv] 令牌验证失败，且探测到 pixiv 正在维护：%s", _m[:160])
+                    return None, maintenance_hint()
+            except Exception:                              # noqa: BLE001
+                pass
+            _log.warning("[Pixiv] 令牌验证被拦：%s", _m[:200])
+            return None, ("pixiv 的 API 被拦了（HTTP 405/503）。\n"
+                          "     先看 pixiv 官网是不是维护页；不是再换代理节点。")
+        # 401/403 之类 = 令牌无效；但 403 有时也是维护，先探一下（结果缓存 60 秒）
         if any(k in _m for k in ("401", "403", "invalid_grant", "Unauthorized")):
+            if "403" in _m:
+                try:
+                    from src.core.pixiv_status import check as _px_check, maintenance_hint
+                    if _px_check().get("under_maintenance"):
+                        return None, maintenance_hint()
+                except Exception:                          # noqa: BLE001
+                    pass
             return False, f"令牌无效（{_m[:80]}）"
         _log.warning("[Pixiv] 令牌验证请求失败：%s", _m[:200])
         return None, f"没能验证（网络/代理问题）：{_m[:80]}"

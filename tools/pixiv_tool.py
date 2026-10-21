@@ -238,13 +238,26 @@ def _build_api():
         #       POST https://oauth.secure.pixiv.net/auth/token  → **405 Not Allowed**（nginx 页）
         #   这跟"令牌失效"完全无关 —— 不分开说，用户会一直去重新登录。
         if "405" in msg or "503" in msg or "cloudflare" in low:
-            hint = ("\n     这是 pixiv 的 Cloudflare 把**当前网络出口**挡了，不是令牌的问题：\n"
-                    "       · 405 = POST 被拦（nginx 那个 405 Not Allowed 页）\n"
-                    "       · 503 = 直接给了人机挑战页\n"
-                    "     换一个代理节点（或开全局）再试。自检办法：浏览器里打开\n"
-                    "       https://oauth.secure.pixiv.net/auth/token\n"
-                    "     如果也是 405/503，就确认是网络侧，别再重复登录。")
+            # ★★ 2026-10-21 真机：维护期间 App UA 的 POST 会被挡成 405，
+            #   浏览器 UA 访问首页则是 503 + "Under maintenance"。
+            #   所以先探测一次 —— 维护中就让用户等着，别让他换节点/重登。
+            try:
+                from src.core.pixiv_status import check as _px_check, maintenance_hint
+                if _px_check().get("under_maintenance"):
+                    return None, maintenance_hint()
+            except Exception:  # noqa: BLE001
+                pass
+            hint = ("\n     这是 pixiv 侧把请求拦了（HTTP 405/503），不是令牌的问题：\n"
+                    "       · 先看 pixiv 官网是不是「Under maintenance」；\n"
+                    "       · 不是维护的话，换一个代理节点（或开全局）再试。\n"
+                    "     自检办法：浏览器里打开 https://oauth.secure.pixiv.net/auth/token")
         elif "403" in msg or "400" in msg or "refresh_token" in msg:
+            try:
+                from src.core.pixiv_status import check as _px_check, maintenance_hint
+                if _px_check().get("under_maintenance"):
+                    return None, maintenance_hint()
+            except Exception:  # noqa: BLE001
+                pass
             hint = ("（令牌可能过期/失效；刷新令牌是一次性的，"
                     "每次登录都会换一个新的，建议把 .env 里的值更新成最新的）")
         return None, f"Pixiv 登录失败: {msg[:300]}{hint}"

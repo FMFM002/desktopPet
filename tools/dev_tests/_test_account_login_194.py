@@ -317,12 +317,15 @@ check("★设置页在「完整版 exe 且依赖都在」时显示「无需安�
       "（exe 版已自带，无需安装）" in
       (ROOT / "src" / "ui" / "settings_window.py").read_text(encoding="utf-8"))
 
-# ★ 2026-10-21 真机：pixiv 的 Cloudflare 按出口 IP 拦，POST auth/token 返回 405。
-check("★★令牌验证把 405/503 判成「出口被 Cloudflare 拦」而不是「令牌失效」",
-      'if "405" in _m or "503" in _m' in _s and "Cloudflare" in _s)
+# ★ 2026-10-21 真机：405/403/503 在**维护期间**都会出现 → 必须先探测再下结论。
+check("★★令牌验证遇 405/503 会先探测「是不是维护」，维护中给维护话术",
+      'from src.core.pixiv_status import check' in _s
+      and "maintenance_hint()" in _s
+      and 'any(k in _m for k in ("405", "503"))' in _s)
 _px = (ROOT / "tools" / "pixiv_tool.py").read_text(encoding="utf-8")
-check("★★pixiv 工具的报错同样区分 405/503（并提示换节点，别重登）",
-      'if "405" in msg or "503" in msg' in _px and "换一个代理节点" in _px)
+check("★★pixiv 工具的报错也先探测维护，再谈换节点",
+      "from src.core.pixiv_status import check" in _px
+      and "maintenance_hint()" in _px)
 
 _seen = {}
 _orig_login = _AL._gppt_login
